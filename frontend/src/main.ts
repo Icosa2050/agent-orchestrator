@@ -163,6 +163,7 @@ import {
 } from "./main/browser-profile-ipc";
 import type { BrowserProfileMenuInput } from "./shared/browser-profiles";
 import { createWindowComposition, type WindowComposition } from "./main/window-composition";
+import { installShellCrashRecovery } from "./main/shell-crash-recovery";
 import { AgentBrowserRuntime } from "./main/agent-browser-runtime";
 import { sameBrowserRuntimeIdentity, type BrowserRuntimeIdentity } from "./main/browser-runtime-identity";
 import { connectSupervisor, type SupervisorLinkHandle } from "./main/supervisor-link";
@@ -1053,6 +1054,8 @@ async function createWindowInternal(): Promise<void> {
 		trayLifecycle.clear();
 	});
 	shellWebContents.on("render-process-gone", () => trayLifecycle.clear());
+	// Registered after the handlers above so state is reset before the reload.
+	installShellCrashRecovery({ contents: shellWebContents });
 
 	mainWindow.on("closed", () => {
 		chatDraftRisks = [];
