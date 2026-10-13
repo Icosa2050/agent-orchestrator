@@ -331,7 +331,7 @@ func TestPrepareACPInstructionsHonorsCanceledContextBeforeFilesystemWrites(t *te
 func TestKimiInstructionsPathUsesProviderDiscoveredDirectory(t *testing.T) {
 	workspace := t.TempDir()
 	got := kimiInstructionsPath(workspace)
-	want := filepath.Join(workspace, ".kimi", "AGENTS.md")
+	want := filepath.Join(workspace, ".kimi-code", "AGENTS.md")
 	if got != want {
 		t.Fatalf("kimiInstructionsPath = %q, want provider-discovered path %q", got, want)
 	}
