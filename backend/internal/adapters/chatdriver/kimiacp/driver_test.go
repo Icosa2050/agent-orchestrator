@@ -90,20 +90,42 @@ func TestConfigureLaunchesNativeACPSubcommand(t *testing.T) {
 	}
 }
 
-func TestConfigureRejectsUnsupportedPermissionModes(t *testing.T) {
+func TestConfigureRejectsOnlyAcceptEdits(t *testing.T) {
 	for _, mode := range []ports.PermissionMode{
-		ports.PermissionModeAcceptEdits,
+		"",
+		ports.PermissionModeDefault,
 		ports.PermissionModeAuto,
 		ports.PermissionModeBypassPermissions,
 	} {
-		t.Run(string(mode), func(t *testing.T) {
-			_, _, err := configure(context.Background(), acpdriver.LaunchConfig{
+		t.Run("accepts "+string(mode), func(t *testing.T) {
+			if _, _, err := configure(context.Background(), acpdriver.LaunchConfig{
 				WorkspacePath: t.TempDir(), Permissions: mode,
-			})
-			if !errors.Is(err, ports.ErrChatPermissionModeUnsupported) {
-				t.Fatalf("configure permissions %q error = %v, want typed unsupported-mode error", mode, err)
+			}); err != nil {
+				t.Fatalf("configure permissions %q: %v", mode, err)
 			}
 		})
+	}
+	_, _, err := configure(context.Background(), acpdriver.LaunchConfig{
+		WorkspacePath: t.TempDir(), Permissions: ports.PermissionModeAcceptEdits,
+	})
+	if !errors.Is(err, ports.ErrChatPermissionModeUnsupported) {
+		t.Fatalf("configure accept-edits error = %v, want typed unsupported-mode error", err)
+	}
+}
+
+// Kimi's `auto` never asks and its `yolo` still asks before risky commands, so
+// the mapping deliberately crosses the names.
+func TestSessionModeMapsPermissionsOntoKimiModeIDs(t *testing.T) {
+	for permission, want := range map[ports.PermissionMode]string{
+		"":                                    "",
+		ports.PermissionModeDefault:           "default",
+		ports.PermissionModeAcceptEdits:       "",
+		ports.PermissionModeAuto:              "yolo",
+		ports.PermissionModeBypassPermissions: "auto",
+	} {
+		if got := sessionMode(permission); got != want {
+			t.Errorf("sessionMode(%q) = %q, want %q", permission, got, want)
+		}
 	}
 }
 
@@ -151,6 +173,46 @@ func TestSessionOptionsMapModelsButDoNotInventPermissionModes(t *testing.T) {
 	}
 }
 
+func TestLiveKimiACPAcceptsMappedSessionModes(t *testing.T) {
+	if os.Getenv("AO_KIMI_ACP_INTEGRATION") != "1" {
+		t.Skip("set AO_KIMI_ACP_INTEGRATION=1 to run the live Kimi ACP session-mode contract")
+	}
+	bin, err := exec.LookPath("kimi")
+	if err != nil {
+		t.Fatalf("find kimi: %v", err)
+	}
+	driver := New(fakePlugin{binary: bin, status: ports.AgentAuthStatusAuthorized},
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, mode := range []ports.PermissionMode{
+		ports.PermissionModeDefault,
+		ports.PermissionModeAuto,
+		ports.PermissionModeBypassPermissions,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			conv, err := driver.Start(ctx, ports.ChatStartConfig{
+				SessionID: domain.SessionID("live-kimi-acp-mode-" + string(mode)), DataDir: t.TempDir(),
+				WorkspacePath: t.TempDir(), Env: envMap(), Permissions: mode,
+			})
+			if err != nil {
+				t.Fatalf("start live Kimi ACP with %q: %v", mode, err)
+			}
+			conv.Close()
+		})
+	}
+}
+
+func envMap() map[string]string {
+	out := make(map[string]string)
+	for _, pair := range os.Environ() {
+		if name, value, ok := strings.Cut(pair, "="); ok {
+			out[name] = value
+		}
+	}
+	return out
+}
+
 func TestLiveKimiACPReceivesLaunchSystemPrompt(t *testing.T) {
 	if os.Getenv("AO_KIMI_ACP_INTEGRATION") != "1" {
 		t.Skip("set AO_KIMI_ACP_INTEGRATION=1 to run the live Kimi ACP prompt-delivery contract")
@@ -165,7 +227,8 @@ func TestLiveKimiACPReceivesLaunchSystemPrompt(t *testing.T) {
 	driver := New(fakePlugin{binary: bin, status: ports.AgentAuthStatusAuthorized},
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	conv, err := driver.Start(ctx, ports.ChatStartConfig{
-		WorkspacePath: t.TempDir(),
+		SessionID: "live-kimi-acp-prompt", DataDir: t.TempDir(),
+		WorkspacePath: t.TempDir(), Env: envMap(),
 		SystemPrompt: "When the user sends AO_KIMI_PROMPT_HANDSHAKE, reply with exactly " +
 			"AO_KIMI_PROMPT_RECEIVED and no other text.",
 	})

@@ -25,6 +25,7 @@ func New(plugin nativeacp.Plugin, log *slog.Logger) ports.ChatDriver {
 			ports.ChatCapabilityPlans:   true,
 		},
 		Configure:            configure,
+		SessionMode:          sessionMode,
 		SessionOptions:       sessionOptions,
 		ValidateTurnSettings: validateTurnSettings,
 	}, log)
@@ -40,12 +41,36 @@ func configure(ctx context.Context, cfg acpdriver.LaunchConfig) ([]string, map[s
 	return []string{"acp"}, nil, nil
 }
 
+// validateTurnSettings rejects the one AO permission mode Kimi cannot honor:
+// none of its session modes approves edits while still asking for commands.
 func validateTurnSettings(_ ports.PermissionMode, settings ports.ChatTurnSettings) error {
-	if mode := ports.NormalizePermissionMode(settings.Approval); mode != ports.PermissionModeDefault {
-		return fmt.Errorf("%w: Kimi ACP does not offer other session modes; requested %q",
+	if mode := ports.NormalizePermissionMode(settings.Approval); mode == ports.PermissionModeAcceptEdits {
+		return fmt.Errorf("%w: Kimi ACP has no session mode that approves edits only; requested %q",
 			ports.ErrChatPermissionModeUnsupported, mode)
 	}
 	return nil
+}
+
+// sessionMode maps AO's permission vocabulary onto Kimi Code's ACP mode ids
+// (default, plan, auto, yolo), advertised on every session/new.
+//
+// The ids read the opposite of what they do. Over ACP `auto` never asks, not
+// even before a destructive command, while `yolo` runs routine edits and
+// commands but still asks before risky ones (measured against Kimi Code 2.1.1;
+// MoonshotAI/kimi-code#1874 tracks the inverted descriptions). So AO's bypass
+// selects `auto` and AO's auto selects `yolo`. An unset mode leaves Kimi's own
+// session default unchanged.
+func sessionMode(permission ports.PermissionMode) string {
+	switch permission {
+	case ports.PermissionModeDefault:
+		return "default"
+	case ports.PermissionModeAuto:
+		return "yolo"
+	case ports.PermissionModeBypassPermissions:
+		return "auto"
+	default:
+		return ""
+	}
 }
 
 // sessionOptions maps AO's durable model choice onto Kimi's advertised legacy
