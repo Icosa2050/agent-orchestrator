@@ -311,7 +311,8 @@ func (s *Store) MarkAutomationRunRunning(ctx context.Context, id domain.Automati
 	return rows > 0, nil
 }
 
-// CompleteAutomationRun projects durable session termination into run history.
+// CompleteAutomationRun atomically checks durable session termination or
+// successful, settled Chat work before projecting completion into run history.
 func (s *Store) CompleteAutomationRun(ctx context.Context, id domain.AutomationRunID, now time.Time) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

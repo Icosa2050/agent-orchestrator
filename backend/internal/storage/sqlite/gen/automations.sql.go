@@ -79,7 +79,49 @@ const completeAutomationRun = `-- name: CompleteAutomationRun :execrows
 UPDATE automation_runs
 SET status = 'completed', finished_at = ?, claimed_at = NULL,
     lease_expires_at = NULL, error_message = NULL, updated_at = ?
-WHERE id = ? AND status = 'running'
+WHERE automation_runs.id = ? AND automation_runs.status = 'running'
+  AND EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = automation_runs.session_id
+        AND s.automation_run_id = automation_runs.id
+        AND (
+            s.is_terminated = 1
+            OR (
+                s.session_mode = 'chat' AND s.activity_state = 'idle'
+                AND s.automation_launch_completed = 1
+                AND EXISTS (
+                    SELECT 1 FROM conversations c
+                    JOIN conversation_turns t ON t.id = (
+                        SELECT m.turn_id FROM conversation_messages m
+                        WHERE m.conversation_id = c.id
+                          AND m.branch_id = c.active_branch_id
+                          AND m.role = 'user'
+                        ORDER BY m.sequence DESC LIMIT 1
+                    )
+                    WHERE c.current_session_id = s.id
+                      AND t.handled_by_session_id = s.id
+                      AND t.branch_id = c.active_branch_id
+                      AND t.state = 'completed' AND t.error_message = ''
+                      AND t.completed_at IS NOT NULL
+                      AND t.rolled_back_at IS NULL AND t.promoted_to_turn_id IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM conversation_turns outstanding
+                          WHERE outstanding.conversation_id = c.id
+                            AND outstanding.branch_id = c.active_branch_id
+                            AND outstanding.state IN ('queued', 'running')
+                            AND outstanding.rolled_back_at IS NULL
+                            AND outstanding.promoted_to_turn_id IS NULL
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM conversation_activities interaction
+                          WHERE interaction.conversation_id = c.id
+                            AND interaction.kind IN ('approval', 'user_input')
+                            AND interaction.status = 'pending'
+                      )
+                )
+            )
+        )
+  )
 `
 
 type CompleteAutomationRunParams struct {
@@ -88,6 +130,10 @@ type CompleteAutomationRunParams struct {
 	ID         domain.AutomationRunID
 }
 
+// Keep the completion proof and the state transition atomic with Chat writes.
+// A completed user turn on the current branch can finish a Chat run without
+// terminating its report session. Empty/queued/failed/interrupted chats and
+// pending input are deliberately not successful completion evidence.
 func (q *Queries) CompleteAutomationRun(ctx context.Context, arg CompleteAutomationRunParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, completeAutomationRun, arg.FinishedAt, arg.UpdatedAt, arg.ID)
 	if err != nil {

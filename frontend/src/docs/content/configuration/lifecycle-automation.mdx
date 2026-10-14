@@ -38,6 +38,8 @@ Cron accepts numeric minute and hour fields, `*` for day and month, and supporte
 
 Automations run in the local daemon, so the computer must be awake and Orchestrator must be running. After a restart, Orchestrator runs at most three missed occurrences. The same automation will not start another run while its current run is active. Deleting an automation also deletes its run history.
 
+A Chat run completes when its latest task finishes successfully and the session is idle, with no queued work or pending approval or input request. The session stays available so you can read its output. Startup also reconciles previously finished Chat runs. Failed or interrupted tasks do not count as successful completion; resolve the task or terminate its session to release the next occurrence. Terminal-mode runs continue to wait for session termination.
+
 To try an automation, create one in **Automations** with a short prompt and a schedule a few minutes ahead. Then open its run history and linked session. If it does not run, check the time zone, confirm the automation is enabled, and make sure Orchestrator stayed open and the computer stayed awake. Pause the automation before changing a schedule you are testing.
 
 Project **Cues** save reusable instructions or exact shell commands for manual use. They do not run on a schedule. An agent Cue sends a prompt to an eligible session or starts a worker. A command Cue opens a fresh local terminal. Manage Cues in the project dialog and choose **Run a cue** from a session.

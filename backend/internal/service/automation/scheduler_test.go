@@ -105,7 +105,8 @@ func (f *schedulerMemoryStore) MarkAutomationRunRunning(_ context.Context, id do
 
 func (f *schedulerMemoryStore) CompleteAutomationRun(_ context.Context, id domain.AutomationRunID, now time.Time) (bool, error) {
 	run := f.runs[id]
-	if run.Status != domain.AutomationRunRunning {
+	// This fake models termination; Chat evidence is covered against SQLite.
+	if run.Status != domain.AutomationRunRunning || run.SessionID == nil || !f.sessions[*run.SessionID].IsTerminated {
 		return false, nil
 	}
 	run.Status, run.FinishedAt, run.UpdatedAt = domain.AutomationRunCompleted, &now, now
