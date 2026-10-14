@@ -42,6 +42,92 @@ func (q *Queries) AdvanceAutomationSchedule(ctx context.Context, arg AdvanceAuto
 	return result.RowsAffected()
 }
 
+const automationRunCanComplete = `-- name: AutomationRunCanComplete :one
+WITH RECURSIVE active_path(branch_id, max_sequence) AS (
+    SELECT c.active_branch_id, CAST(NULL AS INTEGER)
+    FROM conversations c
+    JOIN automation_runs r ON r.session_id = c.current_session_id
+    WHERE r.id = ?1
+    UNION ALL
+    SELECT branch.parent_branch_id,
+           CASE
+               WHEN path.max_sequence IS NULL THEN branch.fork_after_sequence
+               WHEN branch.fork_after_sequence < path.max_sequence THEN branch.fork_after_sequence
+               ELSE path.max_sequence
+           END
+    FROM active_path path
+    JOIN conversation_branches branch ON branch.id = path.branch_id
+    WHERE branch.parent_branch_id IS NOT NULL
+), latest_user AS (
+    SELECT turn.id, turn.conversation_id, turn.handled_by_session_id, turn.provider_turn_id, turn.controller_generation, turn.state, turn.error_message, turn.requested_at, turn.started_at, turn.completed_at, turn.diff_json, turn.rolled_back_at, turn.plan_json, turn.branch_id, turn.promotion_started_at, turn.promoted_to_turn_id, turn.retry_of_turn_id, turn.handled_by_review_id
+    FROM conversation_messages message
+    JOIN active_path path ON path.branch_id = message.branch_id
+    LEFT JOIN conversation_turns turn ON turn.id = message.turn_id
+    WHERE message.role = 'user'
+      AND (path.max_sequence IS NULL OR message.sequence <= path.max_sequence)
+      AND (message.turn_id IS NULL OR turn.id IS NULL OR (
+          turn.rolled_back_at IS NULL AND turn.promoted_to_turn_id IS NULL AND turn.state <> 'cancelled'
+      ))
+    ORDER BY message.sequence DESC LIMIT 1
+)
+SELECT EXISTS (
+SELECT 1 FROM automation_runs
+WHERE automation_runs.id = ?1 AND automation_runs.status = 'running'
+  AND EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = automation_runs.session_id
+        AND s.automation_run_id = automation_runs.id
+        AND (
+            s.is_terminated = 1
+            OR (
+                s.session_mode = 'chat' AND s.activity_state IN ('idle', 'exited')
+                AND s.automation_launch_completed = 1
+                AND EXISTS (
+                    SELECT 1 FROM conversations c
+                    JOIN latest_user t ON t.conversation_id = c.id
+                    WHERE c.current_session_id = s.id
+                      AND t.handled_by_session_id = s.id
+                      AND t.state = 'completed' AND t.error_message = ''
+                      AND t.completed_at IS NOT NULL
+                      AND t.rolled_back_at IS NULL AND t.promoted_to_turn_id IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM conversation_turns outstanding
+                          JOIN active_path path ON path.branch_id = outstanding.branch_id
+                          WHERE outstanding.conversation_id = c.id
+                            AND outstanding.state IN ('queued', 'running')
+                            AND outstanding.rolled_back_at IS NULL
+                            AND outstanding.promoted_to_turn_id IS NULL
+                            AND (path.max_sequence IS NULL OR EXISTS (
+                                SELECT 1 FROM conversation_messages m
+                                WHERE m.turn_id = outstanding.id AND m.sequence <= path.max_sequence
+                            ))
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM conversation_activities interaction
+                          WHERE interaction.conversation_id = c.id
+                            AND interaction.kind IN ('approval', 'user_input')
+                            AND interaction.status = 'pending'
+                      )
+                )
+            )
+        )
+  )
+)
+`
+
+// Read inside the same writer transaction as CompleteAutomationRun.
+// A completed visible user turn can finish a Chat run without
+// terminating its report session. Empty/queued/failed/interrupted chats and
+// pending input are deliberately not successful completion evidence.
+// Match Chat's active lineage and hidden-message rules, including inherited
+// history after a provider boundary and retired queued prompts after steering.
+func (q *Queries) AutomationRunCanComplete(ctx context.Context, id domain.AutomationRunID) (bool, error) {
+	row := q.db.QueryRowContext(ctx, automationRunCanComplete, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const claimAutomationRun = `-- name: ClaimAutomationRun :execrows
 UPDATE automation_runs
 SET status = 'spawning', attempt_count = attempt_count + 1,
@@ -79,49 +165,7 @@ const completeAutomationRun = `-- name: CompleteAutomationRun :execrows
 UPDATE automation_runs
 SET status = 'completed', finished_at = ?, claimed_at = NULL,
     lease_expires_at = NULL, error_message = NULL, updated_at = ?
-WHERE automation_runs.id = ? AND automation_runs.status = 'running'
-  AND EXISTS (
-      SELECT 1 FROM sessions s
-      WHERE s.id = automation_runs.session_id
-        AND s.automation_run_id = automation_runs.id
-        AND (
-            s.is_terminated = 1
-            OR (
-                s.session_mode = 'chat' AND s.activity_state = 'idle'
-                AND s.automation_launch_completed = 1
-                AND EXISTS (
-                    SELECT 1 FROM conversations c
-                    JOIN conversation_turns t ON t.id = (
-                        SELECT m.turn_id FROM conversation_messages m
-                        WHERE m.conversation_id = c.id
-                          AND m.branch_id = c.active_branch_id
-                          AND m.role = 'user'
-                        ORDER BY m.sequence DESC LIMIT 1
-                    )
-                    WHERE c.current_session_id = s.id
-                      AND t.handled_by_session_id = s.id
-                      AND t.branch_id = c.active_branch_id
-                      AND t.state = 'completed' AND t.error_message = ''
-                      AND t.completed_at IS NOT NULL
-                      AND t.rolled_back_at IS NULL AND t.promoted_to_turn_id IS NULL
-                      AND NOT EXISTS (
-                          SELECT 1 FROM conversation_turns outstanding
-                          WHERE outstanding.conversation_id = c.id
-                            AND outstanding.branch_id = c.active_branch_id
-                            AND outstanding.state IN ('queued', 'running')
-                            AND outstanding.rolled_back_at IS NULL
-                            AND outstanding.promoted_to_turn_id IS NULL
-                      )
-                      AND NOT EXISTS (
-                          SELECT 1 FROM conversation_activities interaction
-                          WHERE interaction.conversation_id = c.id
-                            AND interaction.kind IN ('approval', 'user_input')
-                            AND interaction.status = 'pending'
-                      )
-                )
-            )
-        )
-  )
+WHERE id = ? AND status = 'running'
 `
 
 type CompleteAutomationRunParams struct {
@@ -130,10 +174,6 @@ type CompleteAutomationRunParams struct {
 	ID         domain.AutomationRunID
 }
 
-// Keep the completion proof and the state transition atomic with Chat writes.
-// A completed user turn on the current branch can finish a Chat run without
-// terminating its report session. Empty/queued/failed/interrupted chats and
-// pending input are deliberately not successful completion evidence.
 func (q *Queries) CompleteAutomationRun(ctx context.Context, arg CompleteAutomationRunParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, completeAutomationRun, arg.FinishedAt, arg.UpdatedAt, arg.ID)
 	if err != nil {

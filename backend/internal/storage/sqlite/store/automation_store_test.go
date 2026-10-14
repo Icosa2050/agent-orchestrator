@@ -19,8 +19,10 @@ func TestAutomationCompletedChatReleasesNextOccurrence(t *testing.T) {
 		activity     domain.ActivityState
 		turn         domain.TurnState
 		queued       bool
+		followup     string
 		rolledBack   bool
 		otherBranch  bool
+		inherit      bool
 		terminated   bool
 		interaction  domain.ActivityKind
 		wantComplete bool
@@ -33,6 +35,11 @@ func TestAutomationCompletedChatReleasesNextOccurrence(t *testing.T) {
 		{name: "failed turn", turn: domain.TurnStateFailed},
 		{name: "interrupted turn", turn: domain.TurnStateInterrupted},
 		{name: "queued follow-up", turn: domain.TurnStateCompleted, queued: true},
+		{name: "cancelled follow-up", turn: domain.TurnStateCompleted, followup: "cancel", wantComplete: true},
+		{name: "rolled back follow-up", turn: domain.TurnStateCompleted, followup: "rollback", wantComplete: true},
+		{name: "steered follow-up", turn: domain.TurnStateCompleted, followup: "steer", wantComplete: true},
+		{name: "exited successful session", turn: domain.TurnStateCompleted, activity: domain.ActivityExited, wantComplete: true},
+		{name: "exited failed session", turn: domain.TurnStateFailed, activity: domain.ActivityExited},
 		{name: "active session", turn: domain.TurnStateCompleted, activity: domain.ActivityActive},
 		{name: "waiting for input", turn: domain.TurnStateCompleted, activity: domain.ActivityWaitingInput},
 		{name: "blocked session", turn: domain.TurnStateCompleted, activity: domain.ActivityBlocked},
@@ -40,6 +47,7 @@ func TestAutomationCompletedChatReleasesNextOccurrence(t *testing.T) {
 		{name: "pending question", turn: domain.TurnStateCompleted, interaction: domain.ActivityKindUserInput},
 		{name: "rolled back completion", turn: domain.TurnStateCompleted, rolledBack: true},
 		{name: "completion on previous branch", turn: domain.TurnStateCompleted, otherBranch: true},
+		{name: "inherited completed task", turn: domain.TurnStateCompleted, otherBranch: true, inherit: true, wantComplete: true},
 		{name: "terminated session", terminated: true, wantComplete: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,10 +109,27 @@ func TestAutomationCompletedChatReleasesNextOccurrence(t *testing.T) {
 					}
 				}
 			}
-			if tc.queued {
+			if tc.queued || tc.followup != "" {
 				if _, err := s.AppendUserMessage(ctx, conv.ID, session.ID, "generation-1", domain.ConversationMessage{
 					ID: "prompt-2", Text: "Continue", Origin: domain.MessageOriginHuman,
 				}, "turn-2", now.Add(2*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				switch tc.followup {
+				case "cancel":
+					err = s.CancelQueuedTurnByID(ctx, conv.ID, "turn-2", now.Add(3*time.Minute))
+				case "rollback":
+					_, err = s.RollbackTurns(ctx, conv.ID, "turn-2", now.Add(3*time.Minute))
+				case "steer":
+					if _, err = s.ReserveQueuedTurnForPromotion(ctx, conv.ID, "turn-2", now.Add(3*time.Minute)); err != nil {
+						t.Fatal(err)
+					}
+					err = s.CompleteQueuedTurnPromotion(ctx, conv.ID, "turn-2", "provider-turn-1", domain.ConversationActivity{
+						ID: "steer-1", Kind: domain.ActivityKindUserInput, Status: domain.ActivityStatusCompleted,
+						Summary: "Steered follow-up", Detail: []byte(`{}`),
+					}, now.Add(3*time.Minute))
+				}
+				if err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -118,6 +143,9 @@ func TestAutomationCompletedChatReleasesNextOccurrence(t *testing.T) {
 					ID: "replacement-branch", ConversationID: conv.ID, SessionID: session.ID,
 					ProviderConversationID: "replacement-provider", ParentBranchID: conv.ActiveBranchID,
 					Strategy: domain.ConversationBranchStrategyApproximateContext,
+				}
+				if tc.inherit {
+					branch.ForkAfterSequence = 1
 				}
 				if err := s.CreateConversationBranch(ctx, branch, now.Add(2*time.Minute)); err != nil {
 					t.Fatal(err)
