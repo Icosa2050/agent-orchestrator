@@ -68,7 +68,7 @@ func fullSnapshotReader(st *sqlite.Store) chatsvc.SnapshotReader {
 			return chatsvc.ConversationRows{}, err
 		}
 		return chatsvc.ConversationRows{
-			Conversation: rows.Conversation, Turns: rows.Turns,
+			Conversation: rows.Conversation, ActiveBranch: rows.ActiveBranch, Turns: rows.Turns,
 			Messages: rows.Messages, Activities: rows.Activities,
 			BranchPoints: rows.BranchPoints, BranchedFromEarlierMessage: rows.BranchedFromEarlierMessage,
 		}, nil
@@ -3204,6 +3204,7 @@ func newHarnessWithConversationAndStoreForHarness(
 	chatStore := wrapStore(st)
 	svc := chatsvc.New(chatsvc.Options{
 		Store:    chatStore,
+		Reader:   fullSnapshotReader(st),
 		Sessions: st,
 		StopProviderHost: func(context.Context, domain.SessionID) error {
 			h.hostStops.Add(1)
@@ -4647,6 +4648,77 @@ func TestInterruptCancelsWhatIsQueuedBehindTheTurn(t *testing.T) {
 			states["queued"])
 	}
 	if got := h.conv.sentTexts(); len(got) != 1 {
+		t.Fatalf("provider received %v; stop must not release the queue", got)
+	}
+}
+
+// repeatedCancelConversation answers Stop the way the ACP driver does: the first
+// cancel is accepted while the provider keeps the turn open, and every further
+// press is refused until the provider ends it.
+type repeatedCancelConversation struct {
+	*fakeConversation
+	presses atomic.Int32
+}
+
+func (c *repeatedCancelConversation) Interrupt(context.Context, string) error {
+	if c.presses.Add(1) > 1 {
+		return errors.New("ACP session/cancel is already in progress")
+	}
+	return nil
+}
+
+// A provider can take half a minute to end a turn it was asked to cancel, and the
+// Stop button stays up the whole time, so it gets pressed again. The provider
+// refusing the repeat says nothing about the first press: that Stop is still
+// landing, and what it was asked to cancel must stay cancelled.
+func TestRepeatedStopStillCancelsWhatIsQueuedBehindTheTurn(t *testing.T) {
+	conv := &repeatedCancelConversation{fakeConversation: newFakeConversation()}
+	h := newHarnessWithConversation(t, conv)
+	ctx := context.Background()
+
+	if _, err := h.svc.Send(ctx, testSession, ports.ChatUserMessage{
+		Text: "running", ClientMessageID: "c1",
+	}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+	if _, err := h.svc.Send(ctx, testSession, ports.ChatUserMessage{
+		Text: "queued", ClientMessageID: "c2",
+	}); err != nil {
+		t.Fatalf("mid-turn Send: %v", err)
+	}
+
+	if err := h.svc.Interrupt(ctx, testSession); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	// Whether the repeat reports the refusal is the caller's concern; here only
+	// its effect on the first press matters.
+	_ = h.svc.Interrupt(ctx, testSession)
+	conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventTurnCompleted, ProviderTurnID: "provider-turn-1",
+		TurnState: domain.TurnStateInterrupted,
+	})
+
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return turnStateByText(t, s)["running"].Terminal()
+	})
+	var queued domain.TurnState
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		snapshot, err := h.st.LoadConversationSnapshot(ctx, h.ctrl.ConversationID())
+		if err != nil {
+			t.Fatalf("load snapshot: %v", err)
+		}
+		if queued = turnStateByText(t, snapshot)["queued"]; queued.Terminal() {
+			break
+		}
+	}
+	if queued != domain.TurnStateInterrupted {
+		t.Errorf("queued turn = %q after the stopped turn ended; the first Stop cancelled it", queued)
+	}
+	if got := conv.sentTexts(); len(got) != 1 {
 		t.Fatalf("provider received %v; stop must not release the queue", got)
 	}
 }
