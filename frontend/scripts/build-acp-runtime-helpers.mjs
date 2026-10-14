@@ -23,21 +23,29 @@ export function npmInvocation(
 		execPath = process.execPath,
 		npmExecPath = process.env.npm_execpath,
 		commandInterpreter = process.env.ComSpec,
+		env = process.env,
 	} = {},
 ) {
+	// npm 11 can export .npmrc's allow-scripts policy into lifecycle children,
+	// then reject that env-sourced policy in a nested project install, even with
+	// --ignore-scripts. Drop only that setting for installs that run no scripts.
+	const options = args.includes("--ignore-scripts")
+		? { env: Object.fromEntries(Object.entries(env).filter(([key]) => key.toLowerCase() !== "npm_config_allow_scripts")) }
+		: {};
 	// npm exposes the JavaScript entry point of the npm instance running this
 	// package script. Invoking it with Node avoids the npm.cmd shell boundary on
 	// Windows and keeps the nested install on the same npm version as the build.
 	if (npmExecPath) {
-		return { command: execPath, args: [npmExecPath, ...args] };
+		return { command: execPath, args: [npmExecPath, ...args], ...options };
 	}
 	if (platform === "win32") {
 		return {
 			command: commandInterpreter || "cmd.exe",
 			args: ["/d", "/s", "/c", "npm.cmd", ...args],
+			...options,
 		};
 	}
-	return { command: "npm", args };
+	return { command: "npm", args, ...options };
 }
 
 /**
