@@ -7,7 +7,210 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	automationsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/automation"
 )
+
+// A successful Chat turn must release the next occurrence without terminating
+// the session that holds its report, including on daemon startup and adoption.
+func TestAutomationCompletedChatReleasesNextOccurrence(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		mode         string
+		activity     domain.ActivityState
+		turn         domain.TurnState
+		queued       bool
+		followup     string
+		rolledBack   bool
+		otherBranch  bool
+		inherit      bool
+		terminated   bool
+		interaction  domain.ActivityKind
+		wantComplete bool
+	}{
+		{name: "tick", mode: "tick", turn: domain.TurnStateCompleted, wantComplete: true},
+		{name: "restart", turn: domain.TurnStateCompleted, wantComplete: true},
+		{name: "adopt", mode: "adopt", turn: domain.TurnStateCompleted, wantComplete: true},
+		{name: "empty chat"},
+		{name: "running turn", turn: domain.TurnStateRunning},
+		{name: "failed turn", turn: domain.TurnStateFailed},
+		{name: "interrupted turn", turn: domain.TurnStateInterrupted},
+		{name: "queued follow-up", turn: domain.TurnStateCompleted, queued: true},
+		{name: "cancelled follow-up", turn: domain.TurnStateCompleted, followup: "cancel", wantComplete: true},
+		{name: "rolled back follow-up", turn: domain.TurnStateCompleted, followup: "rollback", wantComplete: true},
+		{name: "steered follow-up", turn: domain.TurnStateCompleted, followup: "steer", wantComplete: true},
+		{name: "exited successful session", turn: domain.TurnStateCompleted, activity: domain.ActivityExited, wantComplete: true},
+		{name: "exited failed session", turn: domain.TurnStateFailed, activity: domain.ActivityExited},
+		{name: "active session", turn: domain.TurnStateCompleted, activity: domain.ActivityActive},
+		{name: "waiting for input", turn: domain.TurnStateCompleted, activity: domain.ActivityWaitingInput},
+		{name: "blocked session", turn: domain.TurnStateCompleted, activity: domain.ActivityBlocked},
+		{name: "pending approval", turn: domain.TurnStateCompleted, interaction: domain.ActivityKindApproval},
+		{name: "pending question", turn: domain.TurnStateCompleted, interaction: domain.ActivityKindUserInput},
+		{name: "rolled back completion", turn: domain.TurnStateCompleted, rolledBack: true},
+		{name: "completion on previous branch", turn: domain.TurnStateCompleted, otherBranch: true},
+		{name: "inherited completed task", turn: domain.TurnStateCompleted, otherBranch: true, inherit: true, wantComplete: true},
+		{name: "terminated session", terminated: true, wantComplete: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			seedProject(t, s, "scheduled")
+			ctx := context.Background()
+			now := time.Date(2026, time.October, 12, 7, 0, 0, 0, time.UTC)
+			definition, err := s.CreateAutomation(ctx, domain.Automation{
+				ID: "automation-1", ProjectID: "scheduled", DisplayName: "Review", Prompt: "Review",
+				Kind: domain.KindWorker, RRuleText: "FREQ=DAILY", Timezone: "UTC",
+				NextRunAt: now.Add(48 * time.Hour), CreatedAt: now, UpdatedAt: now,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runID := domain.AutomationRunID("run-1")
+			if _, _, err := s.CreateAutomationRun(ctx, domain.AutomationRun{
+				ID: runID, AutomationID: definition.ID, ScheduledFor: now,
+				Status: domain.AutomationRunSpawning, CreatedAt: now, UpdatedAt: now,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			rec := sampleRecord("scheduled")
+			rec.Mode = domain.SessionModeChat
+			rec.Activity.State = domain.ActivityIdle
+			if tc.activity != "" {
+				rec.Activity.State = tc.activity
+			}
+			rec.AutomationRunID = &runID
+			rec.AutomationLaunchCompleted = true
+			session, err := s.CreateSession(ctx, rec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.mode != "adopt" {
+				if _, err := s.MarkAutomationRunRunning(ctx, runID, session.ID, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			conv, err := s.CreateConversation(ctx, "conversation-1", domain.ConversationScopeSession, "scheduled", session.ID, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.ClaimChatControllerGeneration(ctx, session.ID, "generation-1"); err != nil {
+				t.Fatal(err)
+			}
+			if tc.turn != "" {
+				if _, err := s.AppendUserMessage(ctx, conv.ID, session.ID, "generation-1", domain.ConversationMessage{
+					ID: "prompt-1", Text: "Review", Origin: domain.MessageOriginAutomation,
+				}, "turn-1", now); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.BindTurnToProvider(ctx, "turn-1", "provider-turn-1", now); err != nil {
+					t.Fatal(err)
+				}
+				if tc.turn != domain.TurnStateRunning {
+					if err := s.SettleTurnByID(ctx, "turn-1", tc.turn, "", now.Add(time.Minute)); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if tc.queued || tc.followup != "" {
+				if _, err := s.AppendUserMessage(ctx, conv.ID, session.ID, "generation-1", domain.ConversationMessage{
+					ID: "prompt-2", Text: "Continue", Origin: domain.MessageOriginHuman,
+				}, "turn-2", now.Add(2*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				switch tc.followup {
+				case "cancel":
+					err = s.CancelQueuedTurnByID(ctx, conv.ID, "turn-2", now.Add(3*time.Minute))
+				case "rollback":
+					_, err = s.RollbackTurns(ctx, conv.ID, "turn-2", now.Add(3*time.Minute))
+				case "steer":
+					if _, err = s.ReserveQueuedTurnForPromotion(ctx, conv.ID, "turn-2", now.Add(3*time.Minute)); err != nil {
+						t.Fatal(err)
+					}
+					err = s.CompleteQueuedTurnPromotion(ctx, conv.ID, "turn-2", "provider-turn-1", domain.ConversationActivity{
+						ID: "steer-1", Kind: domain.ActivityKindUserInput, Status: domain.ActivityStatusCompleted,
+						Summary: "Steered follow-up", Detail: []byte(`{}`),
+					}, now.Add(3*time.Minute))
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.rolledBack {
+				if _, err := s.RollbackTurns(ctx, conv.ID, "turn-1", now.Add(2*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.otherBranch {
+				branch := domain.ConversationBranch{
+					ID: "replacement-branch", ConversationID: conv.ID, SessionID: session.ID,
+					ProviderConversationID: "replacement-provider", ParentBranchID: conv.ActiveBranchID,
+					Strategy: domain.ConversationBranchStrategyApproximateContext,
+				}
+				if tc.inherit {
+					branch.ForkAfterSequence = 1
+				}
+				if err := s.CreateConversationBranch(ctx, branch, now.Add(2*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				activateTestBranch(t, s, session, conv, branch.ID, branch.ProviderConversationID, "generation-2")
+			}
+			if tc.interaction != "" {
+				if err := s.UpsertActivity(ctx, conv.ID, "", domain.ConversationActivity{
+					ID: "request-1", Kind: tc.interaction, Status: domain.ActivityStatusPending,
+					Summary: "Waiting", Detail: []byte(`{}`),
+				}, now.Add(time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.terminated {
+				current, _, err := s.GetSession(ctx, session.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.IsTerminated = tc.terminated
+				if err := s.UpdateSession(ctx, current); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, _, err := s.CreateAutomationRun(ctx, domain.AutomationRun{
+				ID: "run-2", AutomationID: definition.ID, ScheduledFor: now.Add(24 * time.Hour),
+				Status: domain.AutomationRunPending, CreatedAt: now, UpdatedAt: now,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			svc := automationsvc.New(automationsvc.Deps{Store: s, Clock: func() time.Time { return now.Add(24 * time.Hour) }})
+			if tc.mode == "tick" {
+				err = svc.Tick(ctx, now.Add(24*time.Hour))
+			} else {
+				err = svc.Reconcile(ctx)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, _, err := s.GetAutomationRun(ctx, runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := domain.AutomationRunRunning
+			if tc.wantComplete {
+				want = domain.AutomationRunCompleted
+			}
+			if run.Status != want || (run.FinishedAt != nil) != tc.wantComplete {
+				t.Fatalf("Chat run = %+v, want %s", run, want)
+			}
+			kept, _, err := s.GetSession(ctx, session.ID)
+			if err != nil || kept.IsTerminated != tc.terminated {
+				t.Fatalf("report session termination changed: %+v, %v", kept, err)
+			}
+			definition.Enabled = true
+			if _, err := s.UpdateAutomation(ctx, definition); err != nil {
+				t.Fatal(err)
+			}
+			next, claimed, err := s.ClaimNextAutomationRun(ctx, now.Add(24*time.Hour), now.Add(24*time.Hour+time.Minute))
+			if err != nil || claimed != tc.wantComplete || (claimed && next.ID != "run-2") {
+				t.Fatalf("next run = %+v, claimed=%v, err=%v", next, claimed, err)
+			}
+		})
+	}
+}
 
 // Dropping or mis-mapping any definition field in the SQLite boundary must
 // make this test fail; the scheduler must restart from the same durable rule
