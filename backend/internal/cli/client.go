@@ -16,9 +16,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 )
 
-// commandTimeout bounds a mutating daemon call. Spawns do real work (git
-// worktree add, tmux launch, hook install), so it is generous compared to the
-// status probe timeout.
+// commandTimeout bounds ordinary daemon calls. Workspace creation and agent
+// launch use a longer budget below so Setup can finish before the client exits.
 const commandTimeout = 2 * time.Minute
 
 // maxDrainedBodyBytes bounds how much of an unused response body the CLI
@@ -144,7 +143,13 @@ func (c *commandContext) doJSONPathWithHeaders(
 	body, out any,
 	headers map[string]string,
 ) error {
-	return c.doJSONPathWithHeadersAndTimeout(ctx, method, path, body, out, headers, commandTimeout)
+	timeout := commandTimeout
+	if method == http.MethodPost && path == "/api/v1/sessions" {
+		// Leave time for the daemon to return a failed-start result and roll
+		// back after its spawn budget expires, rather than disconnecting first.
+		timeout = config.DefaultSpawnTimeout + time.Minute
+	}
+	return c.doJSONPathWithHeadersAndTimeout(ctx, method, path, body, out, headers, timeout)
 }
 
 func (c *commandContext) doJSONPathWithHeadersAndTimeout(
