@@ -21,6 +21,62 @@ type timeoutProbeSessionService struct {
 	switchBudget  chan time.Duration
 	uploadBudget  chan time.Duration
 	sendBudget    chan time.Duration
+	spawn         func(context.Context) error
+}
+
+func (s *timeoutProbeSessionService) Spawn(ctx context.Context, _ ports.SpawnConfig) (domain.Session, int, int, error) {
+	if err := s.spawn(ctx); err != nil {
+		return domain.Session{}, 0, 0, err
+	}
+	return domain.Session{ID: "setup-1"}, 0, 0, nil
+}
+
+func TestSpawnRouteAllowsSetupBeyondOrdinaryRequestTimeout(t *testing.T) {
+	const ordinaryTimeout = 10 * time.Millisecond
+	var budget time.Duration
+	agentStarted := false
+	svc := &timeoutProbeSessionService{spawn: func(ctx context.Context) error {
+		budget = remainingRequestBudget(ctx)
+		select {
+		case <-time.After(5 * ordinaryTimeout): // setup must finish before launch
+			agentStarted = true
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}}
+	router := NewRouterWithControl(config.Config{RequestTimeout: ordinaryTimeout}, discardLogger(), nil, APIDeps{Sessions: svc}, ControlDeps{})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", bytes.NewBufferString(`{"projectId":"demo","harness":"deepseek-harness","mode":"chat"}`))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !agentStarted {
+		t.Fatalf("spawn status=%d agentStarted=%v; body=%s", response.Code, agentStarted, response.Body.String())
+	}
+	if budget < 9*time.Minute || budget > 10*time.Minute {
+		t.Fatalf("spawn budget = %s, want about 10 minutes", budget)
+	}
+}
+
+func TestSpawnRoutePreservesCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := &timeoutProbeSessionService{spawn: func(ctx context.Context) error {
+		cancel()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+			t.Error("spawn lost caller cancellation")
+			return nil
+		}
+	}}
+	router := NewRouterWithControl(config.Config{}, discardLogger(), nil, APIDeps{Sessions: svc}, ControlDeps{})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", bytes.NewBufferString(`{"projectId":"demo"}`)).WithContext(ctx)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code == http.StatusCreated {
+		t.Fatal("cancelled setup must not report a successful launch")
+	}
 }
 
 func (s *timeoutProbeSessionService) List(ctx context.Context, _ sessionsvc.ListFilter) ([]domain.Session, error) {
