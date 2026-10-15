@@ -221,6 +221,9 @@ type Controller struct {
 	// the complete option catalog and updates durable next-turn settings, so
 	// concurrent writes could otherwise persist an older catalog last.
 	configMu sync.Mutex
+	// interruptMu serializes Stop attempts so a failed repeat can restore the
+	// accepted cutoff without racing another provider interrupt.
+	interruptMu sync.Mutex
 
 	mu sync.Mutex
 	// suppressStoppedActivity marks a deliberate branch-controller retirement.
@@ -2364,6 +2367,8 @@ func (c *Controller) Interrupt(ctx context.Context) error {
 	}
 	c.mu.Unlock()
 	defer func() { c.mu.Lock(); c.interrupts--; c.mu.Unlock() }()
+	c.interruptMu.Lock()
+	defer c.interruptMu.Unlock()
 	// Stop's linearization point is the dispatch lock. A Send that acquired the
 	// lock first is existing work Stop should cancel; a Send that arrives after
 	// this point waits and is therefore post-Stop work that must survive.
@@ -2371,6 +2376,7 @@ func (c *Controller) Interrupt(ctx context.Context) error {
 	cutoff := c.now()
 	c.mu.Lock()
 	turn := c.pendingTurnID
+	previousCutoff := c.cancelQueuedAt
 	if turn != "" {
 		// Publish the queue cutoff before releasing sendMu. A completion can then
 		// win the provider race, but it cannot drain pre-Stop work as if Stop had
@@ -2432,10 +2438,12 @@ func (c *Controller) Interrupt(ctx context.Context) error {
 			}
 			return c.reconcileDurableTurnsLocked(ctx, turn, providerTurnIDs, cutoff)
 		}
-		// The interrupt did not happen, so the queue it was going to cancel is
-		// still the user's to send.
+		// This attempt failed, but an earlier accepted Stop still owns its
+		// queue cutoff. Do not undo it or touch a successor turn's cutoff.
 		c.mu.Lock()
-		c.cancelQueuedAt = time.Time{}
+		if c.pendingTurnID == turn && c.cancelQueuedAt.Equal(cutoff) {
+			c.cancelQueuedAt = previousCutoff
+		}
 		c.mu.Unlock()
 		return fmt.Errorf("interrupt turn %s: %w", turn, err)
 	}

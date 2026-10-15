@@ -903,8 +903,19 @@ func (c *conversation) Interrupt(ctx context.Context, providerTurnID string) err
 		return ports.ErrChatNoActiveTurn
 	}
 	if c.interrupt != nil {
+		attempt := c.interrupt
 		c.mu.Unlock()
-		return fmt.Errorf("ACP session/cancel is already in progress")
+		// Join delivery of the existing cancel, not completion of the prompt.
+		// A repeat must neither send another cancel nor settle the turn early.
+		select {
+		case <-attempt.done:
+			if attempt.err != nil {
+				return fmt.Errorf("ACP session/cancel: %w", attempt.err)
+			}
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	attempt := &interruptAttempt{turnID: active, done: make(chan struct{})}
 	c.interrupt = attempt
