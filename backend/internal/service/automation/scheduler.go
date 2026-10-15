@@ -219,7 +219,7 @@ func (s *Service) completeAndAdoptActive(ctx context.Context, store schedulerSto
 				_, lookupErr = store.MarkAutomationRunRunning(ctx, run.ID, session.ID, now)
 				if lookupErr != nil {
 					problems = append(problems, lookupErr)
-				} else if session.IsTerminated {
+				} else {
 					if _, lookupErr = store.CompleteAutomationRun(ctx, run.ID, now); lookupErr != nil {
 						problems = append(problems, lookupErr)
 					}
@@ -261,10 +261,11 @@ func (s *Service) completeAndAdoptActive(ctx context.Context, store schedulerSto
 				problems = append(problems, err)
 			}
 		}
-		if session.IsTerminated {
-			if _, err := store.CompleteAutomationRun(ctx, run.ID, now); err != nil {
-				problems = append(problems, err)
-			}
+		// The store checks durable termination or settled Chat completion in
+		// the same write that releases the non-overlap gate. Idle alone is not
+		// completion, and a finished report need not lose its live session.
+		if _, err := store.CompleteAutomationRun(ctx, run.ID, now); err != nil {
+			problems = append(problems, err)
 		}
 	}
 	return errors.Join(problems...)

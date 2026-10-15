@@ -311,15 +311,25 @@ func (s *Store) MarkAutomationRunRunning(ctx context.Context, id domain.Automati
 	return rows > 0, nil
 }
 
-// CompleteAutomationRun projects durable session termination into run history.
+// CompleteAutomationRun atomically checks durable session termination or
+// successful, settled Chat work before projecting completion into run history.
 func (s *Store) CompleteAutomationRun(ctx context.Context, id domain.AutomationRunID, now time.Time) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	rows, err := s.qw.CompleteAutomationRun(ctx, gen.CompleteAutomationRunParams{FinishedAt: timePtrToNullTime(&now), UpdatedAt: now, ID: id})
+	var completed bool
+	err := s.inTx(ctx, "complete automation run", func(q *gen.Queries) error {
+		ready, err := q.AutomationRunCanComplete(ctx, id)
+		if err != nil || !ready {
+			return err
+		}
+		rows, err := q.CompleteAutomationRun(ctx, gen.CompleteAutomationRunParams{FinishedAt: timePtrToNullTime(&now), UpdatedAt: now, ID: id})
+		completed = rows > 0
+		return err
+	})
 	if err != nil {
 		return false, fmt.Errorf("complete automation run %s: %w", id, err)
 	}
-	return rows > 0, nil
+	return completed, nil
 }
 
 // FailAutomationRun terminally records a bounded permanent dispatch error.
