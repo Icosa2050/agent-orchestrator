@@ -226,7 +226,15 @@ func (a *API) Register(root chi.Router) {
 			r.Use(func(next http.Handler) http.Handler {
 				ordinary := middleware.Timeout(timeout)(next)
 				upload := middleware.Timeout(max(timeout, 10*time.Minute))(next)
+				spawn := middleware.Timeout(max(timeout, config.DefaultSpawnTimeout))(next)
 				return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					// Synchronous spawns run Setup before returning. Keep their
+					// budget independent of the ordinary REST deadline while
+					// preserving caller cancellation and each setup step's limit.
+					if req.Method == http.MethodPost && chi.RouteContext(req.Context()).RoutePattern() == "/api/v1/sessions" {
+						spawn.ServeHTTP(w, req)
+						return
+					}
 					if attachmentUploadRoute(req) {
 						upload.ServeHTTP(w, req)
 						return

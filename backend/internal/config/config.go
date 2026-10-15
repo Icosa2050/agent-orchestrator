@@ -29,6 +29,9 @@ const (
 	// DefaultRequestTimeout bounds a single REST request. Long-lived terminal mux
 	// connections are mounted outside this timeout.
 	DefaultRequestTimeout = 60 * time.Second
+	// DefaultSpawnTimeout allows synchronous workspace setup and agent launch
+	// the same total budget as a background Chat start.
+	DefaultSpawnTimeout = 10 * time.Minute
 	// DefaultShutdownTimeout is the hard cap on graceful shutdown. After this
 	// the process exits even if connections are still draining.
 	DefaultShutdownTimeout = 10 * time.Second
