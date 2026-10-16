@@ -608,7 +608,7 @@ describe("browser shortcut routing", () => {
 		expect(webContents.findInPage).toHaveBeenCalledOnce();
 	});
 
-	it("replaces the last tab with a blank tab and keeps the browser panel open on ⌘W", async () => {
+	it("closes the last tab without a replacement on Ctrl+W", async () => {
 		const { emitBeforeInput, host, invoke, shellSend } = setupHost();
 		const state = await invoke("browser:ensure", "sess-1");
 		await invoke("browser:navigate", { viewId: state.viewId, url: "https://example.test/" });
@@ -628,8 +628,9 @@ describe("browser shortcut routing", () => {
 			);
 		});
 		const tabs = (await invoke("browser:getTabs", state.viewId)) as unknown as BrowserTabsState;
-		expect(tabs.tabs).toHaveLength(1);
-		expect(tabs.activeTabId).not.toBe(oldTabId);
+		expect(tabs.tabs).toHaveLength(0);
+		expect(tabs.activeTabId).toBe("");
+		expect(host.isLastUsedBrowser()).toBe(false);
 	});
 
 	it("opens, focuses, and closes browser tabs without dispatching terminal shortcuts", async () => {
@@ -676,8 +677,10 @@ describe("browser shortcut routing", () => {
 		);
 
 		emitBeforeInput({ key: "w", control: true });
-		await Promise.resolve();
-		expect(webContents.close).toHaveBeenCalledOnce();
+		await vi.waitFor(async () => {
+			expect((await invoke("browser:getTabs", state.viewId) as unknown as BrowserTabsState).tabs).toHaveLength(0);
+		});
+		expect(webContents.close).toHaveBeenCalledTimes(2);
 	});
 
 	it("keeps browser shortcuts targeted after a blank-tab hide clears native focus", async () => {
@@ -744,8 +747,7 @@ describe("browser shortcut routing", () => {
 		expect(shellSend).not.toHaveBeenCalledWith(CLOSE_SHELL_TERMINAL_SHORTCUT_CHANNEL);
 		expect(host.isLastUsedBrowser()).toBe(true);
 
-		// Second ⌘W with one tab left swaps it for a blank tab and keeps
-		// browser shortcuts targeting the open panel.
+		// Second ⌘W removes the final tab and releases the browser shortcut target.
 		shellSend.mockClear();
 		const secondClose = emitShellBeforeInput({ key: "w", control: true });
 		expect(secondClose.preventDefault).toHaveBeenCalled();
@@ -759,7 +761,8 @@ describe("browser shortcut routing", () => {
 			);
 		});
 		const tabs = (await invoke("browser:getTabs", state.viewId)) as unknown as BrowserTabsState;
-		expect(tabs.tabs).toHaveLength(1);
+		expect(tabs.tabs).toHaveLength(0);
+		expect(host.isLastUsedBrowser()).toBe(false);
 	});
 
 	it("consumes auto-repeat browser chords without re-firing", async () => {
@@ -937,7 +940,10 @@ function setupTabHost(
 	browserHistoryStore?: BrowserHistoryStore,
 	clearBrowserProfileData = vi.fn(async (_partition: string) => undefined),
 ) {
-	const constructorOptions: Array<{ webPreferences: { partition?: string; plugins?: boolean } }> = [];
+	const constructorOptions: Array<{
+		webPreferences: Electron.WebPreferences;
+		webContents?: Electron.WebContents;
+	}> = [];
 	const handlers = new Map<string, InvokeHandler>();
 	const eventHandlers = new Map<string, EventHandler>();
 	const sent: Array<{ channel: string; payload: unknown }> = [];
@@ -949,7 +955,7 @@ function setupTabHost(
 			openDevTools: ReturnType<typeof vi.fn>;
 			closeDevTools: ReturnType<typeof vi.fn>;
 			send: ReturnType<typeof vi.fn>;
-			openWindow: (url: string) => void;
+			openWindow: (url: string, nativeGuest?: boolean) => Electron.WebContents | null;
 			close: ReturnType<typeof vi.fn>;
 			emitConsoleMessage: (level: number, message: string, line?: number, sourceId?: string) => void;
 				session: {
@@ -967,6 +973,7 @@ function setupTabHost(
 		setBorderRadius: ReturnType<typeof vi.fn>;
 		setVisible: ReturnType<typeof vi.fn>;
 	}> = [];
+	const guestViews = new Map<Electron.WebContents, (typeof views)[number]>();
 	let nextID = 100;
 	const debuggerCommands: Array<{ method: string; params?: Record<string, unknown> }> = [];
 	// Populated by tests that need a specific navigation to fail, e.g. a dead
@@ -982,17 +989,12 @@ function setupTabHost(
 		},
 	});
 	const electronSessions = new Map<string, ReturnType<typeof makeElectronSession>>();
-	const makeView = (partition: string) => {
+	const makeView = (partition: string): (typeof views)[number] => {
 		const viewIndex = views.length;
 		const electronSession = electronSessions.get(partition) ?? makeElectronSession();
 		electronSessions.set(partition, electronSession);
 		let currentURL = "";
-		let windowOpenHandler:
-			| ((details: { url: string }) => {
-					action: string;
-					createWindow?: () => { loadURL: (url: string) => Promise<void> };
-			  })
-			| undefined;
+		let windowOpenHandler: ((details: Electron.HandlerDetails) => Electron.WindowOpenHandlerResponse) | undefined;
 		const listeners = new Map<string, (...args: never[]) => void>();
 		let debuggerAttached = false;
 		const webContents = {
@@ -1027,15 +1029,19 @@ function setupTabHost(
 				}
 				currentURL = url;
 				await loadURLHook?.(viewIndex, url);
+				listeners.get("dom-ready")?.();
 			}),
-			on: (event: string, listener: (...args: never[]) => void) => listeners.set(event, listener),
+			on: (event: string, listener: (...args: never[]) => void) => {
+				const previous = listeners.get(event);
+				listeners.set(event, (...args) => {
+					previous?.(...args);
+					listener(...args);
+				});
+			},
 			reload: () => undefined,
 			send: vi.fn(),
 			setWindowOpenHandler: (
-				handler: (details: { url: string }) => {
-					action: string;
-					createWindow?: () => { loadURL: (url: string) => Promise<void> };
-				},
+				handler: (details: Electron.HandlerDetails) => Electron.WindowOpenHandlerResponse,
 			) => {
 				windowOpenHandler = handler;
 			},
@@ -1045,11 +1051,27 @@ function setupTabHost(
 			openDevTools: vi.fn(),
 			closeDevTools: vi.fn(),
 			session: electronSession,
-			openWindow: (url: string) => {
-				const result = windowOpenHandler?.({ url });
-				if (result?.action === "allow") {
-					void result.createWindow?.().loadURL(url);
-				}
+			openWindow: (url: string, nativeGuest = true) => {
+				const result = windowOpenHandler?.({
+					url,
+					frameName: "",
+					features: "",
+					disposition: "new-window",
+					referrer: { url: currentURL, policy: "default" },
+				});
+				if (result?.action !== "allow") return null;
+				const guest = nativeGuest ? makeView(partition) : undefined;
+				if (guest) views.pop(); // Electron created contents, not an AO tab yet.
+				const windowOptions = {
+					...result.overrideBrowserWindowOptions,
+					webContents: guest?.webContents as unknown as Electron.WebContents | undefined,
+				};
+				const contents = result.createWindow!(windowOptions);
+				// Match Electron 33's identity check; the old fake accepted unrelated contents.
+				if (guest && contents !== guest.webContents as unknown as Electron.WebContents)
+					throw new Error("Created window must adopt the supplied guest WebContents");
+				if (guest) void contents.loadURL(url);
+				return contents;
 			},
 			emitConsoleMessage: (level: number, message: string, line = 0, sourceId = "") => {
 				const listener = listeners.get("console-message") as
@@ -1060,6 +1082,7 @@ function setupTabHost(
 		};
 		const view = { webContents, listeners, setBounds: vi.fn(), setBorderRadius: vi.fn(), setVisible: vi.fn(), setIgnoreMouseEvents: vi.fn() };
 		views.push(view);
+		guestViews.set(webContents as unknown as Electron.WebContents, view);
 		return view;
 	};
 	const activeTargets = new Map<string, string>();
@@ -1100,9 +1123,11 @@ function setupTabHost(
 		}),
 		dispose: vi.fn(async () => undefined),
 	} as unknown as import("./agent-browser-runtime").AgentBrowserRuntime;
+	const addChildView = vi.fn();
+	const onNativeViewAdded = vi.fn();
 	const host = createBrowserViewHost({
 		mainWindow: {
-			contentView: { addChildView: () => undefined, removeChildView: () => undefined },
+			contentView: { addChildView, removeChildView: () => undefined },
 			getContentBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
 			webContents: {
 				id: 1,
@@ -1117,9 +1142,16 @@ function setupTabHost(
 			off: (channel: string) => eventHandlers.delete(channel),
 		} as never,
 		shell: { openExternal: async () => undefined },
-		WebContentsView: function (options: { webPreferences: { partition?: string; plugins?: boolean } }) {
+		WebContentsView: function (options: { webPreferences: Electron.WebPreferences; webContents?: Electron.WebContents }) {
 			if (failViewConstruction) throw new Error("browser view startup failed");
 			constructorOptions.push(options);
+			if (options.webContents) {
+				const contents = options.webContents;
+				// The guest was created by openWindow; wrap it without creating new contents.
+				const view = guestViews.get(contents)!;
+				views.push(view);
+				return view;
+			}
 			return makeView(options.webPreferences.partition ?? "");
 		} as never,
 		annotatePreloadPath: "/preload.js",
@@ -1128,6 +1160,7 @@ function setupTabHost(
 		browserProfileStore,
 		browserHistoryStore,
 		clearBrowserProfileData,
+		onNativeViewAdded,
 		// Kept only as a regression tripwire: the removed auto-send path used
 		// this option to discover the daemon before calling net.fetch.
 		...({ getDaemonPort: () => 43123 } as Record<string, unknown>),
@@ -1148,6 +1181,8 @@ function setupTabHost(
 		eventHandlers.get(channel)!({ sender: { id: senderId } }, ...args);
 	return {
 		activeTargets,
+		addChildView,
+		onNativeViewAdded,
 		constructorOptions,
 		debuggerCommands,
 		emit,
@@ -1185,24 +1220,74 @@ function fakeBrowserProfileStore(
 }
 
 describe("browser:closeTab automation-runtime fallback", () => {
-	it("replaces the final page with a fresh blank tab through the renderer close action", async () => {
+	it("starts with zero tabs when the renderer requests an empty browser", async () => {
 		const { invoke, views } = setupTabHost();
-		const initial = (await invoke("browser:ensure", "sess-1")) as { viewId: string };
+		const initial = await invoke("browser:ensure", "sess-1", false) as BrowserNavState;
+		expect(views).toHaveLength(0);
+		expect(await invoke("browser:getTabs", initial.viewId)).toMatchObject({ tabs: [], activeTabId: "" });
+		expect(await invoke("browser:ensure", "sess-1", false)).toMatchObject({ url: "" });
+		const opened = await invoke("browser:openTab", { viewId: initial.viewId }) as BrowserTabsState;
+		expect(opened.tabs).toHaveLength(1);
+		expect(views[0].webContents.session.webRequest.onCompleted).toHaveBeenCalledOnce();
+	});
+
+	it("creates only one first tab when automation bootstraps an initial page", async () => {
+		const { invoke, runtime } = setupTabHost();
+		const runAction = vi.mocked(runtime.runAction);
+		const original = runAction.getMockImplementation()!;
+		runAction.mockImplementation(async (sessionId, action, args, provider, signal) => {
+			// The real runtime connects before running the requested command.
+			// Connecting to an empty browser creates an initial page of its own.
+			if (!provider.listTargets().length) await provider.createTarget("about:blank");
+			return original(sessionId, action, args, provider, signal);
+		});
+		const { viewId } = await invoke("browser:ensure", "sess-1", false) as BrowserNavState;
+		const first = await invoke("browser:openTab", { viewId }) as BrowserTabsState;
+		expect(first.tabs).toHaveLength(1);
+		const second = await invoke("browser:openTab", { viewId }) as BrowserTabsState;
+		expect(second.tabs).toHaveLength(2);
+		await invoke("browser:closeTab", { viewId, tabId: second.activeTabId });
+		await invoke("browser:closeTab", { viewId, tabId: first.activeTabId });
+		const reopened = await invoke("browser:openTab", { viewId }) as BrowserTabsState;
+		expect(reopened.tabs).toHaveLength(1);
+	});
+
+	it("lets the window composition restack after each new page view", async () => {
+		const { addChildView, invoke, onNativeViewAdded } = setupTabHost();
+		const { viewId } = await invoke("browser:ensure", "sess-1", false) as BrowserNavState;
+		await invoke("browser:openTab", { viewId });
+		await invoke("browser:openTab", { viewId });
+		// A new view is appended above the shell, so the hook must fire after
+		// every append; otherwise an open dialog/notice ends up under the page.
+		expect(addChildView).toHaveBeenCalledTimes(2);
+		expect(onNativeViewAdded).toHaveBeenCalledTimes(2);
+		expect(onNativeViewAdded.mock.invocationCallOrder[1]).toBeGreaterThan(addChildView.mock.invocationCallOrder[1]);
+	});
+
+	it("opens just one tab for an agent tab-new after empty renderer initialization", async () => {
+		const { host, invoke } = setupTabHost();
+		const initial = await invoke("browser:ensure", "sess-1", false) as BrowserNavState;
+		await host.execute("sess-1", "tab-new", { url: "https://example.test/" });
+		expect((await invoke("browser:getTabs", initial.viewId) as BrowserTabsState).tabs).toHaveLength(1);
+	});
+
+	it("closes the final page and can create and close a new blank tab", async () => {
+		const { invoke, views } = setupTabHost();
+		const initial = await invoke("browser:ensure", "sess-1") as BrowserNavState;
 		await invoke("browser:navigate", { viewId: initial.viewId, url: "https://example.test/" });
-		const before = (await invoke("browser:getTabs", initial.viewId)) as BrowserTabsState;
-		const closed = (await invoke("browser:closeTab", { viewId: initial.viewId, tabId: before.activeTabId })) as BrowserTabsState;
-
-		expect(closed.tabs).toHaveLength(1);
-		expect(closed.activeTabId).not.toBe(before.activeTabId);
-		expect(closed.tabs[0].url).toBe("about:blank");
+		const before = await invoke("browser:getTabs", initial.viewId) as BrowserTabsState;
+		const closed = await invoke("browser:closeTab", { viewId: initial.viewId, tabId: before.activeTabId }) as BrowserTabsState;
+		expect(closed).toMatchObject({ tabs: [], activeTabId: "", change: { kind: "closed" } });
 		expect(views[0].webContents.close).toHaveBeenCalledOnce();
-		expect(views[1].webContents.close).not.toHaveBeenCalled();
-
-		// Closing the blank landing tab works too and leaves a usable landing tab.
-		const blankClosed = (await invoke("browser:closeTab", { viewId: initial.viewId, tabId: closed.activeTabId })) as BrowserTabsState;
-		expect(blankClosed.tabs).toHaveLength(1);
-		expect(blankClosed.activeTabId).not.toBe(closed.activeTabId);
-		expect(blankClosed.tabs[0].url).toBe("about:blank");
+		expect(views[0].webContents.session.webRequest.onCompleted).toHaveBeenLastCalledWith(null);
+		expect(views).toHaveLength(1);
+		expect(await invoke("browser:ensure", "sess-1", false)).toMatchObject({ url: "" });
+		const opened = await invoke("browser:openTab", { viewId: initial.viewId }) as BrowserTabsState;
+		expect(opened.tabs).toHaveLength(1);
+		const blankClosed = await invoke("browser:closeTab", { viewId: initial.viewId, tabId: opened.activeTabId }) as BrowserTabsState;
+		expect(blankClosed.tabs).toHaveLength(0);
+		await invoke("browser:navigate", { viewId: initial.viewId, url: "https://example.test/again" });
+		expect((await invoke("browser:getTabs", initial.viewId) as BrowserTabsState).tabs).toHaveLength(1);
 	});
 
 	// Regression: observed in a real long-running session as
@@ -3461,6 +3546,7 @@ describe("agent browser runtime", () => {
 		try {
 			await host.execute("sess-1", "tabs");
 			views[0].webContents.openWindow("https://popup.example.test/");
+			await vi.advanceTimersByTimeAsync(0);
 			await started;
 
 			const controller = new AbortController();
@@ -3501,15 +3587,117 @@ describe("agent browser runtime", () => {
 		expect(constructorOptions[3].webPreferences.partition).not.toBe(firstPartition);
 	});
 
-	it("captures allowed popups as new tabs and protects the final tab", async () => {
+	it("drops a popup tab whose page closed itself and keeps applying layout", async () => {
+		const { emit, host, invoke, sent, views } = setupTabHost();
+		const { viewId } = (await invoke("browser:ensure", "sess-1")) as { viewId: string };
+		await host.execute("sess-1", "open", { url: "http://localhost:3000" });
+		views[0].webContents.openWindow("http://localhost:3000/__/auth/handler");
+		await vi.waitFor(async () => {
+			const tabs = (await invoke("browser:getTabs", viewId)) as BrowserTabsState;
+			expect(tabs.activeTabId).toBe("t2");
+		});
+
+		// window.close() in a single-entry tab: Electron destroys the contents and
+		// the view's webContents getter returns undefined from then on.
+		const popup = views[1] as unknown as { webContents?: unknown; listeners: Map<string, () => void> };
+		const destroyed = popup.listeners.get("destroyed")!;
+		popup.webContents = undefined;
+		views[1].setBounds.mockImplementation(() => {
+			throw new Error("destroyed native views must not be laid out");
+		});
+		destroyed();
+
+		const tabs = (await invoke("browser:getTabs", viewId)) as BrowserTabsState;
+		expect(tabs.activeTabId).toBe("t1");
+		expect(tabs.tabs.map((tab) => tab.id)).toEqual(["t1"]);
+		expect(sent).toContainEqual({
+			channel: "browser:tabsState",
+			payload: expect.objectContaining({
+				change: expect.objectContaining({ kind: "closed", tabId: "t2" }),
+			}),
+		});
+		expect(() =>
+			emit("browser:setBounds", {
+				viewId,
+				revision: 1,
+				rect: { x: 0, y: 0, width: 400, height: 300 },
+				visible: true,
+			}),
+		).not.toThrow();
+	});
+
+	it("leaves an empty browser when its only page closes itself", async () => {
+		const { emit, host, invoke, views } = setupTabHost();
+		const { viewId } = (await invoke("browser:ensure", "sess-1")) as { viewId: string };
+		await host.execute("sess-1", "open", { url: "http://localhost:3000" });
+
+		const electronSession = views[0].webContents.session;
+		const only = views[0] as unknown as { webContents?: unknown; listeners: Map<string, () => void> };
+		const destroyed = only.listeners.get("destroyed")!;
+		only.webContents = undefined;
+		destroyed();
+
+		const tabs = (await invoke("browser:getTabs", viewId)) as BrowserTabsState;
+		expect(tabs.tabs).toEqual([]);
+		expect(tabs.activeTabId).toBe("");
+		expect(electronSession.webRequest.onCompleted).toHaveBeenLastCalledWith(null);
+		expect(electronSession.webRequest.onErrorOccurred).toHaveBeenLastCalledWith(null);
+		expect(() =>
+			emit("browser:setBounds", {
+				viewId,
+				revision: 1,
+				rect: { x: 0, y: 0, width: 400, height: 300 },
+				visible: true,
+			}),
+		).not.toThrow();
+		await expect(host.execute("sess-1", "tab-new")).resolves.toMatchObject({ id: "t2" });
+	});
+
+	it("adopts Electron's guest without resetting its OAuth navigation", async () => {
+		const { host, views, constructorOptions } = setupTabHost();
+		await host.execute("sess-1", "open", { url: "https://example.test/" });
+		const popupURL = "https://example.test/__/auth/handler?state=opaque";
+		const handle = views[0].webContents.openWindow(popupURL);
+		expect(handle).toBe(views[1].webContents);
+		expect(constructorOptions[1].webContents).toBe(handle);
+		expect(constructorOptions[1].webPreferences).toMatchObject({
+			partition: constructorOptions[0].webPreferences.partition,
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+			preload: "/preload.js",
+		});
+		await vi.waitFor(() => expect(views[1].webContents.loadURL).toHaveBeenCalledExactlyOnceWith(popupURL));
+		expect(views[1].webContents.loadURL).not.toHaveBeenCalledWith("about:blank");
+	});
+
+	it("allows blank popup bootstrap but blocks unsafe popup destinations", async () => {
+		const { host, views } = setupTabHost();
+		await host.execute("sess-1", "tabs");
+		for (const url of ["file:///etc/passwd", "javascript:alert(1)", "custom://secret", "http://localhost:5173/"]) {
+			expect(views[0].webContents.openWindow(url)).toBeNull();
+		}
+		expect(views).toHaveLength(1);
+		expect(views[0].webContents.openWindow("about:blank")).toBe(views[1].webContents);
+		await vi.waitFor(() => expect(views[1].webContents.loadURL).toHaveBeenCalledOnce());
+	});
+
+	it("navigates a target=_blank popup when Electron supplies no guest", async () => {
+		const { host, views, constructorOptions } = setupTabHost();
+		await host.execute("sess-1", "tabs");
+		const handle = views[0].webContents.openWindow("https://example.test/link", false);
+		expect(handle).toBe(views[1].webContents);
+		expect(constructorOptions[1].webContents).toBeUndefined();
+		await vi.waitFor(() => expect(views[1].webContents.getURL()).toBe("https://example.test/link"));
+	});
+
+	it("captures allowed popups as new tabs and closes tabs independently", async () => {
 		const { host, views } = setupTabHost();
 		await host.execute("sess-1", "open", { url: "http://localhost:3000" });
 
 		views[0].webContents.openWindow("http://localhost:3000/popup");
 
-		// Popups now open through the real async openTab (createTab, then await
-		// navigation) instead of the old synchronous createWindow path, so give
-		// it room to actually finish navigating before asserting on the result.
+		// Chromium owns the guest navigation after synchronous tab adoption.
 		await vi.waitFor(async () => {
 			const listed = (await host.execute("sess-1", "tabs")) as {
 				activeTabId: string;

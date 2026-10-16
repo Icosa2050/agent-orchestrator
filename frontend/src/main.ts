@@ -974,6 +974,7 @@ async function createWindowInternal(): Promise<void> {
 		}),
 		clearBrowserProfileData: clearElectronBrowserProfileData,
 		clipboard,
+		onNativeViewAdded: () => windowComposition?.restackShell(),
 	});
 	browserProfileImporter = profileImporter;
 	browserProfileIpc = registerBrowserProfileIpc({
@@ -1413,6 +1414,9 @@ function daemonEnv(forceKeep = keepDaemonAlive(process.env)): NodeJS.ProcessEnv 
 		AO_OWNER,
 		AO_DATA_DIR: desktopDataDir,
 		AO_APP_RUN_ID: appRunId,
+        ...(process.platform === "darwin" ? { AO_WAKE_HELPER: app.isPackaged
+            ? path.join(process.resourcesPath, "wake-helper", "ao-wake")
+            : path.join(app.getAppPath(), "wake-helper", "ao-wake") } : {}),
 		// The browser runtime token is handed over through the child's private
 		// stdin pipe below. Never put it in the daemon environment, where a
 		// same-UID worker could inspect the parent process.
