@@ -54,6 +54,30 @@ describe("runtimeSourceFiles", () => {
 });
 
 describe("npmInvocation", () => {
+	it.each([
+		{ platform: "linux", npmExecPath: "/npm/npm-cli.js" },
+		{ platform: "linux", npmExecPath: null },
+		{ platform: "win32", npmExecPath: null },
+	])("keeps inherited allow-scripts out of a script-free install ($platform, $npmExecPath)", (options) => {
+		const env = {
+			PATH: "/test/bin",
+			npm_config_allow_scripts: "some-global-tool",
+			NPM_CONFIG_ALLOW_SCRIPTS: "another-global-tool",
+			npm_config_registry: "https://registry.example.test",
+			npm_config_strict_allow_scripts: "true",
+		};
+		const invocation = npmInvocation(["ci", "--ignore-scripts"], { ...options, env });
+
+		expect(invocation.env).toEqual({
+			PATH: "/test/bin",
+			npm_config_registry: "https://registry.example.test",
+			npm_config_strict_allow_scripts: "true",
+		});
+		expect(invocation.args).toContain("--ignore-scripts");
+		expect(env.npm_config_allow_scripts).toBe("some-global-tool");
+		expect(env.NPM_CONFIG_ALLOW_SCRIPTS).toBe("another-global-tool");
+	});
+
 	it("runs the parent npm CLI through Node on Windows", () => {
 		expect(
 			npmInvocation(["ci", "--omit=dev"], {
