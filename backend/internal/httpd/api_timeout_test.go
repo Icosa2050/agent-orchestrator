@@ -3,6 +3,7 @@ package httpd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,6 +23,7 @@ type timeoutProbeSessionService struct {
 	uploadBudget  chan time.Duration
 	sendBudget    chan time.Duration
 	spawn         func(context.Context) error
+	previewBudget chan time.Duration
 }
 
 func (s *timeoutProbeSessionService) Spawn(ctx context.Context, _ ports.SpawnConfig) (domain.Session, int, int, error) {
@@ -76,6 +78,25 @@ func TestSpawnRoutePreservesCallerCancellation(t *testing.T) {
 	router.ServeHTTP(response, request)
 	if response.Code == http.StatusCreated {
 		t.Fatal("cancelled setup must not report a successful launch")
+	}
+}
+
+func (s *timeoutProbeSessionService) GetRecord(ctx context.Context, _ domain.SessionID) (domain.SessionRecord, error) {
+	s.previewBudget <- remainingRequestBudget(ctx)
+	return domain.SessionRecord{}, errors.New("probe only")
+}
+
+// recordBudget is the deadline GetRecord saw. The route has run by the time it
+// is read, so a route that never reached GetRecord fails here instead of
+// blocking the test.
+func (s *timeoutProbeSessionService) recordBudget(t *testing.T) time.Duration {
+	t.Helper()
+	select {
+	case budget := <-s.previewBudget:
+		return budget
+	case <-time.After(time.Second):
+		t.Fatal("the route never read the session record")
+		return 0
 	}
 }
 
@@ -182,6 +203,41 @@ func TestAttachmentUploadRouteUsesExtendedTimeout(t *testing.T) {
 	budget := <-svc.uploadBudget
 	if budget < 9*time.Minute || budget > 10*time.Minute {
 		t.Fatalf("attachment upload budget = %s, want about 10 minutes", budget)
+	}
+}
+
+// A managed preview carries the dev server's HMR socket and event streams; the
+// REST budget cut them at a minute (504) and reloaded the page.
+func TestManagedPreviewAppProxyHasNoRequestTimeout(t *testing.T) {
+	svc := &timeoutProbeSessionService{previewBudget: make(chan time.Duration, 1)}
+	router := NewRouterWithControl(
+		config.Config{RequestTimeout: 250 * time.Millisecond},
+		discardLogger(),
+		nil,
+		APIDeps{Sessions: svc, PreviewServer: struct {
+			controllers.ManagedPreviewServer
+		}{}},
+		ControlDeps{},
+	)
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/sessions/ao-1/preview/app/_next/webpack-hmr", nil))
+	if budget := svc.recordBudget(t); budget != 0 {
+		t.Fatalf("managed preview budget = %s, want no deadline", budget)
+	}
+}
+
+// The agent browser's stream socket stays open as long as its tab does.
+func TestAgentBrowserProxyHasNoRequestTimeout(t *testing.T) {
+	svc := &timeoutProbeSessionService{previewBudget: make(chan time.Duration, 1)}
+	router := NewRouterWithControl(
+		config.Config{RequestTimeout: 250 * time.Millisecond, AgentBrowserURL: "http://127.0.0.1:9"},
+		discardLogger(),
+		nil,
+		APIDeps{Sessions: svc},
+		ControlDeps{},
+	)
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/sessions/ao-1/agent-browser/ws/cdp", nil))
+	if budget := svc.recordBudget(t); budget != 0 {
+		t.Fatalf("agent browser budget = %s, want no deadline", budget)
 	}
 }
 
