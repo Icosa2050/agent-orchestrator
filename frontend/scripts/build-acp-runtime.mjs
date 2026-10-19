@@ -85,7 +85,7 @@ for (const source of runtimeSources) {
 }
 
 const npm = npmInvocation(["ci", "--omit=dev", "--omit=optional", "--ignore-scripts"]);
-run(npm.command, npm.args, { cwd: outDir });
+run(npm.command, npm.args, { cwd: outDir, env: npm.env });
 patchClaudeRetryDetails(claudeAdapter);
 patchClaudeContextUsage(claudeAdapter);
 patchClaudeHibernationCheck(claudeAdapter);
