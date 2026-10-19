@@ -113,33 +113,49 @@ func TestValidateTurnSettingsAcceptsOpaqueModelValues(t *testing.T) {
 	}
 }
 
-func TestPermissionPolicyAnswersOnceForAutoAndEdits(t *testing.T) {
-	allow := acpsdk.PermissionOptionKindAllowOnce
-	edit := acpsdk.ToolKindEdit
-	params := func(kind *acpsdk.ToolKind) acpsdk.RequestPermissionRequest {
-		return acpsdk.RequestPermissionRequest{
-			ToolCall: acpsdk.ToolCallUpdate{Kind: kind},
-			Options: []acpsdk.PermissionOption{
-				{OptionId: "reject", Kind: acpsdk.PermissionOptionKindRejectOnce},
-				{OptionId: "allow", Kind: allow},
-			},
-		}
+func TestPermissionPolicy(t *testing.T) {
+	edit, deleteKind, move, execute := acpsdk.ToolKindEdit, acpsdk.ToolKindDelete, acpsdk.ToolKindMove, acpsdk.ToolKindExecute
+	options := []acpsdk.PermissionOption{
+		{OptionId: "reject", Kind: acpsdk.PermissionOptionKindRejectOnce},
+		{OptionId: "allow-always", Kind: acpsdk.PermissionOptionKindAllowAlways},
+		{OptionId: "allow-once", Kind: acpsdk.PermissionOptionKindAllowOnce},
 	}
-
-	// auto answers any request, once.
-	if id, ok := permissionPolicy(ports.PermissionModeAuto, params(nil)); !ok || id != "allow" {
-		t.Fatalf("auto = (%q, %v), want (allow, true)", id, ok)
+	cases := []struct {
+		name    string
+		mode    ports.PermissionMode
+		kind    *acpsdk.ToolKind
+		options []acpsdk.PermissionOption
+		wantID  acpsdk.PermissionOptionId
+		handled bool
+	}{
+		{name: "bypass edit", mode: ports.PermissionModeBypassPermissions, kind: &edit, options: options, wantID: "allow-once", handled: true},
+		{name: "bypass execute", mode: ports.PermissionModeBypassPermissions, kind: &execute, options: options, wantID: "allow-once", handled: true},
+		{name: "bypass unknown kind", mode: ports.PermissionModeBypassPermissions, options: options, wantID: "allow-once", handled: true},
+		{name: "auto execute", mode: ports.PermissionModeAuto, kind: &execute, options: options, wantID: "allow-once", handled: true},
+		{name: "auto unknown kind", mode: ports.PermissionModeAuto, options: options, wantID: "allow-once", handled: true},
+		{name: "accept edits edit", mode: ports.PermissionModeAcceptEdits, kind: &edit, options: options, wantID: "allow-once", handled: true},
+		{name: "accept edits delete", mode: ports.PermissionModeAcceptEdits, kind: &deleteKind, options: options, wantID: "allow-once", handled: true},
+		{name: "accept edits move", mode: ports.PermissionModeAcceptEdits, kind: &move, options: options, wantID: "allow-once", handled: true},
+		{name: "accept edits execute", mode: ports.PermissionModeAcceptEdits, kind: &execute, options: options},
+		{name: "accept edits unknown kind", mode: ports.PermissionModeAcceptEdits, options: options},
+		{name: "default edit", mode: ports.PermissionModeDefault, kind: &edit, options: options},
+		{name: "default execute", mode: ports.PermissionModeDefault, kind: &execute, options: options},
+		{name: "unset mode", kind: &edit, options: options},
+		{name: "bypass without allow once", mode: ports.PermissionModeBypassPermissions, options: options[:2]},
+		{name: "auto without allow once", mode: ports.PermissionModeAuto, options: options[:2]},
+		{name: "accept edits without allow once", mode: ports.PermissionModeAcceptEdits, kind: &edit, options: options[:2]},
+		{name: "bypass without options", mode: ports.PermissionModeBypassPermissions},
 	}
-	// accept-edits answers edit-like tools only.
-	if id, ok := permissionPolicy(ports.PermissionModeAcceptEdits, params(&edit)); !ok || id != "allow" {
-		t.Fatalf("accept-edits on edit = (%q, %v), want (allow, true)", id, ok)
-	}
-	if _, ok := permissionPolicy(ports.PermissionModeAcceptEdits, params(nil)); ok {
-		t.Fatal("accept-edits answered a non-edit tool")
-	}
-	// default stays out of the way entirely.
-	if _, ok := permissionPolicy(ports.PermissionModeDefault, params(&edit)); ok {
-		t.Fatal("default mode answered a permission request")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			id, handled := permissionPolicy(tc.mode, acpsdk.RequestPermissionRequest{
+				ToolCall: acpsdk.ToolCallUpdate{Kind: tc.kind},
+				Options:  tc.options,
+			})
+			if id != tc.wantID || handled != tc.handled {
+				t.Fatalf("permissionPolicy = (%q, %v), want (%q, %v)", id, handled, tc.wantID, tc.handled)
+			}
+		})
 	}
 }
 
