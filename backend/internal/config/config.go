@@ -29,9 +29,6 @@ const (
 	// DefaultRequestTimeout bounds a single REST request. Long-lived terminal mux
 	// connections are mounted outside this timeout.
 	DefaultRequestTimeout = 60 * time.Second
-	// DefaultSpawnTimeout allows synchronous workspace setup and agent launch
-	// the same total budget as a background Chat start.
-	DefaultSpawnTimeout = 10 * time.Minute
 	// DefaultShutdownTimeout is the hard cap on graceful shutdown. After this
 	// the process exits even if connections are still draining.
 	DefaultShutdownTimeout = 10 * time.Second
@@ -86,9 +83,8 @@ type TelemetryConfig struct {
 	// users to install a new build. Local storage still records everything.
 	DisabledEvents []string
 	// AppVersion is the desktop app version the daemon was launched by, stamped
-	// on remote events so failures can be attributed to a release. The daemon
-	// binary has no reliable version of its own (see cli.Version, which release
-	// tooling does not currently override), so the supervisor passes it in.
+	// on remote events so failures can be attributed to a release. The
+	// supervisor passes it in; the daemon applies its binary version if absent.
 	AppVersion string
 	// SentryDSN, when set (AO_SENTRY_DSN), enables daemon-side Sentry capture of
 	// genuine server faults (5xx and panics) with their Go stack. Blank keeps
@@ -113,9 +109,9 @@ type GitLabConfig struct {
 }
 
 // DefaultAllowedOrigins are the browser origins the daemon's CORS boundary
-// trusts. General routes additionally admit loopback-served content, while
-// credential-management routes accept only this exact list (plus native
-// callers without an Origin header). The daemon has no auth, so every default
+// trusts. Workspace previews and unrelated local servers are not trusted
+// API clients. Native callers remain unauthenticated; paired mobile callers
+// use the separately authenticated listener. Every default
 // entry must be an origin ordinary web content cannot present:
 // app://renderer is the packaged Electron renderer, served from a custom
 // scheme only the desktop app registers — no website can bear it. The opaque
