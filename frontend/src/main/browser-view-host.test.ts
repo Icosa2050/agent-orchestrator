@@ -236,6 +236,7 @@ function setupHost(agentBrowserRuntime?: import("./agent-browser-runtime").Agent
 		findInPage,
 		reload: vi.fn(),
 		send: vi.fn(),
+		sendInputEvent: vi.fn(),
 		setWindowOpenHandler: () => undefined,
 		stop: () => undefined,
 		stopFindInPage,
@@ -250,6 +251,7 @@ function setupHost(agentBrowserRuntime?: import("./agent-browser-runtime").Agent
 	const view = {
 		webContents,
 		setBounds: vi.fn(),
+		getBounds: vi.fn(() => ({ x: -10000, y: -10000, width: 1280, height: 720 })),
 		setBorderRadius: vi.fn(),
 		setVisible: vi.fn(),
 		setIgnoreMouseEvents: vi.fn(),
@@ -294,8 +296,10 @@ function setupHost(agentBrowserRuntime?: import("./agent-browser-runtime").Agent
 	const shellFocus = vi.fn();
 	const shellSend = vi.fn((channel: string, payload?: unknown) => sent.push({ channel, payload }));
 	const mainContentView = { addChildView: vi.fn(), removeChildView: vi.fn() };
+	const isWindowVisible = vi.fn(() => true);
 	const host = createBrowserViewHost({
 		mainWindow: {
+			isVisible: isWindowVisible,
 			contentView: mainContentView,
 			getContentBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
 			webContents: {
@@ -382,6 +386,7 @@ function setupHost(agentBrowserRuntime?: import("./agent-browser-runtime").Agent
 		invoke,
 		invokeFromTab,
 		mainContentView,
+		isWindowVisible,
 		rendererFrame,
 		send,
 		sent,
@@ -407,6 +412,237 @@ function setupHost(agentBrowserRuntime?: import("./agent-browser-runtime").Agent
 		debuggerSendCommand,
 	};
 }
+
+describe("browser live stream", () => {
+	it("stops and detaches live capture when the private stream link drops", async () => {
+		const { debuggerSendCommand, host } = setupHost();
+		await host.startLiveStream("sess-1", 7, {
+			frame: vi.fn(),
+			state: vi.fn(),
+			error: vi.fn(),
+		});
+		expect(debuggerSendCommand).toHaveBeenCalledWith("Page.startScreencast", expect.any(Object));
+
+		await host.stopAllLiveStreams();
+
+		expect(debuggerSendCommand).toHaveBeenCalledWith("Page.stopScreencast");
+		await expect(host.handleRemoteInput("sess-1", {
+			kind: "pointer",
+			phase: "down",
+			x: 0.5,
+			y: 0.5,
+			button: "left",
+		})).rejects.toMatchObject({ code: "BROWSER_REMOTE_NOT_VIEWED" });
+	});
+
+	const liveSink = () => ({ frame: vi.fn(), state: vi.fn(), error: vi.fn() });
+	const panelRect = { x: 300, y: 40, width: 480, height: 520 };
+	const hiddenRect = { x: 0, y: 0, width: 0, height: 0 };
+
+	// A streamed view must paint offscreen without covering the board or other
+	// sessions. Move it after showing so Chromium applies the offscreen bounds.
+	it("parks a streamed browser outside the desktop after its panel is left", async () => {
+		const { emit, host, invoke, setCurrentURL, view } = setupHost();
+		const { viewId } = await invoke("browser:ensure", "sess-1");
+		setCurrentURL("https://example.com/");
+		emit("browser:setBounds", 1, { viewId, revision: 1, rect: panelRect, visible: true });
+		await host.startLiveStream("sess-1", 7, liveSink());
+		expect(view.setVisible).toHaveBeenLastCalledWith(true);
+
+		view.setVisible.mockClear();
+		emit("browser:setBounds", 1, { viewId, revision: 2, rect: hiddenRect, visible: false });
+		// Restarting the stream re-applies the parked bounds, as a session switch does.
+		await host.startLiveStream("sess-1", 8, liveSink());
+
+		expect(view.setBounds).toHaveBeenLastCalledWith({ x: -10000, y: -10000, width: 1280, height: 720 });
+		expect(view.setVisible.mock.invocationCallOrder.at(-1)).toBeLessThan(view.setBounds.mock.invocationCallOrder.at(-1)!);
+	});
+
+	it("hides a streamed view if the native view does not accept offscreen bounds", async () => {
+		const { host, invoke, view } = setupHost();
+		await invoke("browser:ensure", "sess-1");
+		view.getBounds.mockReturnValue({ x: 20, y: 30, width: 700, height: 500 });
+		const sink = liveSink();
+		await host.startLiveStream("sess-1", 7, sink);
+		expect(view.setVisible).toHaveBeenLastCalledWith(false);
+		expect(sink.error).toHaveBeenCalledWith("BROWSER_CAPTURE_UNAVAILABLE", expect.stringContaining("parked outside"));
+		await host.stopLiveStream("sess-1", 7);
+	});
+
+	it("captures an app-hidden window without capturing an idle visible desktop", async () => {
+		vi.useFakeTimers();
+		try {
+			const { debuggerSendCommand, emit, host, invoke, isWindowVisible, setCurrentURL } = setupHost();
+			const { viewId } = await invoke("browser:ensure", "sess-1");
+			setCurrentURL("https://example.com/");
+			emit("browser:setBounds", 1, { viewId, revision: 1, rect: panelRect, visible: true });
+			await host.startLiveStream("sess-1", 7, liveSink());
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(debuggerSendCommand).not.toHaveBeenCalledWith("Page.captureScreenshot", expect.anything());
+			isWindowVisible.mockReturnValue(false);
+			await vi.advanceTimersByTimeAsync(500);
+			expect(debuggerSendCommand).toHaveBeenCalledWith("Page.captureScreenshot", expect.objectContaining({ captureBeyondViewport: true }));
+			debuggerSendCommand.mockClear();
+			isWindowVisible.mockReturnValue(true);
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(debuggerSendCommand).not.toHaveBeenCalledWith("Page.captureScreenshot", expect.anything());
+			await host.stopLiveStream("sess-1", 7);
+		} finally { vi.useRealTimers(); }
+	});
+
+	it("gives a parked streamed page the viewport the desktop last showed", async () => {
+		const { debuggerSendCommand, emit, host, invoke, setCurrentURL, webContents } = setupHost();
+		const { viewId } = await invoke("browser:ensure", "sess-1");
+		setCurrentURL("https://example.com/");
+		emit("browser:setBounds", 1, { viewId, revision: 1, rect: panelRect, visible: true });
+		const sink = liveSink();
+		await host.startLiveStream("sess-1", 7, sink);
+		expect(debuggerSendCommand).not.toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", expect.anything());
+
+		emit("browser:setBounds", 1, { viewId, revision: 2, rect: hiddenRect, visible: false });
+		expect(debuggerSendCommand).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", {
+			width: 480,
+			height: 520,
+			deviceScaleFactor: 0,
+			mobile: false,
+		});
+
+		await host.handleRemoteInput("sess-1", { kind: "pointer", phase: "down", x: 1, y: 1, button: "left" });
+		expect(webContents.sendInputEvent).toHaveBeenLastCalledWith(expect.objectContaining({ type: "mouseDown", x: 479, y: 519 }));
+
+		emit("browser:setBounds", 1, { viewId, revision: 3, rect: panelRect, visible: true });
+		expect(debuggerSendCommand).toHaveBeenLastCalledWith("Emulation.clearDeviceMetricsOverride");
+	});
+
+	// A session whose desktop panel was never opened has no layout size at all,
+	// so without a viewport the stream stays empty and input lands nowhere.
+	it("gives a never-shown streamed page a default viewport", async () => {
+		const { debuggerSendCommand, host } = setupHost();
+		const state = await host.startLiveStream("sess-1", 7, liveSink());
+
+		expect(debuggerSendCommand).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", {
+			width: 1280,
+			height: 720,
+			deviceScaleFactor: 0,
+			mobile: false,
+		});
+		expect(state).toMatchObject({ width: 1280, height: 720 });
+
+		await host.stopLiveStream("sess-1", 7);
+		expect(debuggerSendCommand).toHaveBeenCalledWith("Emulation.clearDeviceMetricsOverride");
+	});
+
+	it("lets a phone scroll while the desktop panel is focused but not click", async () => {
+		const { debuggerSendCommand, emit, host, invoke, setCurrentURL, webContents } = setupHost();
+		const { viewId } = await invoke("browser:ensure", "sess-1");
+		setCurrentURL("https://example.com/");
+		emit("browser:setBounds", 1, { viewId, revision: 1, rect: panelRect, visible: true });
+		await host.startLiveStream("sess-1", 7, liveSink());
+
+		await host.handleRemoteInput("sess-1", { kind: "wheel", deltaX: 0, deltaY: -40 });
+		expect(debuggerSendCommand).toHaveBeenLastCalledWith("Input.dispatchMouseEvent", { type: "mouseWheel", x: 240, y: 260, deltaX: -0, deltaY: 40 });
+		expect(webContents.sendInputEvent).not.toHaveBeenCalled();
+
+		await expect(
+			host.handleRemoteInput("sess-1", { kind: "pointer", phase: "down", x: 0.5, y: 0.5, button: "left" }),
+		).rejects.toMatchObject({ code: "BROWSER_REMOTE_READ_ONLY" });
+	});
+
+	it("dispatches scrolling to the parked page without native focus", async () => {
+		const { debuggerSendCommand, host, webContents } = setupHost();
+		await host.startLiveStream("sess-1", 7, liveSink());
+		await host.handleRemoteInput("sess-1", { kind: "wheel", deltaX: 30, deltaY: -400 });
+		expect(debuggerSendCommand).toHaveBeenLastCalledWith("Input.dispatchMouseEvent", {
+			type: "mouseWheel", x: 640, y: 360, deltaX: -30, deltaY: 400,
+		});
+		expect(webContents.sendInputEvent).not.toHaveBeenCalled();
+		expect(webContents.focus).not.toHaveBeenCalled();
+		await expect(host.handleRemoteInput("sess-1", { kind: "wheel", deltaX: 0, deltaY: NaN })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+	});
+
+	// Regression, reported live: a page the agent built showed in the phone's
+	// App preview tab but not in its Browser tab until someone opened the
+	// desktop Browser panel, because only that panel opens a session's preview.
+	it("opens the session preview for a phone watching an empty browser", async () => {
+		const { host, webContents } = setupHost();
+		const sink = liveSink();
+		await host.startLiveStream("sess-1", 7, sink);
+		webContents.loadURL.mockClear();
+
+		await host.openLivePreview("sess-1", "http://localhost:4317/index.html");
+
+		expect(webContents.loadURL).toHaveBeenCalledWith("http://localhost:4317/index.html");
+		expect(sink.state).toHaveBeenLastCalledWith(expect.objectContaining({ url: "http://localhost:4317/index.html" }));
+	});
+
+	it("keeps repeated desktop New Tab actions blank while mobile preview offers continue", async () => {
+		const { host, invoke, webContents, setCurrentURL } = setupHost();
+		const { viewId } = await invoke("browser:ensure", "sess-1");
+		await host.startLiveStream("sess-1", 7, liveSink());
+		await host.openLivePreview("sess-1", "http://localhost:4317/index.html");
+		for (let i = 0; i < 3; i++) {
+			await invoke("browser:openTab", { viewId });
+			setCurrentURL("about:blank");
+			webContents.loadURL.mockClear();
+			await host.openLivePreview("sess-1", "http://localhost:4317/index.html");
+			expect(webContents.loadURL).not.toHaveBeenCalled();
+		}
+		await host.stopLiveStream("sess-1", 7);
+		await host.startLiveStream("sess-1", 8, liveSink());
+		webContents.loadURL.mockClear();
+		await host.openLivePreview("sess-1", "http://localhost:4317/index.html");
+		expect(webContents.loadURL).not.toHaveBeenCalled();
+	});
+
+	it("does not seed a blank tab the user opened before the first preview offer", async () => {
+		const { host, invoke, webContents, setCurrentURL } = setupHost();
+		const { viewId } = await invoke("browser:ensure", "sess-1");
+		await invoke("browser:openTab", { viewId });
+		setCurrentURL("about:blank");
+		await host.startLiveStream("sess-1", 7, liveSink());
+		webContents.loadURL.mockClear();
+		await host.openLivePreview("sess-1", "http://localhost:4317/index.html");
+		expect(webContents.loadURL).not.toHaveBeenCalled();
+	});
+
+	it("keeps an explicitly cleared browser empty across mobile reconnects", async () => {
+		const { host, invoke, webContents } = setupHost();
+		const { viewId } = await invoke("browser:ensure", "sess-1");
+		await invoke("browser:clear", viewId);
+		await host.startLiveStream("sess-1", 7, liveSink());
+		webContents.loadURL.mockClear();
+		await host.openLivePreview("sess-1", "http://localhost:4317/index.html");
+		expect(webContents.loadURL).not.toHaveBeenCalled();
+	});
+
+	it("publishes the initial empty state before hidden capture preparation finishes", async () => {
+		const { host, debuggerSendCommand } = setupHost();
+		let finish: ((value: unknown) => void) | undefined;
+		debuggerSendCommand.mockImplementation(async (method) => method === "Page.startScreencast"
+			? new Promise((resolve) => { finish = resolve; }) : {});
+		const sink = liveSink();
+		const starting = host.startLiveStream("sess-1", 7, sink);
+		await vi.waitFor(() => expect(sink.state).toHaveBeenCalledWith(expect.objectContaining({ url: "", width: 1280, height: 720 })));
+		await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+		finish?.({});
+		await starting;
+		await host.stopLiveStream("sess-1", 7);
+	});
+
+	it("never replaces a page that is already open with the session preview", async () => {
+		const { host, setCurrentURL, webContents } = setupHost();
+		await host.startLiveStream("sess-1", 7, liveSink());
+		setCurrentURL("https://example.com/docs");
+		webContents.loadURL.mockClear();
+
+		await host.openLivePreview("sess-1", "http://localhost:4317/index.html");
+		await host.stopLiveStream("sess-1", 7);
+		setCurrentURL("");
+		await host.openLivePreview("sess-1", "http://localhost:4317/index.html");
+
+		expect(webContents.loadURL).not.toHaveBeenCalled();
+	});
+});
 
 describe("browser screenshots", () => {
 	it("copies the active page capture to the system clipboard", async () => {
@@ -965,6 +1201,7 @@ function setupTabHost(
 	loadURLHook?: (viewIndex: number, url: string) => Promise<void>,
 	browserHistoryStore?: BrowserHistoryStore,
 	clearBrowserProfileData = vi.fn(async (_partition: string) => undefined),
+	overrides?: { entryReadyTimeoutMs?: number },
 ) {
 	const constructorOptions: Array<{
 		webPreferences: Electron.WebPreferences;
@@ -1192,6 +1429,7 @@ function setupTabHost(
 		browserProfileStore,
 		browserHistoryStore,
 		clearBrowserProfileData,
+		entryReadyTimeoutMs: overrides?.entryReadyTimeoutMs,
 		onNativeViewAdded,
 		onTabCloseFailure,
 		// Kept only as a regression tripwire: the removed auto-send path used
@@ -2452,6 +2690,57 @@ describe("browser profile partitions and replacement", () => {
 		expect(reconstructed.host.getProfileState(reensured.viewId)).toMatchObject({ profileId: null, temporary: true });
 	});
 
+	it("detaches every idle browser to its own temporary profile while preserving tabs", async () => {
+		const bindings = { "worker-1": profile.id, "worker-2": profile.id };
+		const { host, invoke, constructorOptions } = setupTabHost(fakeBrowserProfileStore(profile, bindings));
+		const first = (await invoke("browser:ensure", "worker-1")) as BrowserNavState;
+		const second = (await invoke("browser:ensure", "worker-2")) as BrowserNavState;
+		await invoke("browser:navigate", { viewId: first.viewId, url: "https://example.com/one" });
+		expect(host.getProfileUsage(profile.id)).toEqual([
+			{ viewId: first.viewId, sessionId: "worker-1", blocker: null },
+			{ viewId: second.viewId, sessionId: "worker-2", blocker: null },
+		]);
+		await host.detachProfile(profile.id);
+		expect(host.isProfileLive(profile.id)).toBe(false);
+		expect(host.getProfileUsage(profile.id)).toEqual([]);
+		expect(bindings).toEqual({ "worker-1": null, "worker-2": null });
+		expect(host.getProfileState(first.viewId)).toMatchObject({ temporary: true });
+		expect(host.getProfileState(second.viewId)).toMatchObject({ temporary: true });
+		const partitions = constructorOptions.slice(2).map((item) => item.webPreferences.partition);
+		expect(new Set(partitions).size).toBe(2);
+		expect(partitions.every((partition) => partition?.startsWith("persist:ao-browser-temporary-"))).toBe(true);
+		expect(await invoke("browser:getTabs", first.viewId)).toMatchObject({ tabs: [expect.objectContaining({ url: "https://example.com/one" })] });
+	});
+
+	it("keeps failed browsers on the named profile and waits for successful switches", async () => {
+		const { host, invoke, runtime } = setupTabHost(fakeBrowserProfileStore(profile, { "worker-1": profile.id, "worker-2": profile.id }));
+		const first = (await invoke("browser:ensure", "worker-1")) as BrowserNavState;
+		const second = (await invoke("browser:ensure", "worker-2")) as BrowserNavState;
+		vi.mocked(runtime.closeSession).mockRejectedValueOnce(new Error("Runtime unavailable"));
+		await expect(host.detachProfile(profile.id)).rejects.toMatchObject({ code: "BROWSER_PROFILE_SWITCH_FAILED", message: expect.stringContaining("profile was kept") });
+		expect(host.getProfileState(first.viewId)?.profileId).toBe(profile.id);
+		expect(host.getProfileState(second.viewId)?.temporary).toBe(true);
+		expect(host.getProfileUsage(profile.id)).toEqual([{ viewId: first.viewId, sessionId: "worker-1", blocker: null }]);
+	});
+
+	it("blocks all detachment before switching any idle browser when an agent is active", async () => {
+		const { host, invoke, runtime } = setupTabHost(fakeBrowserProfileStore(profile, { "worker-1": profile.id, "worker-2": profile.id }));
+		const first = (await invoke("browser:ensure", "worker-1")) as BrowserNavState;
+		await invoke("browser:ensure", "worker-2");
+		let release!: () => void;
+		const pending = new Promise<void>((resolve) => { release = resolve; });
+		vi.mocked(runtime.runAction).mockImplementationOnce(async () => { await pending; return {}; });
+		const command = host.execute("worker-2", "open", { url: "http://localhost:3000/" });
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		try {
+			expect(host.getProfileUsage(profile.id)).toContainEqual(expect.objectContaining({ sessionId: "worker-2", blocker: "agent-active" }));
+			await expect(host.detachProfile(profile.id)).rejects.toMatchObject({ code: "BROWSER_PROFILE_ACTIVE", message: expect.stringContaining("worker-2") });
+			expect(host.getProfileState(first.viewId)?.profileId).toBe(profile.id);
+		} finally { release(); await command; }
+		await host.detachProfile(profile.id);
+		expect(host.isProfileLive(profile.id)).toBe(false);
+	});
+
 	it("uses a stable named partition and restores the durable binding on host reconstruction", async () => {
 		const bindings = { "worker-1": profile.id, "worker-2": profile.id };
 		const store = fakeBrowserProfileStore(profile, bindings);
@@ -2783,6 +3072,75 @@ describe("browser profile partitions and replacement", () => {
 		const { host, invoke } = setupTabHost(store);
 		const nav = (await invoke("browser:ensure", "worker-1")) as BrowserNavState;
 		expect(host.getProfileState(nav.viewId)).toMatchObject({ profileId: null, temporary: true });
+	});
+
+	it("bounds tab readiness so a stuck initial load cannot wedge the session queue", async () => {
+		const store = fakeBrowserProfileStore(profile, { "worker-1": profile.id });
+		let holdLoads = true;
+		const { host, invoke } = setupTabHost(
+			store,
+			false,
+			async () => {
+				if (holdLoads) await new Promise(() => {});
+			},
+			undefined,
+			undefined,
+			{ entryReadyTimeoutMs: 20 },
+		);
+		const nav = (await invoke("browser:ensure", "worker-1")) as BrowserNavState;
+
+		// A native command awaiting tab readiness must fail typed instead of
+		// hanging forever — and keep failing fast, never wedging the queue.
+		await expect(host.execute("worker-1", "snapshot", {})).rejects.toMatchObject({
+			code: "BROWSER_DEVTOOLS_UNAVAILABLE",
+		});
+		await expect(host.execute("worker-1", "snapshot", {})).rejects.toMatchObject({
+			code: "BROWSER_DEVTOOLS_UNAVAILABLE",
+		});
+
+		// Recovery path: once loads settle again, a fresh tab serves commands.
+		holdLoads = false;
+		host.destroy(nav.viewId);
+		await invoke("browser:ensure", "worker-1");
+		await expect(host.execute("worker-1", "snapshot", {})).resolves.toBeTruthy();
+	});
+
+	it("restores readiness when a timed-out initial load later succeeds", async () => {
+		const store = fakeBrowserProfileStore(profile, { "worker-1": profile.id });
+		let release: () => void = () => {};
+		const gate = new Promise<void>((r) => {
+			release = r;
+		});
+		let gatedFirstLoad = true;
+		const { host, invoke } = setupTabHost(
+			store,
+			false,
+			async (_viewIndex, url) => {
+				if (gatedFirstLoad && url === "about:blank") {
+					gatedFirstLoad = false;
+					await gate;
+				}
+			},
+			undefined,
+			undefined,
+			{ entryReadyTimeoutMs: 20 },
+		);
+		await invoke("browser:ensure", "worker-1");
+
+		// The initial about:blank load is stuck past the readiness deadline, so a
+		// command fails typed instead of hanging.
+		await expect(host.execute("worker-1", "snapshot", {})).rejects.toMatchObject({
+			code: "BROWSER_DEVTOOLS_UNAVAILABLE",
+		});
+
+		// The same load then completes: readiness must be restored so the SAME tab
+		// serves commands again, without recreating it.
+		release();
+		await vi.waitFor(async () => {
+			await expect(
+				host.execute("worker-1", "snapshot", {}),
+			).resolves.toBeTruthy();
+		});
 	});
 
 	it("releases profile usage when worker tab startup fails", async () => {
@@ -5812,7 +6170,7 @@ describe("browser snapshot deltas", () => {
 		]);
 	});
 
-	it("forces full state after the agent switches frames", async () => {
+	it("forces full state after the browser switches frames", async () => {
 		const { host, snapshotCalls } = setupDeltaHost(() => full(1));
 
 		await host.execute("sess-1", "snapshot", { delta: true });
@@ -5822,7 +6180,7 @@ describe("browser snapshot deltas", () => {
 		expect(snapshotCalls()[1]).toEqual({ interactive: false, delta: true, full: true });
 	});
 
-	it("forces full state after the agent switches tabs", async () => {
+	it("forces full state after the browser switches tabs", async () => {
 		const { host, snapshotCalls } = setupDeltaHost(() => full(1));
 
 		await host.execute("sess-1", "snapshot", { delta: true });

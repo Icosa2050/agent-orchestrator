@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/kimi"
 	acpdriver "github.com/aoagents/agent-orchestrator/backend/internal/adapters/chatdriver/acp"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -273,5 +274,26 @@ ready:
 		case <-ctx.Done():
 			t.Fatalf("wait for Kimi handshake: %v", ctx.Err())
 		}
+	}
+}
+
+// Kimi maps every AO mode onto one of its session modes except accept-edits,
+// which none of them honors (see sessionMode).
+func TestDriverReportsKimiRunsInEveryModeButAcceptEdits(t *testing.T) {
+	checker, ok := New(kimi.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).(ports.ChatPermissionModeChecker)
+	if !ok {
+		t.Fatal("the Kimi driver does not report which permission modes it runs in")
+	}
+	for _, mode := range []ports.PermissionMode{
+		ports.PermissionModeDefault,
+		ports.PermissionModeAuto,
+		ports.PermissionModeBypassPermissions,
+	} {
+		if !checker.SupportsPermissionMode(mode) {
+			t.Errorf("Kimi refuses %q, which it maps onto a session mode", mode)
+		}
+	}
+	if checker.SupportsPermissionMode(ports.PermissionModeAcceptEdits) {
+		t.Fatal("Kimi accepts accept-edits, which none of its session modes honors")
 	}
 }

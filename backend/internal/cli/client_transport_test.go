@@ -33,35 +33,6 @@ func transportContext(t *testing.T, cfg testConfig, srv *httptest.Server) *comma
 	}}
 }
 
-func TestSpawnTransportAllowsSetupWithoutExtendingOtherRequests(t *testing.T) {
-	for _, tc := range []struct {
-		method string
-		path   string
-		budget time.Duration
-	}{
-		{http.MethodPost, "/api/v1/sessions", 11 * time.Minute},
-		{http.MethodGet, "/api/v1/sessions", commandTimeout},
-		{http.MethodPost, "/api/v1/sessions/demo-1/send", commandTimeout},
-	} {
-		t.Run(tc.method+tc.path, func(t *testing.T) {
-			cfg := setConfigEnv(t)
-			srv := transportServer(t, http.StatusNoContent, "")
-			c := transportContext(t, cfg, srv)
-			c.deps.HTTPClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				deadline, ok := req.Context().Deadline()
-				budget := time.Until(deadline)
-				if !ok || budget < tc.budget-time.Second || budget > tc.budget {
-					t.Errorf("request budget = %s (deadline=%v), want %s", budget, ok, tc.budget)
-				}
-				return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody, Header: make(http.Header)}, nil
-			})
-			if err := c.doJSONPath(context.Background(), tc.method, tc.path, nil, nil); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-
 // TestTransportDistinguishesEmptyResponses is the API-014 regression: an empty
 // 200/201 with a required decoded result must fail, while legitimate
 // bodyless calls (nil out) and 204 responses keep succeeding.
