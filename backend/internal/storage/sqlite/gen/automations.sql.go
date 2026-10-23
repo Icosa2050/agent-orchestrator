@@ -59,7 +59,7 @@ WITH RECURSIVE active_path(branch_id, max_sequence) AS (
     JOIN conversation_branches branch ON branch.id = path.branch_id
     WHERE branch.parent_branch_id IS NOT NULL
 ), latest_user AS (
-    SELECT turn.id, turn.conversation_id, turn.handled_by_session_id, turn.provider_turn_id, turn.controller_generation, turn.state, turn.error_message, turn.requested_at, turn.started_at, turn.completed_at, turn.diff_json, turn.rolled_back_at, turn.plan_json, turn.branch_id, turn.promotion_started_at, turn.promoted_to_turn_id, turn.retry_of_turn_id, turn.handled_by_review_id
+    SELECT turn.id, turn.conversation_id, turn.handled_by_session_id, turn.provider_turn_id, turn.controller_generation, turn.state, turn.error_message, turn.requested_at, turn.started_at, turn.completed_at, turn.diff_json, turn.rolled_back_at, turn.plan_json, turn.branch_id, turn.promotion_started_at, turn.promoted_to_turn_id, turn.retry_of_turn_id, turn.handled_by_review_id, turn.usage_limit_resets_at, turn.usage_limit_auto_resume, turn.usage_limit_resume_error
     FROM conversation_messages message
     JOIN active_path path ON path.branch_id = message.branch_id
     LEFT JOIN conversation_turns turn ON turn.id = message.turn_id
