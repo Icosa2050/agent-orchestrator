@@ -128,6 +128,7 @@ import {
 	ChatHostId,
 } from "./ChatTimelineItems";
 import {
+	FromOrchestrator,
 	isTaskTitleUpdate,
 	isWorkerLead,
 	OrchestratorReply,
@@ -4734,7 +4735,7 @@ function TimelineItem({
 				/>
 			);
 		}
-		return <OriginMessage message={item} />;
+		return <FromOrchestrator item={item}><OriginMessage message={item} /></FromOrchestrator>;
 	}
 	if (item.activityKind === "approval") {
 		// Pending approval owns the composer. Keeping it in the grouping model still
@@ -4755,7 +4756,11 @@ function TimelineItem({
 	// because that is AO's only durable write that can attach to a turn in flight,
 	// but it is the user speaking and the timeline shows it that way.
 	if (isSteer(item)) {
-		return <SteerMessage activity={item} sessionId={sessionId} apiBaseUrl={apiBaseUrl} />;
+		return (
+			<FromOrchestrator item={item}>
+				<SteerMessage activity={item} sessionId={sessionId} apiBaseUrl={apiBaseUrl} />
+			</FromOrchestrator>
+		);
 	}
 	// A plan whose turn AO never correlated — one from before this controller
 	// started. The turn-level checklist cannot show it, so the row carries it.
@@ -5128,6 +5133,12 @@ function groupByTurn(snapshot: ConversationSnapshot): TimelineGroup[] {
 
 	groups.sort((a, b) => a.anchor - b.anchor);
 
+	// A list the agent keeps across turns reaches every later turn as a copy of the
+	// same list. Only the latest copy is current, so only that turn shows it.
+	const currentSpanningPlanTurn = groups.findLast(
+		(group) => group.turnId !== undefined && byTurn.get(group.turnId)?.plan?.spansTurns,
+	)?.turnId;
+
 	for (const group of groups) {
 		if (!group.turnId) continue;
 		const turn = byTurn.get(group.turnId);
@@ -5136,7 +5147,8 @@ function groupByTurn(snapshot: ConversationSnapshot): TimelineGroup[] {
 		// running turn's changed-file list growing, and its checklist ticking itself
 		// off, are the useful parts.
 		group.diff = turn.diff;
-		group.plan = turn.plan?.steps.length ? turn.plan : undefined;
+		const stalePlan = turn.plan?.spansTurns && group.turnId !== currentSpanningPlanTurn;
+		group.plan = turn.plan?.steps.length && !stalePlan ? turn.plan : undefined;
 		group.live = turn.state === "running";
 		group.liveStartedAt = turn.startedAt ?? turn.requestedAt;
 		group.blocked = group.items.some(

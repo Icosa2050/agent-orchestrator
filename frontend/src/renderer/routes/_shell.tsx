@@ -20,7 +20,6 @@ import { GlobalToast } from "../components/GlobalToast";
 import { SettingsPane, SettingsProvider } from "../components/SettingsDialog";
 import { KeyboardShortcutsDialog } from "../components/KeyboardShortcutsDialog";
 import { QuitConfirmDialog } from "../components/QuitConfirmDialog";
-import { KeyboardShortcutsSettingsDialog } from "../components/settings/KeyboardShortcutsSettingsDialog";
 import { ShellTopbar } from "../components/ShellTopbar";
 import { SessionTopbarProvider } from "../components/SessionTopbarPortal";
 import { OrchestratorReplacementDialog } from "../components/OrchestratorReplacementDialog";
@@ -49,6 +48,7 @@ import { resolveCssColorToHex } from "../lib/css-color";
 import { refreshDaemonStatus } from "../lib/daemon-status";
 import { usesPreviewWorkspaceData } from "../lib/preview-mode";
 import { addRendererExceptionStep, captureRendererEvent, captureRendererException } from "../lib/telemetry";
+import { captureProjectAddFailed } from "../lib/project-lifecycle-telemetry";
 import { ShellProvider } from "../lib/shell-context";
 import { restartProjectOrchestrator } from "../lib/restart-orchestrator";
 import { captureOrchestratorReplacementFailure } from "../lib/orchestrator-replacement-telemetry";
@@ -363,7 +363,7 @@ function ShellLayout() {
 	const openShellTerminal = useOpenShellTerminal();
 	// Single subscription for sidebar clearance + drag strip (macOS no-ops inside the hook).
 	const isFullScreen = useWindowFullScreen();
-	useWindowZoomFactor();
+	const windowZoomFactor = useWindowZoomFactor();
 	// Drag is on immediately for a normal windowed launch. After leaving fullscreen,
 	// wait for the pad/height transition so the growing strip cannot steal clicks.
 	const [trafficLightDragActive, setTrafficLightDragActive] = useState(isMac);
@@ -391,10 +391,9 @@ function ShellLayout() {
 	// Seeded to the current value so a mount never opens a terminal unasked.
 	const handledShellNonceRef = useRef(newShellTerminalNonce);
 	const [isKeyboardShortcutsOpen, setIsKeyboardShortcutsOpen] = useState(false);
-	const [isKeyboardShortcutsSettingsOpen, setIsKeyboardShortcutsSettingsOpen] = useState(false);
 	const customizeKeyboardShortcuts = useCallback(() => {
 		setIsKeyboardShortcutsOpen(false);
-		setIsKeyboardShortcutsSettingsOpen(true);
+		useUiStore.getState().openGlobalSettings("shortcuts", { preserveProject: true });
 	}, []);
 	const routeParams = useParams({ strict: false }) as { hostId?: string; projectId?: string; sessionId?: string };
 	const routeParamsRef = useRef(routeParams);
@@ -629,10 +628,6 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 			);
 		}, PROVISIONING_TIMEOUT_MS);
 		try {
-			void captureRendererEvent("ao.renderer.orchestrator_spawn_requested", {
-				project_id: workspace.id,
-				source,
-			});
 			const {
 				data: spawnData,
 				error: spawnError,
@@ -709,6 +704,7 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 			void captureRendererEvent(`ao.renderer.${source}_succeeded`, { project_id: workspace.id });
 			// A pre-create list request must not erase the newly registered project.
 			await queryClient.cancelQueries({ queryKey: workspaceQueryKey });
+			useSidebarOrderStore.getState().moveProjectToTop(workspace.id);
 			updateWorkspaces((current) => [workspace, ...current.filter((item) => item.id !== workspace.id)]);
 			setOrchestratorStartupError(workspace.id, null);
 			setProjectProvisioning(workspace.id, true);
@@ -732,9 +728,13 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 				operation: "project_add",
 				surface: "project_board",
 			});
-			void captureRendererEvent("ao.renderer.project_add_requested");
+			const reportFailure = (code: string | undefined) => captureProjectAddFailed(
+				(event, properties) => { void captureRendererEvent(event, properties); },
+				code,
+			);
 			const status = await refreshDaemonStatus();
 			if (status.state !== "ready" || !status.port) {
+				reportFailure("DAEMON_NOT_READY");
 				throw new Error(status.message || "AO daemon is not ready.");
 			}
 			const { data, error } = await apiClient.POST("/api/v1/projects", {
@@ -744,6 +744,9 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 					clonePreparationId: input.clonePreparationId,
 					config: createProjectConfig(input),
 				},
+			}).catch((requestError: unknown) => {
+				reportFailure("REQUEST_FAILED");
+				throw requestError;
 			});
 			if (error) {
 				const failure = new Error(apiErrorMessage(error)) as Error & {
@@ -791,14 +794,18 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 						return;
 					}
 				}
+				reportFailure(failure.code);
 				void captureRendererException(failure, {
 					source: "project-add",
 					operation: "project_add",
 					surface: "project_board",
-					});
-					throw failure;
+				});
+				throw failure;
 			}
-			if (!data?.project) throw new Error("Project creation returned no project");
+			if (!data?.project) {
+				reportFailure("NO_PROJECT");
+				throw new Error("Project creation returned no project");
+			}
 			await completeProjectCreation(data.project, input, "project_add");
 		},
 		[completeProjectCreation, navigate, provisionOrchestrator, queryClient, setOrchestratorStartupError, setProjectProvisioning, showGlobalToast],
@@ -818,9 +825,12 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 				operation: "project_clone",
 				surface: "project_board",
 			});
-			void captureRendererEvent("ao.renderer.project_clone_requested");
+			const reportFailure = (code: string | undefined) => {
+				void captureRendererEvent("ao.renderer.project_clone_failed", { error_code: code || "unknown" });
+			};
 			const status = await refreshDaemonStatus();
 			if (status.state !== "ready" || !status.port) {
+				reportFailure("DAEMON_NOT_READY");
 				throw new Error(status.message || "AO daemon is not ready.");
 			}
 			const { data, error } = await apiClient.POST("/api/v1/projects/clone", {
@@ -830,6 +840,10 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 					destinationParent: input.destinationParent,
 					config: createProjectConfig(input),
 				},
+			}).catch((requestError: unknown) => {
+				// A clone the user cancelled is not a failure.
+				if (!input.signal?.aborted) reportFailure("REQUEST_FAILED");
+				throw requestError;
 			});
 			if (error) {
 				const failure = new Error(apiErrorMessage(error)) as Error & {
@@ -840,6 +854,7 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 				failure.code = apiErrorCode(error);
 				failure.details = apiErrorDetails(error);
 				failure.requestId = apiErrorRequestId(error);
+				reportFailure(failure.code);
 				void captureRendererException(failure, {
 					source: "project-clone",
 					operation: "project_clone",
@@ -847,7 +862,10 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 				});
 				throw failure;
 			}
-			if (!data?.project) throw new Error("Project clone returned no project");
+			if (!data?.project) {
+				reportFailure("NO_PROJECT");
+				throw new Error("Project clone returned no project");
+			}
 			await completeProjectCreation(data.project, input, "project_clone");
 		},
 		[completeProjectCreation],
@@ -1403,10 +1421,6 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 					onOpenChange={setIsKeyboardShortcutsOpen}
 					onCustomize={customizeKeyboardShortcuts}
 				/>
-				<KeyboardShortcutsSettingsDialog
-					open={isKeyboardShortcutsSettingsOpen}
-					onOpenChange={setIsKeyboardShortcutsSettingsOpen}
-				/>
 				<TerminalCacheProvider
 					daemonReady={daemonStatus.state === "ready"}
 					theme={resolvedTheme}
@@ -1459,7 +1473,6 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 			      cluster above a full-height sidebar; Windows hangs the sidebar
 			      below its custom titlebar. */}
 					<Sidebar
-						hideEdgeBorder={isHomeRoute}
 						underTopbar={isMac || isWindows || isLinux}
 						topbarOffset={isWindows ? "titlebar" : hideShellTopbar ? "trafficLights" : "toolbar"}
 						onCloneProject={cloneProject}
@@ -1548,6 +1561,7 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 					<TitlebarNav
 						historyLocked={isHomeRoute}
 						isFullScreen={isFullScreen}
+						zoomFactor={windowZoomFactor}
 					/>
 				</SidebarProvider>
 				<OrchestratorReplacementDialog
