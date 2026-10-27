@@ -6517,8 +6517,10 @@ func TestSystemPrompt_AppendsArtifactGuidance(t *testing.T) {
 		t.Fatalf("system prompt missing artifact dir %q:\n%s", wantDir, sp)
 	}
 	for _, want := range []string{
-		"Ordinary progress updates, concise final answers, and validation summaries can stay in chat or AO report notes",
-		"working material, not deliverables",
+		"summaries, final answers, and validation results stay in chat or AO report notes",
+		"Everything produced along the way is working material and goes in the system temp directory",
+		"intermediate outputs such as frames or partial renders",
+		"If a file is neither opened on its own nor needed by a deliverable, it is working material.",
 		"does not authorize external publishing",
 	} {
 		if !strings.Contains(sp, want) {
@@ -6529,7 +6531,7 @@ func TestSystemPrompt_AppendsArtifactGuidance(t *testing.T) {
 		t.Fatal("system prompt must not require files for ordinary summaries")
 	}
 	// Only a chat session has a thread to show a page in.
-	const inThread = "it does not belong in the workspace at all. In a chat session, a chart, table, or diagram that answers a question goes in the thread with `html_render`, not into this directory."
+	const inThread = "it is working material.\n\nIn a chat session, a chart, table, or diagram that answers a question goes in the thread with `html_render`, not into this directory.\n\n"
 	if strings.Contains(sp, "html_render") {
 		t.Fatalf("terminal session prompt names html_render:\n%s", sp)
 	}
@@ -12133,5 +12135,18 @@ func TestAOSkillPointerDesktopHostKeepsDesktopGuide(t *testing.T) {
 	}
 	if strings.Contains(pointer, "browser-remote.md") {
 		t.Fatalf("desktop pointer names the remote guide:\n%s", pointer)
+	}
+}
+
+func TestResumeAgent_RuntimeFailureNamesRelaunchStep(t *testing.T) {
+	baseRuntime := &fakeRuntime{aliveByHandle: map[string]bool{"tmux-mer-1": true}}
+	runtime := &fakeRestartRuntime{fakeRuntime: baseRuntime, restartErr: errors.New("respawn failed")}
+	agent := supervisedLaunchAgent{launchArgvAgent{argv: []string{"codex", "resume", "agent-x"}}}
+	m, _, _ := newExitedResumeManager(t, runtime, agent)
+
+	_, err := m.ResumeAgentWithMode(ctx, "mer-1")
+	var relaunchErr *RelaunchError
+	if !errors.As(err, &relaunchErr) || relaunchErr.Step != "runtime" {
+		t.Fatalf("resume error = %v, want RelaunchError step runtime", err)
 	}
 }

@@ -10,6 +10,7 @@ import { useFilesTopbarHost } from "./files-topbar-host";
 import { SessionTopbarProvider } from "./SessionTopbarPortal";
 import { TooltipProvider } from "./ui/tooltip";
 import type { SessionInterfaceTransitionStatus } from "../hooks/useSessionInterfaceTransition";
+import { conversationQueryKey } from "../hooks/useConversation";
 import type { BrowserTabsState, BrowserAgentActivityState } from "../../main/browser-view-host";
 import { inspectorIsOpen, rememberedFileDisplayMode, useUiStore, type InspectorView } from "../stores/ui-store";
 import { useTerminalResetStore } from "../stores/terminal-reset-store";
@@ -128,6 +129,7 @@ vi.mock("../hooks/useCloudCp", () => ({
 }));
 vi.mock("../lib/cloud-cp/stream-bridge", () => ({
 	subscribeSessionEventsBridged: subscribeSessionEventsMock,
+	subscribeSessionLiveBridged: vi.fn(async () => undefined),
 }));
 vi.mock("../hooks/useSessionInterfaceTransition", async (importOriginal) => ({
 	...await importOriginal<typeof import("../hooks/useSessionInterfaceTransition")>(),
@@ -1478,6 +1480,24 @@ describe("SessionView", () => {
 		await waitFor(() => expect(chatViewPostMock.mock.calls.filter(([, input]) => !input.body.active)).toHaveLength(2));
 	});
 
+	it("reloads Chat history on open only while the cached chat is not ready", async () => {
+		workerSession("sess-1").mode = "chat";
+		for (const [state, reloads] of [["ready", 0], ["hibernated", 1]] as const) {
+			let finishView!: (result: { error: undefined }) => void;
+			chatViewPostMock.mockImplementationOnce(() => new Promise((resolve) => { finishView = resolve; }));
+			const view = render(<SessionView sessionId="sess-1" />);
+			view.client.setQueryData(conversationQueryKey("sess-1"), { pages: [{ controller: { state } }], pageParams: [undefined] });
+			const invalidate = vi.spyOn(view.client, "invalidateQueries");
+			await waitFor(() => expect(chatViewPostMock).toHaveBeenCalledTimes(1));
+			await act(async () => { finishView({ error: undefined }); });
+			await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspaces"] }));
+			const conversationReloads = invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === '["conversation","sess-1"]');
+			expect(conversationReloads, state).toHaveLength(reloads);
+			view.unmount();
+			chatViewPostMock.mockClear();
+		}
+	});
+
 	it("releases Chat without waiting for a pending wake and cleans up its late response", async () => {
 		workerSession("sess-1").mode = "chat";
 		let finishWake!: (result: { error: undefined }) => void;
@@ -1967,7 +1987,7 @@ describe("SessionView", () => {
 		expect(useTerminalResetStore.getState().reconnecting["sess-2"]).toBe(true);
 	});
 
-	it("keeps the restored Chat-mode session's loader while its workspace comes back", () => {
+	it("keeps restored cloud Chat startup inside the conversation while its workspace comes back", () => {
 		const session = workerSession("sess-2");
 		session.mode = "chat";
 		session.runtimeConnected = false;
@@ -1981,8 +2001,33 @@ describe("SessionView", () => {
 
 		render(<SessionView sessionId="sess-2" />);
 
-		expect(screen.getByTestId("cloud-session-loader-screen")).toBeInTheDocument();
-		expect(screen.getByTestId("multi-step-loader-step")).not.toHaveTextContent("Connecting your terminal");
+		expect(screen.queryByTestId("cloud-session-loader-screen")).not.toBeInTheDocument();
+		expect(screen.getByTestId("cloud-chat-surface")).toBeInTheDocument();
+	});
+
+	it.each([
+		["worker", "requested", false],
+		["worker", "running", true],
+		["orchestrator", "requested", false],
+		["orchestrator", "provisioning", true],
+		["orchestrator", "bootstrapping", true],
+		["orchestrator", "running", true],
+	] as const)("keeps cloud Chat %s usable with workspace %s and runtime connected %s", (kind, observedState, runtimeConnected) => {
+		const session = workerSession(kind === "orchestrator" ? "sess-orch" : "sess-2");
+		session.mode = "chat";
+		session.runtimeConnected = runtimeConnected;
+		session.cloud = {
+			orgId: "cloud-org",
+			sandboxProvider: "freestyle",
+			desiredState: "running",
+			observedState,
+		};
+
+		render(<SessionView sessionId={session.id} />);
+
+		expect(screen.getByTestId("cloud-chat-surface")).toBeInTheDocument();
+		expect(screen.queryByTestId("cloud-session-loader-screen")).not.toBeInTheDocument();
+		expect(listSessionEventsMock).not.toHaveBeenCalled();
 	});
 
 	it("does not skip agent preparation just because the worker reports running", async () => {
@@ -5536,7 +5581,7 @@ describe("SessionView", () => {
 		}
 	});
 
-	it("opens a requested HTML artifact in the Browser panel", async () => {
+	it("opens a requested HTML artifact in the Artifacts tab", async () => {
 		const worker = workspaces[0].sessions[0];
 		const previewUrl = "http://ao-preview-artifact.abc.localhost:3001/report.html";
 		worker.artifactFiles = [{ kind: "html", name: "report.html", path: "report.html", previewUrl, size: 10, updatedAt: "2026-06-10T00:00:00Z" }];
@@ -5545,13 +5590,9 @@ describe("SessionView", () => {
 
 			render(<SessionView sessionId="sess-1" />);
 
-			await waitFor(() =>
-				expect(chatViewPostMock).toHaveBeenCalledWith("/api/v1/sessions/{sessionId}/preview", {
-					params: { path: { sessionId: "sess-1" } },
-					body: { url: previewUrl },
-				}),
-			);
-			expect(useUiStore.getState().inspectorSessions["sess-1"]?.view).toBe("browser");
+			expect(screen.getByText("selected report.html")).toBeInTheDocument();
+			expect(useUiStore.getState().inspectorSessions["sess-1"]?.view).toBe("artifacts");
+			expect(chatViewPostMock).not.toHaveBeenCalledWith("/api/v1/sessions/{sessionId}/preview", expect.anything());
 			expect(inspectorOpen("sess-1")).toBe(true);
 			expect(useUiStore.getState().workspaceFileOpenRequest).toBeNull();
 		} finally {
