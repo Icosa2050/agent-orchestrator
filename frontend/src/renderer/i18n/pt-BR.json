@@ -3311,7 +3311,7 @@
 	"remote.openTerminalFailed": "Não foi possível abrir o terminal remoto.",
 	"remote.connectionDescription": "Conecte-se ao AO em outra máquina. Use uma rede privada confiável.",
 	"remote.aoCloud": "AO Cloud",
-	"remote.signInDescription": "Entre para conectar hosts remotos.",
+	"remote.signInDescription": "Adicione hosts manualmente sem uma conta. Se quiser, entre para descobrir os hosts vinculados à sua conta AO.",
 	"remote.enable": "Conectar a hosts remotos",
 	"remote.enableDescription": "Mostra projetos e sessões. Desativar desconecta este cliente, mas as sessões continuam nos hosts.",
 	"remote.thisComputer": "Este computador",

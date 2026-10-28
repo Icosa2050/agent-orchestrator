@@ -3232,7 +3232,7 @@
 	"remote.openTerminalFailed": "Could not open the remote terminal.",
 	"remote.connectionDescription": "Connect to AO running on another machine. Use a trusted private network or an optional Cloudflare tunnel. Cloudflare can read tunneled traffic.",
 	"remote.aoCloud": "AO Cloud",
-	"remote.signInDescription": "Sign in to connect remote hosts.",
+	"remote.signInDescription": "Add hosts manually without an account. Sign in optionally to discover hosts linked to your AO account.",
 	"remote.enable": "Connect to remote hosts",
 	"remote.enableDescription": "Show their projects and sessions. Turning this off disconnects this client, but sessions keep running on the hosts.",
 	"remote.thisComputer": "This computer",

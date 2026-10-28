@@ -1,7 +1,7 @@
 # Self-hosted remote hosts (experimental)
 
 Sessions stay on the machine that started them. Desktop and mobile are clients.
-AO account sign-in is required for desktop remote hosts; Cloud sandbox execution is separate.
+Manual desktop pairing works without an AO account. Signing in optionally discovers account-linked hosts; Cloud sandbox execution is separate.
 
 ## Install on Ubuntu
 
@@ -64,21 +64,27 @@ gh auth status
 
 Pairing does not copy GitHub credentials from your laptop.
 
-1. On one laptop, turn on **Developer mode** in **Settings → General** and sign
-   in to AO Cloud. In **Settings → Remote hosts**, add the VM's name, exact
-   `Address:` and `Password:`. Alternatively, sign in on mobile under
-   **Settings → Account** and pair it once under **Settings → Machines**.
-2. Sign in to the same AO account on your other laptops and phones. Hosts,
-   projects, and sessions load automatically; enable **Developer mode** on each
-   desktop client. A running client may take up to 30 seconds to find a newly
-   linked host.
+1. In desktop **Settings → Remote hosts**, add the VM's name, exact
+   `Address:` and `Password:`. No AO account is required. Enable **Connect to
+   remote hosts** to reconnect saved machines automatically.
+2. Manual pairings stay on this desktop, including when you are signed in.
+   Adding or editing a manual host does not upload its credential or link it to
+   AO Cloud. To discover account-linked machines, optionally sign in to AO;
+   discovery refreshes about every 30 seconds. To share a computer through your
+   account, sign in on that computer and use **Allow access from your devices**.
 3. Use **Projects +** to clone or import a project on the VM. In desktop
    **Settings → Harness**, select the VM to install/sign in to an agent there.
 
-The host publishes a changed quick-tunnel address to AO Cloud automatically.
-Desktop connections saved before account linking keep their original pairing
-password and are not attributed to whichever account signs in next. Re-pair
-only if you want to replace that local credential with an account-scoped one.
+Account-linked records remain scoped to their owner and are unavailable after
+sign-out. Existing account-owned pairings are not silently converted to local
+credentials. To make one local, explicitly add it again while signed into its
+owning account with the host's connection password. Legacy records without an
+account owner remain local.
+
+Cloud discovery does not overwrite or prune manual pairings. If a manually
+configured quick-tunnel address changes, edit its saved address yourself, or use
+a stable reachable LAN/VPN address. Account-linked hosts can publish changed
+tunnel addresses automatically.
 
 ## Status and other hosts
 

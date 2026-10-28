@@ -45,19 +45,18 @@ it("does not connect to saved boxes until Remote hosts is enabled", async () => 
 	expect(remotes.connect).not.toHaveBeenCalled();
 });
 
-it("requires AO sign-in and disconnects remote hosts on sign-out", async () => {
+it("connects manual hosts while signed out and reconnects them after sign-out", async () => {
 	useUiStore.setState({ remoteHosts: true });
 	account.status = "unauthenticated";
 	const { result, rerender } = renderHook(() => useRemoteHosts());
-	expect(result.current.hosts).toEqual([]);
-	expect(remotes.list).not.toHaveBeenCalled();
+	await waitFor(() => expect(result.current.hosts).toHaveLength(2));
 	account.status = "authenticated";
 	rerender();
-	await waitFor(() => expect(result.current.hosts).toHaveLength(2));
+	await waitFor(() => expect(result.current.hosts.every((host) => host.status === "connected")).toBe(true));
 	account.status = "unauthenticated";
 	rerender();
-	await waitFor(() => expect(result.current.hosts).toEqual([]));
-	expect(connectedHosts()).toEqual([]);
+	await waitFor(() => expect(result.current.hosts).toHaveLength(2));
+	await waitFor(() => expect(connectedHosts()).toHaveLength(2));
 });
 
 it("connects both saved boxes and exposes their stable IDs", async () => {

@@ -13,10 +13,11 @@ export type RemoteHostView = {
 	hostId: string;
 	label: string;
 	url: string;
+	accountLinked?: boolean;
 };
 
 export function toHostViews(entries: RemoteEntry[]): RemoteHostView[] {
-	return entries.map(({ hostId, label, url }) => ({ hostId: hostId ?? "", label, url }));
+	return entries.map(({ hostId, label, url, accountUserId }) => ({ hostId: hostId ?? "", label, url, ...(accountUserId ? { accountLinked: true } : {}) }));
 }
 
 export async function findRemote(path: string, url: string, hostId?: string): Promise<RemoteEntry> {

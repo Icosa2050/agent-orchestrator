@@ -236,17 +236,85 @@ describe("registerRemotesIpc", () => {
 		expect(start).not.toHaveBeenCalled();
 	});
 
-	it("rejects remote-host access before sign-in without reading saved hosts", async () => {
+	it("pairs, lists, connects, edits and removes a local host while signed out", async () => {
 		const file = await tempFile();
-		const registry = new RemoteRegistry(async () => { throw new Error("proxy must not start"); });
 		const ipc = fakeIpc();
-		const requireAccount = vi.fn(async () => { throw new Error("Sign in to AO Cloud to use remote hosts."); });
-		registerRemotes(ipc.ipcMain, { file, registry, requireAccount });
-		await expect(ipc.invoke("remotes:list")).rejects.toThrow(/Sign in to AO Cloud/);
-		await expect(ipc.invoke("remotes:connect", "http://192.0.2.1:1")).rejects.toThrow(/Sign in to AO Cloud/);
-		await expect(ipc.invoke("remotes:previewUrl", "h_workbox", "s_1", "http://localhost:3000")).rejects.toThrow(/Sign in to AO Cloud/);
-		await expect(ipc.invoke("remotes:externalUrl", "h_workbox", "https://example.com/")).rejects.toThrow(/Sign in to AO Cloud/);
-		expect(requireAccount).toHaveBeenCalledTimes(4);
+		const requireAccount = vi.fn(async () => { throw new Error("Sign in to AO Cloud"); });
+		const close = vi.fn(async () => {});
+		const start = vi.fn(async () => ({ base: "http://127.0.0.1:5000/token", previewUrl: (_sessionId: string, url: string) => url, resolvePreviewUrl: (_sessionId: string, url: string) => url, agentBrowserUrl: async () => "browser", isAgentBrowserUrl: () => false, externalUrl: (url: string) => url, close }));
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(start), requireAccount, getAccountId: async () => "", identity: async () => "h_local", probe: async () => "online" });
+		await expect(ipc.invoke("remotes:list")).resolves.toEqual([]);
+		await expect(ipc.invoke("remotes:add", { label: "Mini", url: "http://mini:3011", password: "secret", accountUserId: "injected" })).resolves.toBe("online");
+		await expect(ipc.invoke("remotes:list")).resolves.toEqual([{ hostId: "h_local", label: "Mini", url: "http://mini:3011" }]);
+		expect(JSON.parse(await readFile(file, "utf8")).remotes.find((r: {hostId: string}) => r.hostId === "h_local")).not.toHaveProperty("accountUserId");
+		await expect(ipc.invoke("remotes:connect", "http://mini:3011")).resolves.toMatchObject({ hostId: "h_local" });
+		await expect(ipc.invoke("remotes:previewUrl", "h_local", "s_1", "http://localhost:3000")).resolves.toBe("http://localhost:3000");
+		await expect(ipc.invoke("remotes:resolvePreviewUrl", "h_local", "s_1", "http://localhost:3000")).resolves.toBe("http://localhost:3000");
+		await expect(ipc.invoke("remotes:agentBrowserUrl", "h_local", "s_1")).resolves.toBe("browser");
+		await expect(ipc.invoke("remotes:externalUrl", "h_local", "https://example.com")).resolves.toBe("https://example.com");
+		await expect(ipc.invoke("remotes:update", "http://mini:3011", { label: "Office", accountUserId: "injected" })).resolves.toBe("online");
+		await ipc.invoke("remotes:remove", "http://mini:3011");
+		await expect(ipc.invoke("remotes:list")).resolves.toEqual([]);
+		expect(requireAccount).not.toHaveBeenCalled();
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it.each(["", "another-account"])("keeps account-owned hosts inaccessible for account %s, including stale previews", async (account) => {
+		const file = await tempFile();
+		const registry = new RemoteRegistry(async () => ({ base: "http://127.0.0.1:5000/token", previewUrl: () => "leak", resolvePreviewUrl: () => "leak", agentBrowserUrl: async () => "leak", isAgentBrowserUrl: () => false, externalUrl: () => "leak", close: async () => {} }));
+		await registry.connect({hostId: "h_workbox", label: "workbox", url: "http://192.0.2.1:1", password: "old"});
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry, requireAccount: signedIn, getAccountId: async () => account });
+		await expect(ipc.invoke("remotes:list")).resolves.toEqual([]);
+		for (const channel of ["remotes:connect", "remotes:remove", "remotes:update"]) {
+			await expect(ipc.invoke(channel, "http://192.0.2.1:1", {})).rejects.toThrow(/account/i);
+		}
+		for (const channel of ["remotes:previewUrl", "remotes:resolvePreviewUrl", "remotes:externalUrl", "remotes:agentBrowserUrl"]) {
+			await expect(ipc.invoke(channel, "h_workbox", "s_1", "https://example.com")).rejects.toThrow(/account/i);
+		}
+	});
+
+	it("does not convert an account pairing to local after sign-out during the final lookup", async () => {
+		const file = await tempFile();
+		const original = await readFile(file, "utf8");
+		let account = TEST_ACCOUNT;
+		let calls = 0;
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, {
+			file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn,
+			getAccountId: async () => { const value = account; if (++calls === 4) account = ""; return value; },
+			identity: async () => "h_workbox", probe: async () => "online",
+		});
+		await expect(ipc.invoke("remotes:add", {label: "Local", url: "http://192.0.2.1:1", password: "new"})).rejects.toThrow(/Account changed/);
+		expect(await readFile(file, "utf8")).toBe(original);
+	});
+
+	it("keeps new manual pairings local even while signed in", async () => {
+		const file = await tempFile();
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, identity: async () => "h_local", probe: async () => "online" });
+		await ipc.invoke("remotes:add", { label: "Mini", url: "https://mini.example", password: "secret" });
+		expect(JSON.parse(await readFile(file, "utf8")).remotes.find((r: {hostId: string}) => r.hostId === "h_local")).not.toHaveProperty("accountUserId");
+	});
+
+	it("does not let cloud discovery rewrite or prune a local host with a hex password", async () => {
+		const file = await tempFile();
+		const local = {hostId: "h_local", label: "Mini", url: "https://mini.example", password: "a".repeat(64)};
+		await writeFile(file, JSON.stringify({remotes: [local]}));
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn });
+		await ipc.invoke("remotes:importAccountHost", TEST_ACCOUNT, {...local, label: "Cloud", url: "https://cloud.example", password: "b".repeat(64)});
+		await ipc.invoke("remotes:pruneAccountHosts", TEST_ACCOUNT, []);
+		expect(JSON.parse(await readFile(file, "utf8")).remotes).toEqual([local]);
+	});
+
+	it.each(["identity", "address"])("refuses account imports colliding by %s with another owner's host", async (collision) => {
+		const file = await tempFile();
+		const before = await readFile(file, "utf8");
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, {file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, getAccountId: async () => "other"});
+		await expect(ipc.invoke("remotes:importAccountHost", "other", {hostId: collision === "identity" ? "h_workbox" : "h_new", label: "Other", url: collision === "address" ? "http://192.0.2.1:1" : "https://other.example", password: "b".repeat(64)})).rejects.toThrow(/account/i);
+		expect(await readFile(file, "utf8")).toBe(before);
 	});
 
 	it("saves the observed host ID and authenticates only after the identity probe", async () => {
@@ -373,7 +441,7 @@ describe("registerRemotesIpc", () => {
 	it("lists hosts without their passwords", async () => {
 		const ipc = fakeIpc();
 		registerRemotes(ipc.ipcMain, { file: await tempFile(), registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn });
-		await expect(ipc.invoke("remotes:list")).resolves.toEqual([{ hostId: "h_workbox", label: "workbox", url: "http://192.0.2.1:1" }]);
+		await expect(ipc.invoke("remotes:list")).resolves.toEqual([{ hostId: "h_workbox", label: "workbox", url: "http://192.0.2.1:1", accountLinked: true }]);
 	});
 
 	it("saves a new host only after it answers as a daemon", async () => {
@@ -421,17 +489,17 @@ describe("registerRemotesIpc", () => {
 		});
 		await ipc.invoke("remotes:importAccountHost", "user-a", { hostId: "h_cloud", label: "Cloud", url: "https://cloud.example", password: "a".repeat(64) });
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_manual", label: "Manual", url: "https://manual.example" },
-			{ hostId: "h_cloud", label: "Cloud", url: "https://cloud.example" },
+			{ hostId: "h_manual", label: "Manual", url: "https://manual.example", accountLinked: true },
+			{ hostId: "h_cloud", label: "Cloud", url: "https://cloud.example", accountLinked: true },
 		]);
 		await ipc.invoke("remotes:pruneAccountHosts", "user-a", []);
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_manual", label: "Manual", url: "https://manual.example" },
+			{ hostId: "h_manual", label: "Manual", url: "https://manual.example", accountLinked: true },
 		]);
 		account = "user-b";
 		await expect(ipc.invoke("remotes:importAccountHost", "user-a", { hostId: "h_leak", label: "Leak", url: "https://leak.example", password: "a".repeat(64) })).rejects.toThrow(/Invalid account/);
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_other", label: "Other", url: "https://other.example" },
+			{ hostId: "h_other", label: "Other", url: "https://other.example", accountLinked: true },
 		]);
 	});
 
@@ -450,7 +518,7 @@ describe("registerRemotesIpc", () => {
 			hostId: "h_legacy", label: "Discovered", url: "https://new.example", password: "a".repeat(64),
 		});
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_legacy", label: "Discovered", url: "https://new.example" },
+			{ hostId: "h_legacy", label: "Old", url: "https://old.example" },
 		]);
 		const saved = JSON.parse(await readFile(file, "utf8")) as { remotes: Array<{ password: string }> };
 		expect(saved.remotes[0]?.password).toBe("pairing-password");

@@ -3250,7 +3250,7 @@
 	"remote.openTerminalFailed": "リモートターミナルを開けませんでした。",
 	"remote.connectionDescription": "別のマシンで動作する AO に接続します。信頼できるプライベートネットワークを使用してください。",
 	"remote.aoCloud": "AO Cloud",
-	"remote.signInDescription": "リモートホストに接続するにはサインインしてください。",
+	"remote.signInDescription": "アカウントなしでホストを手動追加できます。AOアカウントにリンクされたホストを検出する場合は、サインインしてください。",
 	"remote.enable": "リモートホストに接続",
 	"remote.enableDescription": "プロジェクトとセッションを表示します。オフにするとこのクライアントは切断されますが、ホスト上のセッションは継続します。",
 	"remote.thisComputer": "このコンピューター",

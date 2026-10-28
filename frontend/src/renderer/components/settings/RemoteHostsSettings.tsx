@@ -6,7 +6,7 @@ import { disconnectHost } from "../../lib/host-clients";
 import { requestRemoteHostsRefresh } from "../../hooks/useRemoteHosts";
 import { useCloudLocalAuth } from "../../hooks/useCloudLocalAuth";
 import { useCloudSession } from "../../lib/cloud-session";
-import { deleteAccountRemoteHost, saveAccountRemoteHost } from "../../lib/account-remote-hosts";
+import { deleteAccountRemoteHost } from "../../lib/account-remote-hosts";
 import { useSettings } from "../../hooks/useSettings";
 import { useLocalSignInDialogStore } from "../../stores/local-signin-dialog-store";
 import { useUiStore } from "../../stores/ui-store";
@@ -18,7 +18,7 @@ import { SettingsRow } from "./SettingsRow";
 import { SettingsSection } from "./SettingsSection";
 import { ThisComputerAccess } from "./ThisComputerAccess";
 
-type SavedHost = { hostId: string; label: string; url: string };
+type SavedHost = { hostId: string; label: string; url: string; accountLinked?: boolean };
 
 /** Row actions are quiet: ghost, muted until hovered. */
 const GHOST_ACTION = "text-settings-muted hover:text-settings-label";
@@ -27,7 +27,8 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	const { t } = useTranslation();
 	const enabled = useUiStore((state) => state.remoteHosts);
 	const setEnabled = useUiStore((state) => state.setRemoteHosts);
-	const { status, signIn } = useCloudSession();
+	const { status, session, signIn } = useCloudSession();
+	const accountContext = status === "authenticated" ? session?.user.id ?? status : status;
 	const { settings } = useSettings();
 	const cloudBaseUrl = settings?.cloudControlPlaneUrl ?? "";
 	const { available: localAuthAvailable } = useCloudLocalAuth();
@@ -46,24 +47,44 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	const [removeError, setRemoveError] = useState("");
 	const formRef = useRef<HTMLFormElement>(null);
 
+	const [savedAccount, setSavedAccount] = useState(accountContext);
+	const loadGeneration = useRef(0);
+	// Reset during render so a new account never paints the previous account's
+	// names, addresses, or pending form/removal state, even if reload fails.
+	if (savedAccount !== accountContext) {
+		setSavedAccount(accountContext);
+		loadGeneration.current++;
+		setSaved((hosts) => hosts.filter((host) => !host.accountLinked));
+		setEditing(null);
+		setLabel("");
+		setUrl("");
+		setPassword("");
+		setFormError("");
+		setConfirmingRemoval(null);
+		setRemoveError("");
+		setLoadError("");
+	}
+
 	const load = async () => {
+		const generation = ++loadGeneration.current;
 		setLoading(true);
 		setLoadError("");
 		try {
-			setSaved(await aoBridge.remotes.list());
+			const hosts = await aoBridge.remotes.list();
+			if (generation === loadGeneration.current) setSaved(hosts);
 		} catch (cause) {
-			setLoadError(cause instanceof Error ? cause.message : t("remote.loadHostsFailed"));
+			if (generation === loadGeneration.current) setLoadError(cause instanceof Error ? cause.message : t("remote.loadHostsFailed"));
 		} finally {
-			setLoading(false);
+			if (generation === loadGeneration.current) setLoading(false);
 		}
 	};
 
 	useEffect(() => {
-		if (status === "authenticated") void load();
-		else setSaved([]);
+		void load();
+		return () => { loadGeneration.current++; };
 		// The bridge is fixed for the lifetime of this Settings page.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [status]);
+	}, [accountContext]);
 
 	const resetForm = () => {
 		setEditing(null);
@@ -95,11 +116,7 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 			if (health === "incompatible") throw new Error(t("remote.hostIncompatible"));
 			if (editing?.hostId) await disconnectHost(editing.hostId);
 			if (editing && !editing.hostId && editing.url !== nextUrl) await aoBridge.remotes.remove(editing.url);
-			const current = (await aoBridge.remotes.list()).find((item) => item.url === nextUrl);
-			if (current?.hostId && cloudBaseUrl) {
-				const token = await aoBridge.remotes.issueAccountToken(current.url);
-				await saveAccountRemoteHost(cloudBaseUrl, { hostId: current.hostId, label: current.label, url: current.url, token });
-			}
+
 			await load();
 			resetForm();
 			if (!enabled) setEnabled(true);
@@ -116,7 +133,7 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 		setRemoveBusy(true);
 		setRemoveError("");
 		try {
-			if (confirmingRemoval.hostId && cloudBaseUrl) await deleteAccountRemoteHost(cloudBaseUrl, confirmingRemoval.hostId);
+			if (confirmingRemoval.accountLinked && status === "authenticated" && confirmingRemoval.hostId && cloudBaseUrl) await deleteAccountRemoteHost(cloudBaseUrl, confirmingRemoval.hostId);
 			await aoBridge.remotes.remove(confirmingRemoval.url);
 			if (confirmingRemoval.hostId) await disconnectHost(confirmingRemoval.hostId);
 			await load();
@@ -129,15 +146,6 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 		}
 	};
 
-	if (status !== "authenticated") return (
-		<SettingsSection title={t("settings.remoteHosts")} sectionId="remoteHosts" titleHidden={titleHidden} grouped>
-			<SettingsRow label={t("remote.aoCloud")} description={t("remote.signInDescription")}>{status === "unauthenticated" ? (
-				<Button className={GHOST_ACTION} onClick={() => localAuthAvailable ? openLocalSignIn() : signIn()} size="sm" type="button" variant="ghost">
-					{t("shell.signIn")}
-				</Button>
-			) : null}</SettingsRow>
-		</SettingsSection>
-	);
 
 	return <>
 		<SettingsSection title={t("settings.remoteHosts")} sectionId="remoteHosts" titleHidden={titleHidden} grouped>
@@ -154,7 +162,12 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 			</SettingsRow>
 		</SettingsSection>
 
-		<ThisComputerAccess />
+		<SettingsSection title={t("remote.aoCloud")} grouped>
+			<SettingsRow label={t("remote.aoCloud")} description={t("remote.signInDescription")}>
+				{status === "unauthenticated" ? <Button className={GHOST_ACTION} onClick={() => localAuthAvailable ? openLocalSignIn() : signIn()} size="sm" type="button" variant="ghost">{t("shell.signIn")}</Button> : null}
+			</SettingsRow>
+		</SettingsSection>
+		{status === "authenticated" ? <ThisComputerAccess /> : null}
 
 		<SettingsSection title={t("remote.savedHosts")} grouped>
 			{loading && saved.length === 0 ? <div className="settings-row-bar text-sm text-settings-muted" role="status">{t("remote.loadingHosts")}</div> : null}

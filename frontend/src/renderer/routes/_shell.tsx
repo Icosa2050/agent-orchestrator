@@ -428,8 +428,8 @@ function ShellLayout() {
 	const remoteHostsEnabled = useUiStore((state) => state.remoteHosts);
 	const { status: accountStatus, session: cloudAccount } = useCloudSession();
 	useEffect(() => {
-		if ((!remoteHostsEnabled || accountStatus === "unauthenticated") && routeParams.hostId) void navigate({ to: "/", replace: true });
-	}, [accountStatus, navigate, remoteHostsEnabled, routeParams.hostId]);
+		if (!remoteHostsEnabled && routeParams.hostId) void navigate({ to: "/", replace: true });
+	}, [navigate, remoteHostsEnabled, routeParams.hostId]);
 	useCloudAccountSwitchReset({
 		userId: cloudAccount?.user.id ?? null,
 		ready: accountStatus !== "loading",

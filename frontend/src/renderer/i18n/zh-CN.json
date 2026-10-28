@@ -3232,7 +3232,7 @@
 	"remote.openTerminalFailed": "无法打开远程终端。",
 	"remote.connectionDescription": "连接另一台机器上运行的 AO。请使用可信的专用网络。",
 	"remote.aoCloud": "AO Cloud",
-	"remote.signInDescription": "登录以连接远程主机。",
+	"remote.signInDescription": "无需账号即可手动添加主机。您也可以选择登录，以发现关联到 AO 账号的主机。",
 	"remote.enable": "连接远程主机",
 	"remote.enableDescription": "显示远程项目和会话。关闭后，此客户端会断开连接，但主机上的会话会继续运行。",
 	"remote.thisComputer": "这台电脑",
