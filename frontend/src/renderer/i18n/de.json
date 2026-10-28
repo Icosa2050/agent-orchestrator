@@ -3261,7 +3261,7 @@
 	"remote.openTerminalFailed": "Das Remote-Terminal konnte nicht geöffnet werden.",
 	"remote.connectionDescription": "Mit AO auf einem anderen Computer verbinden. Verwenden Sie ein vertrauenswürdiges privates Netzwerk.",
 	"remote.aoCloud": "AO Cloud",
-	"remote.signInDescription": "Melden Sie sich an, um Remote-Hosts zu verbinden.",
+	"remote.signInDescription": "Fügen Sie Hosts manuell ohne Konto hinzu. Melden Sie sich optional an, um mit Ihrem AO-Konto verknüpfte Hosts zu finden.",
 	"remote.enable": "Mit Remote-Hosts verbinden",
 	"remote.enableDescription": "Zeigt ihre Projekte und Sitzungen an. Ausschalten trennt diesen Client; Sitzungen laufen auf den Hosts weiter.",
 	"remote.thisComputer": "Dieser Computer",

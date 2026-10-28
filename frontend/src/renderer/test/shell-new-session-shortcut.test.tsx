@@ -10,6 +10,7 @@ import type { WorkspaceSummary } from "../types/workspace";
 
 const shellMocks = vi.hoisted(() => {
 	const state = {
+		accountStatus: "authenticated" as "authenticated" | "unauthenticated",
 		newSessionListener: undefined as (() => void) | undefined,
 		keyboardShortcutsListener: undefined as (() => void) | undefined,
 		quitConfirmListener: undefined as ((request: { keepsRunning: boolean }) => void) | undefined,
@@ -201,7 +202,7 @@ vi.mock("../lib/host-clients", () => ({
 }));
 
 vi.mock("../lib/cloud-session", () => ({
-	useCloudSession: () => ({ status: "authenticated", session: { user: { id: "test-user" } } }),
+	useCloudSession: () => ({ status: shellMocks.state.accountStatus, session: shellMocks.state.accountStatus === "authenticated" ? { user: { id: "test-user" } } : null }),
 }));
 vi.mock("../hooks/useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: "" } }) }));
 
@@ -408,6 +409,7 @@ function emitShortcut() {
 }
 
 beforeEach(() => {
+	shellMocks.state.accountStatus = "authenticated";
 	// The shell remembers the last project for ⌘N outside one; start each test clean.
 	window.localStorage.removeItem("ao.newTask.lastProject");
 	shellMocks.navigate.mockReset();
@@ -1530,4 +1532,12 @@ describe("shell taskbar-icon folder drop subscription", () => {
 		expect(useUiStore.getState().folderDropRequest).toEqual({ nonce: 1, path: "/dropped-on-icon/my-project" });
 		expect(screen.getByTestId("create-project-flow")).toHaveAttribute("data-path", "/dropped-on-icon/my-project");
 	});
+});
+
+ it("keeps a manually connected remote route open while signed out", async () => {
+	shellMocks.state.accountStatus = "unauthenticated";
+	shellMocks.state.routeParams = {hostId: "host-a", projectId: "remote-proj", sessionId: "session-a"};
+	useUiStore.setState({remoteHosts: true});
+	await renderShell();
+	expect(shellMocks.navigate).not.toHaveBeenCalledWith({to: "/", replace: true});
 });
