@@ -50,7 +50,9 @@ frontend/src/main/telemetry-identity
 frontend/src/main/sentry-main
 frontend/src/shared/sentry-config
 frontend/src/main.ts
-backend/internal/httpd/lan_listener
+backend/internal/httpd/lan_
+backend/internal/httpd/mobile_connect
+backend/internal/httpd/auth_test.go
 backend/internal/httpd/controllers/mobile
 backend/internal/cli/remote_host
 backend/internal/daemon/remote_host_directory

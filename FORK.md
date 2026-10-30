@@ -24,10 +24,13 @@ are no blind syncs.
 | Manual remote-host pairing and connection **without an AO Cloud account** (fork #14). The `remotes:list/add/update/remove/connect/disconnect` IPC handlers must not call `requireAccount` or need an account id. Only `remotes:importAccountHost`, `remotes:pruneAccountHosts` and `remotes:issueAccountToken` may require one. | `frontend/src/main/remotes-main.ts`, `remotes-ipc.ts`, `remotes-store.ts`, `frontend/src/renderer/components/settings/RemoteHostsSettings.tsx`, `components/RemoteHostsSection.tsx`, `hooks/useRemoteHosts.ts`, `lib/account-remote-hosts.ts`, `routes/_shell.tsx`, `docs/self-hosted-remote.md` | `remotes-main.test.ts`, `remotes-ipc.test.ts`, `remotes-store.test.ts`, `RemoteHostsSettings.test.tsx`, `RemoteHostsSection.test.tsx`, `useRemoteHosts.test.tsx`, `useRemoteHosts.self.test.tsx` |
 | Local credentials stay local. `~/.ao/remotes.json` entries without `accountUserId` are manual pairings: they are never uploaded, never issued account tokens and never pruned by cloud import. | `frontend/src/main/remotes-main.ts`, `remotes-store.ts` | as above |
 | Desktop remote proxy, including the HTTP/2 destroyed-session fix (fork #17). | `frontend/src/main/remote-proxy.ts` | `remote-proxy.test.ts` |
-| LAN listener: `ao remote-host enable/disable/status`, port 3011, LAN-only mode without a public tunnel. | `backend/internal/httpd/lan_listener.go`, `backend/internal/httpd/controllers/mobile*.go`, `backend/internal/cli/remote_host.go`, `backend/internal/daemon/remote_host_directory.go`, `backend/internal/mobilebridge/` (`DefaultPort = 3011`) | `go test` on `./internal/httpd` (`TestLAN*`, `TestMobileLAN*`), `./internal/httpd/controllers` (`TestLANOnly*`, `TestTunnelOnly*`), `./internal/cli` (`TestRemoteHost*`), `./internal/daemon` (`TestPublishRemoteHost*`), `./internal/mobilebridge` |
+| LAN listener: `ao remote-host enable/disable/status`, port 3011, LAN-only mode without a public tunnel. | `backend/internal/httpd/lan_listener.go`, `backend/internal/httpd/controllers/mobile*.go`, `backend/internal/cli/remote_host.go`, `backend/internal/daemon/remote_host_directory.go`, `backend/internal/mobilebridge/` (`DefaultPort = 3011`) | `go test` on `./internal/httpd` (`TestLAN*`, `TestMobileLAN*`; in `lan_*_test.go`, `auth_test.go`, `mobile_connect_telemetry_test.go`), `./internal/httpd/controllers` (`TestLANOnly*`, `TestTunnelOnly*`, `TestMobileStatus*`), `./internal/cli` (`TestRemoteHost*`), `./internal/daemon` (`TestPublishRemoteHost*`), `./internal/mobilebridge` |
 | Sign-in-free use, plus ssh and CLI control of a host: the daemon and `ao` CLI work with no account. | whole app; watch new `requireAccount`/`requireSignIn` gates | guard: gating sections |
 | Telemetry opt-out: the `telemetry_opt_out` marker file next to the install id must keep stopping export. | `backend/internal/adapters/telemetry/optout.go`, `identity.go`, `frontend/src/main/telemetry-identity.ts` | `TestOptOut*` in `./internal/adapters/telemetry`, `telemetry-identity.test.ts` |
 | Sentry DSNs stay empty in dev builds. Production defaults may only be used when `isDev` is false, and `AO_SENTRY_DSN=""` / `AO_ELECTRON_SENTRY_DSN=""` must keep disabling them. | `frontend/src/shared/sentry-config.ts`, `frontend/src/main/sentry-main.ts`, `frontend/src/main.ts`, `backend/internal/config/config.go`, `backend/internal/observe/sentryobs/` | `sentry-config.test.ts`, `sentry-main.test.ts` |
+
+All of these run through `scripts/fork/protected-tests.sh`, which holds the
+file list and a minimum test count per file or `go test` selection.
 
 The guard also flags, for review: new outbound `https://`/`wss://` endpoints,
 telemetry/Sentry/PostHog defaults (DSNs, API keys), new account or cloud
@@ -73,20 +76,12 @@ git show <commit> -- <flagged path>
 git switch -c sync/upstream-$(date +%F) origin/main
 git merge --no-ff upstream/main
 
-# 4. Re-run the guard on the merge result and run the protected tests.
+# 4. Re-run the guard on the merge result and run the protected tests. The test
+#    script fails when a protected test fails, or when a listed test file or go
+#    test selection disappears or drops below its floor.
 scripts/fork/upstream-guard.sh origin/main..HEAD
-(cd frontend && npm ci --ignore-scripts && npx vitest run --config vite.renderer.config.ts \
-  src/main/remotes-main.test.ts src/main/remotes-ipc.test.ts src/main/remotes-store.test.ts \
-  src/main/remote-proxy.test.ts src/renderer/components/settings/RemoteHostsSettings.test.tsx \
-  src/renderer/components/RemoteHostsSection.test.tsx src/renderer/hooks/useRemoteHosts.test.tsx \
-  src/renderer/hooks/useRemoteHosts.self.test.tsx src/shared/sentry-config.test.ts \
-  src/main/sentry-main.test.ts src/main/telemetry-identity.test.ts)
-(cd backend && go test -count=1 -run '^(TestLAN|TestMobileLAN|TestAccountTokenIssuanceReturnsThroughRealLANListener)' ./internal/httpd \
-  && go test -count=1 -run '^(TestLANOnly|TestTunnelOnly|TestMobileStatus)' ./internal/httpd/controllers \
-  && go test -count=1 -run '^TestRemoteHost' ./internal/cli \
-  && go test -count=1 -run '^TestPublishRemoteHost' ./internal/daemon \
-  && go test -count=1 ./internal/mobilebridge \
-  && go test -count=1 -run 'OptOut' ./internal/adapters/telemetry)
+(cd frontend && npm ci --ignore-scripts)
+scripts/fork/protected-tests.sh
 
 # 5. Open the sync PR against the fork only, with the guard report in the body.
 git push origin HEAD

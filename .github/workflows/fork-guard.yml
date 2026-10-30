@@ -128,19 +128,8 @@ jobs:
         # The protected suites mock Electron; skip its binary download.
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run protected frontend tests
-        run: >-
-          npx vitest run --config vite.renderer.config.ts
-          src/main/remotes-main.test.ts
-          src/main/remotes-ipc.test.ts
-          src/main/remotes-store.test.ts
-          src/main/remote-proxy.test.ts
-          src/renderer/components/settings/RemoteHostsSettings.test.tsx
-          src/renderer/components/RemoteHostsSection.test.tsx
-          src/renderer/hooks/useRemoteHosts.test.tsx
-          src/renderer/hooks/useRemoteHosts.self.test.tsx
-          src/shared/sentry-config.test.ts
-          src/main/sentry-main.test.ts
-          src/main/telemetry-identity.test.ts
+        # Fails on a failing, missing or shrunken protected test file.
+        run: ../scripts/fork/protected-tests.sh frontend
 
   backend-lan-listener:
     needs: guard
@@ -157,11 +146,5 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: Run protected backend tests
-        run: |
-          set -euo pipefail
-          go test -count=1 -run '^(TestLAN|TestMobileLAN|TestAccountTokenIssuanceReturnsThroughRealLANListener)' ./internal/httpd
-          go test -count=1 -run '^(TestLANOnly|TestTunnelOnly|TestMobileStatus)' ./internal/httpd/controllers
-          go test -count=1 -run '^TestRemoteHost' ./internal/cli
-          go test -count=1 -run '^TestPublishRemoteHost' ./internal/daemon
-          go test -count=1 ./internal/mobilebridge
-          go test -count=1 -run 'OptOut' ./internal/adapters/telemetry
+        # Fails on a failing, empty or shrunken protected go test selection.
+        run: ../scripts/fork/protected-tests.sh backend
