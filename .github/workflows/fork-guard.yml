@@ -1,0 +1,150 @@
+name: Fork guard
+
+# Fork-only (Icosa2050). Reviews every change to main, upstream syncs above
+# all, for anything that weakens local-only operation, and runs the tests that
+# protect local remote-host pairing, the LAN listener, the telemetry opt-out
+# and empty dev Sentry DSNs. See FORK.md.
+#
+# The guard job itself is cheap and always runs (sync/* branches included).
+# The test jobs run on sync/* branches, when the guard needs review, or when
+# their code changed. A "needs review" verdict is a warning; failing protected
+# tests fail the workflow.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      range:
+        description: "BASE..HEAD to review (empty: origin/main..upstream/main)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      verdict: ${{ steps.guard.outputs.verdict }}
+      run_tests: ${{ steps.scope.outputs.run_tests }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve range
+        id: range
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          INPUT_RANGE: ${{ inputs.range }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request) range="$PR_BASE...$PR_HEAD" ;;
+            push)
+              if [ -n "$PUSH_BEFORE" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+                range="$PUSH_BEFORE..$GITHUB_SHA"
+              else
+                range="$GITHUB_SHA~1..$GITHUB_SHA"
+              fi
+              ;;
+            workflow_dispatch)
+              range="$INPUT_RANGE"
+              if [ -z "$range" ]; then
+                git fetch --no-tags https://github.com/OrchestratorInc/agent-orchestrator.git +main:refs/remotes/upstream/main
+                range="origin/main..upstream/main"
+              fi
+              ;;
+          esac
+          echo "range=$range" >>"$GITHUB_OUTPUT"
+
+      - name: Run upstream guard
+        id: guard
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+        run: |
+          set +e
+          scripts/fork/upstream-guard.sh "$RANGE" >"$RUNNER_TEMP/guard.md"
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/guard.md" >>"$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/guard.md"
+          case "$code" in
+            0) echo "verdict=ok" >>"$GITHUB_OUTPUT" ;;
+            2)
+              echo "verdict=needs-review" >>"$GITHUB_OUTPUT"
+              echo "::warning title=Fork guard::Needs human review: this range touches local-only protected areas. See the job summary and FORK.md."
+              ;;
+            *) echo "::error title=Fork guard::upstream-guard.sh failed (exit $code)"; exit "$code" ;;
+          esac
+
+      - name: Decide test scope
+        id: scope
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+          HEAD_REF: ${{ github.head_ref }}
+          VERDICT: ${{ steps.guard.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          run=false
+          case "$HEAD_REF" in sync/*) run=true ;; esac
+          if [ "$VERDICT" = "needs-review" ]; then run=true; fi
+          base=${RANGE%%..*}; head=${RANGE##*..}
+          if git diff --name-only "$(git merge-base "$base" "$head")" "$head" |
+            grep -qE '^(frontend/src/main/|frontend/src/shared/|frontend/src/renderer/(hooks|lib|components)/|frontend/package(-lock)?\.json|frontend/vite|backend/internal/(httpd|cli|daemon|mobilebridge|adapters/telemetry|config)/|backend/go\.(mod|sum)|scripts/fork/|\.github/workflows/fork-guard\.yml)'; then
+            run=true
+          fi
+          echo "run_tests=$run" >>"$GITHUB_OUTPUT"
+          echo "Protected tests: $run" >>"$GITHUB_STEP_SUMMARY"
+
+  frontend-local-pairing:
+    needs: guard
+    if: needs.guard.outputs.run_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        # The protected suites mock Electron; skip its binary download.
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run protected frontend tests
+        # Fails on a failing, missing or shrunken protected test file.
+        run: ../scripts/fork/protected-tests.sh frontend
+
+  backend-lan-listener:
+    needs: guard
+    if: needs.guard.outputs.run_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Run protected backend tests
+        # Fails on a failing, empty or shrunken protected go test selection.
+        run: ../scripts/fork/protected-tests.sh backend
