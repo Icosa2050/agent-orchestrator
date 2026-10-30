@@ -8,6 +8,7 @@ import {
 	type Http2SecureServer, type Http2Server, type Http2ServerRequest, type Http2ServerResponse, type ServerHttp2Session,
 } from "node:http2";
 import { WebSocketServer, createWebSocketStream, type WebSocket } from "ws";
+import dns from "node:dns";
 import * as agentViewer from "./agent-viewer";
 import { previewCertificate } from "./preview-certificate";
 import { startRemoteProxy, type ActiveProxy } from "./remote-proxy";
@@ -1586,6 +1587,32 @@ describe("startRemoteProxy when the upstream fails", () => {
 		const response = await within(fetch(`${proxy.base}/api/v1/projects`));
 		// Direct, over HTTP/2 or (on a slow machine, past the deadline) HTTP/1.1.
 		expect(response === "hung" ? "hung" : await response.json()).toEqual({ direct: expect.any(String) });
+	});
+
+	it("survives an HTTP/2 session that connects only after its open deadline destroyed it", async () => {
+		upstream = createServer((req, res) => res.end(req.url === "/api/v1/identity" ? identity : '{"proto":"1.1"}'));
+		await new Promise<void>((resolve) => upstream?.listen(0, "127.0.0.1", resolve));
+		proxy = await startRemoteProxy(daemonEntry(`http://localhost:${(upstream.address() as AddressInfo).port}`), undefined, { openMs: 200, pingMs: 10_000 });
+		const uncaught: unknown[] = [];
+		const onUncaught = (error: unknown) => void uncaught.push(error);
+		process.on("uncaughtException", onUncaught);
+		cleanups.push(() => process.off("uncaughtException", onUncaught));
+		// The HTTP/2 session's name lookup answers late, as a sleeping host's
+		// .local name does: its socket is still connecting at the deadline.
+		const lookup = dns.lookup;
+		let answerLate = (): void => undefined;
+		let lookups = 0;
+		vi.spyOn(dns, "lookup").mockImplementation(((...args: Parameters<typeof dns.lookup>) => {
+			if (lookups++ === 0) answerLate = () => void Reflect.apply(lookup, dns, args);
+			else Reflect.apply(lookup, dns, args);
+		}) as typeof dns.lookup);
+		const response = await within(fetch(`${proxy.base}/api/v1/projects`));
+		expect(response === "hung" ? "hung" : await response.json()).toEqual({ proto: "1.1" });
+		// Destroying a session that is still connecting only ends its socket:
+		// the socket connects, and Node emits "connect" on the destroyed session.
+		answerLate();
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(uncaught).toEqual([]);
 	});
 
 	it("tries the tunnel again when a later session opens after its retry window", async () => {

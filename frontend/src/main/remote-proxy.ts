@@ -373,6 +373,10 @@ export async function startRemoteProxy(entry: RemoteEntry, rendererOrigin = REND
 		const opened = Promise.race([
 			new Promise<ClientHttp2Session>((resolve, reject) => {
 				session.once("connect", () => {
+					// Destroyed while its socket was still connecting (by the deadline
+					// below), a session only ends that socket, and Node still emits
+					// "connect" once it connects. Every call on it would then throw.
+					if (session.destroyed) return reject(new UpstreamHttp2Unavailable("session closed"));
 					session.setLocalWindowSize(UPSTREAM_SESSION_WINDOW);
 					keepAlive(session);
 					resolve(session);
