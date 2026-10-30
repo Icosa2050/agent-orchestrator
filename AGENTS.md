@@ -162,3 +162,7 @@ Commit `openapi.yaml` and `frontend/src/api/schema.ts` together with the Go chan
 - Use conventional commit messages (`feat:`, `fix:`, `docs:`, `test:`, `chore:`).
 - Explain intentional omissions in the PR body, especially when the TypeScript original had more behavior than the Go rewrite domain currently supports.
 - Run the narrowest relevant tests first, then the repo/CI commands that match the touched area.
+
+## Fork guard (Icosa2050)
+
+This fork must keep local-only operation: manual remote-host pairing without AO Cloud, the LAN listener, local credentials and sign-in-free use. Never remove or gate them. Review every upstream sync with `scripts/fork/upstream-guard.sh` and follow [`FORK.md`](FORK.md).
