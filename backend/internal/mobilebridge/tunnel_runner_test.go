@@ -341,6 +341,16 @@ func TestTunnelRunnerKeepsTheQuickTunnelUntilAReplacementIsMade(t *testing.T) {
 			t.Fatalf("asked AO Cloud %d times", cloud.requests())
 		}
 	}
+	// Fork: wait for the connector to start, as the tests above do; a new
+	// script's first exec can take longer than four AO Cloud requests (macOS).
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(argsFile); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no connector started")
+		}
+	}
 	cancel()
 	if err := <-done; errors.Is(err, errFixedTunnelReady) {
 		t.Fatal("switched back to the tunnel AO Cloud could not replace")
