@@ -5420,6 +5420,7 @@ export interface components {
         };
         ControllersRemoteHostAccountTokenResponse: {
             hostId: string;
+            hostKey: string;
             token: string;
         };
         ControllersRequestRereviewRequest: {
@@ -5670,6 +5671,7 @@ export interface components {
             status: string;
         };
         ConversationMessageResponse: {
+            authoredByUser?: boolean;
             clientMessageId?: string;
             content?: components["schemas"]["ConversationContentSummaryResponse"][];
             continuation?: boolean;
@@ -6431,6 +6433,7 @@ export interface components {
             secure: boolean;
         };
         MobileStatusResponse: {
+            accountLinked: boolean;
             browserRemoteAccess: boolean;
             enabled: boolean;
             endpoints: components["schemas"]["MobileEndpoint"][];
@@ -6447,7 +6450,9 @@ export interface components {
             warning: string;
         };
         MobileTunnelStatus: {
+            fixed: boolean;
             hostname: string;
+            installing: boolean;
             lastError: string;
             location: string;
             ready: boolean;
