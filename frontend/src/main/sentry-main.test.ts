@@ -317,6 +317,46 @@ describe("Electron main Sentry configuration", () => {
 	});
 });
 
+// Fork guard (Icosa2050, FORK.md): the telemetry_opt_out marker stops Electron Sentry.
+describe("Electron main Sentry and the telemetry_opt_out marker", () => {
+	const request = { consentGeneration: "generation-1", kind: "message", message: "error", level: "error" } as const;
+
+	it("starts no client while the telemetry_opt_out marker exists", async () => {
+		vi.stubEnv("AO_ELECTRON_SENTRY_DSN", "https://electron.example/2");
+		const dataDir = await mkdtemp(path.join(os.tmpdir(), "ao-sentry-optout-"));
+		try {
+			await writeFile(path.join(dataDir, "telemetry_opt_out"), "1\n");
+			const transport = await initMainSentry("1.0.0", dataDir, path.join(dataDir, "electron"));
+			transport.capture(request);
+			expect(sdk.init).not.toHaveBeenCalled();
+			expect(sdk.captureEvent).not.toHaveBeenCalled();
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("stops sending, storing, and capturing once the marker appears after start", async () => {
+		vi.stubEnv("AO_ELECTRON_SENTRY_DSN", "https://electron.example/2");
+		const dataDir = await mkdtemp(path.join(os.tmpdir(), "ao-sentry-optout-"));
+		try {
+			const transport = await initMainSentry("1.0.0", dataDir, path.join(dataDir, "electron"));
+			const options = sdk.init.mock.calls[0]?.[0];
+			const transportOptions = options?.transportOptions as { shouldSend: () => boolean; shouldStore: () => boolean };
+			const beforeSend = options?.beforeSend as (event: ErrorEvent) => ErrorEvent | null;
+			expect(transportOptions.shouldSend()).toBe(true);
+			expect(beforeSend({ type: undefined, message: "x" })).not.toBeNull();
+			await writeFile(path.join(dataDir, "telemetry_opt_out"), "1\n");
+			transport.capture(request);
+			expect(sdk.captureEvent).not.toHaveBeenCalled();
+			expect(transportOptions.shouldSend()).toBe(false);
+			expect(transportOptions.shouldStore()).toBe(false);
+			expect(beforeSend({ type: undefined, message: "x" })).toBeNull();
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("sanitizeRendererCapture", () => {
 	it("scrubs local paths and loopback URLs at the Electron-main boundary", () => {
 		const input = {

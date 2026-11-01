@@ -1,12 +1,14 @@
 // Electron main is the only desktop Sentry sender. The policy controller owns
 // this transport's lifetime, and the SDK never receives raw renderer text.
 import * as Sentry from "@sentry/electron/main";
+import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { RendererTelemetryCapture } from "../shared/telemetry-policy";
 import { DEFAULT_ELECTRON_SENTRY_DSN, SAFE_FUNCTION, safeSentryExceptionType, sentryEnvironment } from "../shared/sentry-config";
 import { loadOrCreateTelemetryInstallId } from "../shared/telemetry";
 import type { DesktopTelemetryTransport } from "./desktop-telemetry-controller";
+import { TELEMETRY_OPT_OUT_FILE } from "./telemetry-identity";
 
 export function electronMainSentryDsn(isDev: boolean): string {
 	return process.env.AO_ELECTRON_SENTRY_DSN ?? (isDev ? "" : DEFAULT_ELECTRON_SENTRY_DSN);
@@ -103,9 +105,19 @@ function scrubMainSentryEvent(event: Sentry.ErrorEvent, installId: string, versi
 	};
 }
 
+/**
+ * Fork guard (Icosa2050, see FORK.md): the telemetry_opt_out marker next to
+ * the install id stops Electron Sentry too, whatever telemetry_policy.json
+ * says. Read on every send so an opt-out applies without a restart.
+ */
+export function telemetryOptOutMarkerPresent(dataDir: string): boolean {
+	return existsSync(path.join(dataDir, TELEMETRY_OPT_OUT_FILE));
+}
+
 export async function initMainSentry(version: string, dataDir: string, cacheRoot: string, isDev = false): Promise<DesktopTelemetryTransport> {
 	const dsn = electronMainSentryDsn(isDev);
-	if (!dsn) return { capture: () => undefined, closeAndDrain: async () => undefined, clearCache: async () => undefined };
+	const optedOut = () => telemetryOptOutMarkerPresent(dataDir);
+	if (!dsn || optedOut()) return { capture: () => undefined, closeAndDrain: async () => undefined, clearCache: async () => undefined };
 	const installId = await loadOrCreateTelemetryInstallId(dataDir);
 	const environment = sentryEnvironment(process.env.AO_TELEMETRY_APP_VERSION ?? version);
 	const queuePath = sentryQueuePath(cacheRoot);
@@ -121,7 +133,7 @@ export async function initMainSentry(version: string, dataDir: string, cacheRoot
 			const base = Sentry.makeElectronTransport(options);
 			return {
 				send(envelope) {
-					if (!accepting) return Promise.reject(new Error("Electron Sentry sender is closed"));
+					if (!accepting || optedOut()) return Promise.reject(new Error("Electron Sentry sender is closed"));
 					const sending = Promise.resolve(base.send(envelope));
 					inFlight.add(sending);
 					void sending.then(() => inFlight.delete(sending), () => inFlight.delete(sending));
@@ -130,7 +142,7 @@ export async function initMainSentry(version: string, dataDir: string, cacheRoot
 				flush: (timeout) => base.flush(timeout),
 			};
 		}),
-		transportOptions: { queuePath, shouldSend: () => accepting, shouldStore: () => accepting },
+		transportOptions: { queuePath, shouldSend: () => accepting && !optedOut(), shouldStore: () => accepting && !optedOut() },
 		ipcMode: 0 as Sentry.IPCMode,
 		defaultIntegrations: [],
 		integrations: [
@@ -143,7 +155,7 @@ export async function initMainSentry(version: string, dataDir: string, cacheRoot
 		tracesSampleRate: 0,
 		skipOpenTelemetrySetup: true,
 		beforeBreadcrumb: () => null,
-		beforeSend: (event) => scrubMainSentryEvent(event, installId, version, environment),
+		beforeSend: (event) => optedOut() ? null : scrubMainSentryEvent(event, installId, version, environment),
 	});
 	const uncaughtListeners = process.listeners("uncaughtException").filter((listener) => !priorUncaught.has(listener));
 	const rejectionListeners = process.listeners("unhandledRejection").filter((listener) => !priorRejections.has(listener));
@@ -151,7 +163,7 @@ export async function initMainSentry(version: string, dataDir: string, cacheRoot
 	Sentry.setUser({ id: installId });
 	return {
 		capture(request) {
-			if (!accepting) return;
+			if (!accepting || optedOut()) return;
 			const safe = sanitizeRendererCapture(request);
 			if (!safe || safe.kind === "breadcrumb" || safe.tags?.category === "daemon_unavailable" || /\b(?:AbortError|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|DAEMON_NOT_READY)\b/i.test(safe.message)) return;
 			const category = safe.tags?.category;

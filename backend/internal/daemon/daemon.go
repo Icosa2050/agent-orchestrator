@@ -226,9 +226,10 @@ func Run(buildVersion string) error {
 	// policy file. It gates Sentry capture only: product telemetry answers to
 	// AO_TELEMETRY_EVENTS alone, as documented.
 	telemetryPolicy := policyauthority.New(filepath.Join(cfg.DataDir, policyauthority.FileName))
-	sentryobs.SetPolicyCheck(func(ctx context.Context) bool {
+	// Fork: the telemetry_opt_out marker also stops Sentry (FORK.md).
+	sentryobs.SetPolicyCheck(sentryPolicyHonoringOptOut(cfg.DataDir, func(ctx context.Context) bool {
 		return telemetryPolicy.EventsAllowed(ctx, cfg.Telemetry.Events, cfg.Telemetry.EventsExplicit)
-	})
+	}))
 	defer sentryobs.SetPolicyCheck(nil)
 	telemetrySink, telemetryIdentity, remoteTelemetryActive := newTelemetrySink(cfg, store, log)
 	configureUsageRecording(cfg, store, telemetryIdentity)

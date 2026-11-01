@@ -26,7 +26,7 @@ are no blind syncs.
 | Desktop remote proxy, including the HTTP/2 destroyed-session fix (fork #17). | `frontend/src/main/remote-proxy.ts` | `remote-proxy.test.ts` |
 | LAN listener: `ao remote-host enable/disable/status`, port 3011, LAN-only mode without a public tunnel. | `backend/internal/httpd/lan_listener.go`, `backend/internal/httpd/controllers/mobile*.go`, `backend/internal/cli/remote_host.go`, `backend/internal/daemon/remote_host_directory.go`, `backend/internal/mobilebridge/` (`DefaultPort = 3011`) | `go test` on `./internal/httpd` (`TestLAN*`, `TestMobileLAN*`; in `lan_*_test.go`, `auth_test.go`, `mobile_connect_telemetry_test.go`), `./internal/httpd/controllers` (`TestLANOnly*`, `TestTunnelOnly*`, `TestMobileStatus*`), `./internal/cli` (`TestRemoteHost*`), `./internal/daemon` (`TestPublishRemoteHost*`), `./internal/mobilebridge` |
 | Sign-in-free use, plus ssh and CLI control of a host: the daemon and `ao` CLI work with no account. | whole app; watch new `requireAccount`/`requireSignIn` gates | guard: gating sections |
-| Telemetry opt-out: the `telemetry_opt_out` marker file next to the install id must keep stopping export. | `backend/internal/adapters/telemetry/optout.go`, `identity.go`, `frontend/src/main/telemetry-identity.ts` | `TestOptOut*` in `./internal/adapters/telemetry`, `telemetry-identity.test.ts` |
+| Telemetry opt-out: the `telemetry_opt_out` marker file next to the install id must keep stopping export: daemon and renderer PostHog, usage/session telemetry, and daemon and Electron Sentry, whatever `telemetry_policy.json` says. | `backend/internal/adapters/telemetry/optout.go`, `identity.go`, `backend/internal/daemon/fork_sentry_optout.go`, `frontend/src/main/telemetry-identity.ts`, `frontend/src/main/sentry-main.ts` | `TestOptOut*` in `./internal/adapters/telemetry` and `./internal/daemon`, `telemetry-identity.test.ts`, `sentry-main.test.ts` |
 | Sentry DSNs stay empty in dev builds. Production defaults may only be used when `isDev` is false, and `AO_SENTRY_DSN=""` / `AO_ELECTRON_SENTRY_DSN=""` must keep disabling them. | `frontend/src/shared/sentry-config.ts`, `frontend/src/main/sentry-main.ts`, `frontend/src/main.ts`, `backend/internal/config/config.go`, `backend/internal/observe/sentryobs/` | `sentry-config.test.ts`, `sentry-main.test.ts` |
 
 All of these run through `scripts/fork/protected-tests.sh`, which holds the
@@ -55,6 +55,7 @@ upstream touches them.
 | #6 | Recurring automations unblock after completed Chat tasks | `backend/internal/service/automation/scheduler.go`, `store/automation_store.go` |
 | #10 | ACP install isolated from inherited npm script policy | `frontend/scripts/build-acp-runtime*.mjs` |
 | #11 | DeepSeek ACP honors bypass permissions | `backend/internal/adapters/chatdriver/deepseekharnessacp/driver.go` |
+| sync 2026-11-01 | The `telemetry_opt_out` marker also stops daemon and Electron Sentry (upstream #7437 turned Electron Sentry on for consented users) | `backend/internal/daemon/fork_sentry_optout.go`, `daemon.go` (`SetPolicyCheck`), `frontend/src/main/sentry-main.ts` |
 
 ## Upstream-sync review procedure (mandatory)
 
