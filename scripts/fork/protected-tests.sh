@@ -23,13 +23,13 @@ frontend_tests='
 src/main/remotes-main.test.ts 41
 src/main/remotes-ipc.test.ts 8
 src/main/remotes-store.test.ts 22
-src/main/remote-proxy.test.ts 70
+src/main/remote-proxy.test.ts 76
 src/renderer/components/settings/RemoteHostsSettings.test.tsx 12
 src/renderer/components/RemoteHostsSection.test.tsx 1
 src/renderer/hooks/useRemoteHosts.test.tsx 15
 src/renderer/hooks/useRemoteHosts.self.test.tsx 3
 src/shared/sentry-config.test.ts 3
-src/main/sentry-main.test.ts 17
+src/main/sentry-main.test.ts 19
 src/main/telemetry-identity.test.ts 20
 '
 
@@ -39,6 +39,7 @@ backend_tests='
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
 ./internal/daemon ^TestPublishRemoteHost 1
+./internal/daemon ^TestOptOut 3
 ./internal/mobilebridge . 116
 ./internal/adapters/telemetry OptOut 4
 '

@@ -164,7 +164,7 @@ describe("Electron main Sentry configuration", () => {
 			const queuePath = path.join(cacheRoot, "sentry", "queue");
 			await mkdir(queuePath, { recursive: true });
 			await writeFile(path.join(queuePath, "queued-before-opt-out"), "synthetic queued event");
-			let snapshot = { eventsEnabled: false, consentGeneration: "generation-off", updatedAt: "2026-10-29T00:00:00.000Z", acknowledged: true, consentRenewalRequired: false };
+			let snapshot = { eventsEnabled: false, consentGeneration: "generation-off", updatedAt: "2026-10-29T00:00:00.000Z", acknowledged: true };
 			const authority = {
 				durabilitySupported: true,
 				load: async () => snapshot,
@@ -196,7 +196,7 @@ describe("Electron main Sentry configuration", () => {
 		const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "ao-sentry-consent-"));
 		try {
 			let generation = 0;
-			let snapshot = { eventsEnabled: false, consentGeneration: "generation-0", updatedAt: "2026-10-29T00:00:00.000Z", acknowledged: true, consentRenewalRequired: false };
+			let snapshot = { eventsEnabled: false, consentGeneration: "generation-0", updatedAt: "2026-10-29T00:00:00.000Z", acknowledged: true };
 			const authority = {
 				durabilitySupported: true,
 				load: async () => snapshot,
@@ -314,6 +314,46 @@ describe("Electron main Sentry configuration", () => {
 		vi.stubEnv("AO_ELECTRON_SENTRY_DSN", "https://electron.example/2");
 		await initMainSentry("1.0.0", "/tmp/ao-test", "/tmp/ao-electron-test", true);
 		expect(sdk.init.mock.calls[0]?.[0].dsn).toBe("https://electron.example/2");
+	});
+});
+
+// Fork guard (Icosa2050, FORK.md): the telemetry_opt_out marker stops Electron Sentry.
+describe("Electron main Sentry and the telemetry_opt_out marker", () => {
+	const request = { consentGeneration: "generation-1", kind: "message", message: "error", level: "error" } as const;
+
+	it("starts no client while the telemetry_opt_out marker exists", async () => {
+		vi.stubEnv("AO_ELECTRON_SENTRY_DSN", "https://electron.example/2");
+		const dataDir = await mkdtemp(path.join(os.tmpdir(), "ao-sentry-optout-"));
+		try {
+			await writeFile(path.join(dataDir, "telemetry_opt_out"), "1\n");
+			const transport = await initMainSentry("1.0.0", dataDir, path.join(dataDir, "electron"));
+			transport.capture(request);
+			expect(sdk.init).not.toHaveBeenCalled();
+			expect(sdk.captureEvent).not.toHaveBeenCalled();
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("stops sending, storing, and capturing once the marker appears after start", async () => {
+		vi.stubEnv("AO_ELECTRON_SENTRY_DSN", "https://electron.example/2");
+		const dataDir = await mkdtemp(path.join(os.tmpdir(), "ao-sentry-optout-"));
+		try {
+			const transport = await initMainSentry("1.0.0", dataDir, path.join(dataDir, "electron"));
+			const options = sdk.init.mock.calls[0]?.[0];
+			const transportOptions = options?.transportOptions as { shouldSend: () => boolean; shouldStore: () => boolean };
+			const beforeSend = options?.beforeSend as (event: ErrorEvent) => ErrorEvent | null;
+			expect(transportOptions.shouldSend()).toBe(true);
+			expect(beforeSend({ type: undefined, message: "x" })).not.toBeNull();
+			await writeFile(path.join(dataDir, "telemetry_opt_out"), "1\n");
+			transport.capture(request);
+			expect(sdk.captureEvent).not.toHaveBeenCalled();
+			expect(transportOptions.shouldSend()).toBe(false);
+			expect(transportOptions.shouldStore()).toBe(false);
+			expect(beforeSend({ type: undefined, message: "x" })).toBeNull();
+		} finally {
+			await rm(dataDir, { recursive: true, force: true });
+		}
 	});
 });
 
