@@ -39,7 +39,9 @@ backend_tests='
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
 ./internal/daemon ^TestPublishRemoteHost 1
-./internal/daemon ^TestOptOut 3
+./internal/daemon ^TestOptOut 4
+./internal/storage/sqlite/store ^TestForkSessionRetention 1
+./internal/service/session ^TestDeleteExpired 1
 ./internal/mobilebridge . 116
 ./internal/adapters/telemetry OptOut 4
 '

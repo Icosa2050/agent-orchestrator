@@ -86,7 +86,10 @@ describe("registerRemotesIpc", () => {
 				await expect(result).rejects.toBe(unexpected);
 				expect(capture).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ category: "ipc", reason: "handler", error: unexpected }));
 			} else {
-				await expect(result).rejects.toThrow(state === "signed-out" || state === "account-gate" ? "Sign in to AO Cloud" : `is ${state}`);
+				// Fork #14 (FORK.md): connect never consults the account gate. Signed
+				// out, an account-owned host is refused as foreign; a failing
+				// requireAccount leaves connect to its probe ("offline").
+				await expect(result).rejects.toThrow(state === "signed-out" ? "Host does not belong to this account." : `is ${state === "account-gate" ? "offline" : state}`);
 				expect(capture).not.toHaveBeenCalled();
 			}
 		} finally { resetMainErrorCaptureForTests(); }

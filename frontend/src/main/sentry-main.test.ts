@@ -438,6 +438,7 @@ describe("Electron main Sentry and the telemetry_opt_out marker", () => {
 			await writeFile(path.join(dataDir, "telemetry_opt_out"), "1\n");
 			const transport = await initMainSentry("1.0.0", dataDir, path.join(dataDir, "electron"));
 			transport.capture(request);
+			transport.captureMain?.({ category: "daemon", reason: "exited" });
 			expect(sdk.init).not.toHaveBeenCalled();
 			expect(sdk.captureEvent).not.toHaveBeenCalled();
 		} finally {
@@ -457,6 +458,8 @@ describe("Electron main Sentry and the telemetry_opt_out marker", () => {
 			expect(beforeSend({ type: undefined, message: "x" })).not.toBeNull();
 			await writeFile(path.join(dataDir, "telemetry_opt_out"), "1\n");
 			transport.capture(request);
+			// Upstream #7682 added handled main-process reports; the marker stops them too.
+			transport.captureMain?.({ category: "daemon", reason: "exited" });
 			expect(sdk.captureEvent).not.toHaveBeenCalled();
 			expect(transportOptions.shouldSend()).toBe(false);
 			expect(transportOptions.shouldStore()).toBe(false);
