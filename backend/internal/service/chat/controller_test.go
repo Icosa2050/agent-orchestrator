@@ -7386,7 +7386,9 @@ func TestPermissionModeCatalogMatchesPreflight(t *testing.T) {
 		driver ports.ChatDriver
 		want   []ports.PermissionMode
 	}{
-		{"kimi", kimiacp.New(kimiCapabilityPlugin{}, nil), []ports.PermissionMode{ports.PermissionModeDefault}},
+		// Fork #2 (FORK.md): Kimi maps default, auto (yolo) and bypass (auto);
+		// only an edits-only mode is unsupported.
+		{"kimi", kimiacp.New(kimiCapabilityPlugin{}, nil), []ports.PermissionMode{ports.PermissionModeDefault, ports.PermissionModeAuto, ports.PermissionModeBypassPermissions}},
 		{"full approvals", fakeDriver{}, ports.PermissionModesStrictestFirst},
 		{"no approval channel", fakeDriver{caps: ports.ChatCapabilities{ports.ChatCapabilityStreaming: true, ports.ChatCapabilityInterrupt: true, ports.ChatCapabilityResume: true}}, []ports.PermissionMode{ports.PermissionModeBypassPermissions}},
 	} {
@@ -7401,7 +7403,7 @@ func TestPermissionModeCatalogMatchesPreflight(t *testing.T) {
 				if slices.Contains(tc.want, mode) != (err == nil) {
 					t.Fatalf("preflight %s = %v; modes %v", mode, err, modes)
 				}
-				if tc.name == "kimi" && mode != ports.PermissionModeDefault && !errors.Is(err, ports.ErrChatPermissionModeUnsupported) {
+				if tc.name == "kimi" && mode == ports.PermissionModeAcceptEdits && !errors.Is(err, ports.ErrChatPermissionModeUnsupported) {
 					t.Fatalf("Kimi rejection = %v", err)
 				}
 			}
