@@ -149,7 +149,7 @@ it("requires confirmation before forgetting a host", async () => {
 	renderSettings();
 	fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Box A" } });
 	fireEvent.change(screen.getByRole("textbox", { name: "Address" }), { target: { value: "http://box-a:3001" } });
-	fireEvent.change(screen.getByLabelText("Connection password"), { target: { value: "secret123" } });
+	fireEvent.change(screen.getByLabelText("Pairing code or password"), { target: { value: "secret123" } });
 	fireEvent.click(screen.getByRole("button", { name: "Add host" }));
 	fireEvent.click(await screen.findByRole("button", { name: "Remove Box A" }));
 	fireEvent.click(screen.getByRole("button", { name: "Remove" }));

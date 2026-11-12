@@ -80,7 +80,7 @@ describe("registerRemotesIpc", () => {
 		const file = await tempFile();
 		const cloudRequest = vi.fn<RemotesIpcDeps["cloudRequest"]>();
 		const requireAccount = vi.fn(async () => { throw new Error("signed out"); });
-		const pair = vi.fn(async () => ({ kind: "paired" as const, token: "aod_local_device", credential: "code" as const }));
+		const pair = vi.fn(async () => ({ kind: "paired" as const, token: "aod_local_device", credential: "pairing-code" as const }));
 		const start = vi.fn(async (_entry: import("./remotes-store").RemoteEntry) => ({ base: "http://127.0.0.1:5000/token", previewUrl: (_id: string, url: string) => url, resolvePreviewUrl: (_id: string, url: string) => url, agentBrowserUrl: async () => "browser", isAgentBrowserUrl: () => false, externalUrl: (url: string) => url, close: async () => {} }));
 		setPasswordCipher(() => ({ encrypt: (plain) => Buffer.from(plain).toString("base64"), decrypt: (sealed) => Buffer.from(sealed, "base64").toString() }));
 		try {
@@ -378,8 +378,12 @@ describe("registerRemotesIpc", () => {
 		const local = {hostId: "h_local", label: "Mini", url: "https://mini.example", password: "a".repeat(64)};
 		await writeFile(file, JSON.stringify({remotes: [local]}));
 		const ipc = fakeIpc();
-		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, cloudRequest: cloudListing({...local, label: "Cloud", url: "https://cloud.example"}) });
+		let listing = cloudListing({...local, label: "Cloud", url: "https://cloud.example"});
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, cloudRequest: (...args) => listing(...args) });
 		await ipc.invoke("remotes:syncAccountHosts", TEST_ACCOUNT);
+		listing = cloudListing();
+		await ipc.invoke("remotes:syncAccountHosts", TEST_ACCOUNT);
+		await expect(ipc.invoke("remotes:linkAccountHost", local.url)).rejects.toThrow("Manual host credentials stay local");
 		expect(JSON.parse(await readFile(file, "utf8")).remotes).toEqual([local]);
 	});
 
@@ -687,7 +691,7 @@ describe("registerRemotesIpc", () => {
 		await newer;
 		answers[0](listing("Older"));
 		await older;
-		await expect(ipc.invoke("remotes:list")).resolves.toContainEqual({ hostId: "h_cloud", label: "Newer", url: "https://cloud.example" });
+		await expect(ipc.invoke("remotes:list")).resolves.toContainEqual({ hostId: "h_cloud", label: "Newer", url: "https://cloud.example", accountLinked: true });
 	});
 
 	it.each([
@@ -740,7 +744,7 @@ describe("registerRemotesIpc", () => {
 			expect(pair).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ url: "https://new.example", hostId: "h_new" }), "typed-secret", { name: "Test Mac", platform: process.platform });
 			expect(probe).toHaveBeenCalledWith(expect.objectContaining({ password: token }));
 			expect((await saved(file)).find((entry) => entry.hostId === "h_new")).toEqual({
-				hostId: "h_new", label: "New", url: "https://new.example", password: token, accountUserId: TEST_ACCOUNT, ...(fallbackPassword ? { fallbackPassword } : {}),
+				hostId: "h_new", label: "New", url: "https://new.example", password: token, ...(fallbackPassword ? { fallbackPassword } : {}),
 			});
 		});
 

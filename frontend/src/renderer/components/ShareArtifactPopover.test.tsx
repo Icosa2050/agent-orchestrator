@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudShareInspection, CloudShareLink, CloudShareLinks, CloudSharePublishResult } from "../../shared/cloud-share";
 import { workspaceQueryKeyForHost } from "../hooks/useWorkspaceQuery";
 import { aoBridge } from "../lib/bridge";
-import { ShareArtifactButton, ShareArtifactMenuPopover, publishTitle, useArtifactShareFile, useReconciledShareLinks } from "./ShareArtifactPopover";
+import { useShareAvailable, ShareArtifactButton, ShareArtifactMenuPopover, publishTitle, useArtifactShareFile, useReconciledShareLinks } from "./ShareArtifactPopover";
 import { TooltipProvider } from "./ui/tooltip";
 
 const mocks = vi.hoisted(() => ({
@@ -82,10 +82,10 @@ describe("ShareArtifactButton", () => {
 		expect(publishTitle(".env")).toBe(".env");
 	});
 
-	it("asks a signed-out person to sign in", async () => {
+	it("asks a signed-out person to sign in if a menu panel is already open", async () => {
 		mocks.status = "unauthenticated";
 		const signIn = vi.spyOn(aoBridge.cloud, "signIn").mockResolvedValue();
-		await openPopover();
+		await openMenuPanel();
 		await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
 		expect(signIn).toHaveBeenCalled();
 	});
@@ -482,9 +482,29 @@ describe("useReconciledShareLinks", () => {
 		const available = vi.spyOn(aoBridge.cloudShare, "available").mockResolvedValue(true);
 		const list = vi.spyOn(aoBridge.cloudShare, "list").mockResolvedValue(links);
 		const invalidate = render();
-		await waitFor(() => expect(available).toHaveBeenCalled());
 		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(available).not.toHaveBeenCalled();
 		expect(list).not.toHaveBeenCalled();
 		expect(invalidate).not.toHaveBeenCalled();
+	});
+});
+
+
+describe("fork signed-out share availability", () => {
+	it("skips Cloud while signed out and rechecks after signing in", async () => {
+		mocks.baseUrl = "https://signed-out-availability.test";
+		mocks.status = "unauthenticated";
+		const available = vi.spyOn(aoBridge.cloudShare, "available").mockResolvedValue(true);
+		const view = renderHook(() => useShareAvailable());
+		expect(view.result.current).toBe(false);
+		expect(available).not.toHaveBeenCalled();
+		mocks.status = "authenticated";
+		view.rerender();
+		await waitFor(() => expect(view.result.current).toBe(true));
+		expect(available).toHaveBeenCalledTimes(1);
+		mocks.status = "unauthenticated";
+		view.rerender();
+		expect(view.result.current).toBe(false);
+		expect(available).toHaveBeenCalledTimes(1);
 	});
 });

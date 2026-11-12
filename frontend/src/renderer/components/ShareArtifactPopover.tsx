@@ -81,10 +81,10 @@ const shareAvailabilityChecks = new Map<string, Promise<boolean | null>>();
  * they are off, Share is not offered. The answer is kept for this run.
  */
 export function useShareAvailable(): boolean {
-	const { baseUrl } = useShareAccess();
+	const { baseUrl, signedIn } = useShareAccess();
 	const [available, setAvailable] = useState(() => shareAvailability.get(baseUrl) ?? false);
 	useEffect(() => {
-		if (!baseUrl) return setAvailable(false);
+		if (!signedIn || !baseUrl) return setAvailable(false);
 		const known = shareAvailability.get(baseUrl);
 		if (known !== undefined) return setAvailable(known);
 		let cancelled = false;
@@ -102,8 +102,8 @@ export function useShareAvailable(): boolean {
 		return () => {
 			cancelled = true;
 		};
-	}, [baseUrl]);
-	return available;
+	}, [baseUrl, signedIn]);
+	return signedIn && available;
 }
 
 /**

@@ -147,3 +147,24 @@ test('vitest matrix and command agree on two complete shards', () => {
   assert.match(job(go, 'backend-core'), /timeout-minutes: 20/);
   assert.match(job(go, 'storage-race'), /timeout-minutes: 30/);
 });
+
+
+test('fork protections always run and ci-ok requires their success', () => {
+  const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  for (const [id, file] of [['fork-guard', 'fork-guard.yml'], ['public-boundary', 'public-boundary.yml']]) {
+    const block = job(ci, id);
+    assert.match(block, new RegExp(`uses: ./\\.github/workflows/${file.replace('.', '\\.')}`));
+    assert.doesNotMatch(block, /if:|needs:/);
+    const workflow = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8');
+    assert.match(workflow, /workflow_call:/);
+    assert.doesNotMatch(workflow, /paths(?:-ignore)?:|if:|concurrency:/);
+  }
+  const gate = job(ci, 'ci-ok');
+  assert.match(gate, /needs: \[fork-guard, public-boundary,/);
+  const check = runStep(gate, 'Check lane results');
+  for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
+    const needs = { 'fork-guard': { result }, 'public-boundary': { result: 'success' }, go: { result: 'skipped' } };
+    const ran = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', check], { encoding: 'utf8', env: { ...process.env, NEEDS: JSON.stringify(needs) } });
+    assert.equal(ran.status === 0, result === 'success', ran.stderr);
+  }
+});

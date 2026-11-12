@@ -350,17 +350,17 @@ describe("cloudShare IPC", () => {
 		await expect(Promise.resolve().then(() => handlers.get("cloudShare:inspect")!({ sender, senderFrame: null }, file))).rejects.toThrow("only available from the app window");
 	});
 
-	it("says whether the control plane serves share links, signed in or not", async () => {
+	it("probes share availability only while signed in", async () => {
 		const on = setup();
 		await expect(on.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBe(true);
 		expect(on.authorizations).toEqual(["Bearer token-1"]);
 		// Its share routes 404 while its share flag is off.
 		const off = setup({ listStatus: 404 });
 		await expect(off.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBe(false);
-		// Signed out, a control plane that serves them answers 401.
+		// Fork: a signed-out desktop must not contact Cloud, even to probe it.
 		const signedOut = setup({ token: null, listStatus: 401 });
-		await expect(signedOut.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBe(true);
-		expect(signedOut.authorizations).toEqual([null]);
+		await expect(signedOut.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBe(false);
+		expect(signedOut.requests).toEqual([]);
 		const unreachable = setup({ unreachable: true });
 		await expect(unreachable.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBeNull();
 	});

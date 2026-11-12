@@ -75,7 +75,7 @@ func (t *optOutRecordingTransport) SendEvent(event *sentry.Event)       { t.even
 func TestOptOutMarkerStopsEveryDaemonSentryPath(t *testing.T) {
 	dir := t.TempDir()
 	transport := &optOutRecordingTransport{events: make(chan *sentry.Event, 8)}
-	if err := sentryobs.Init(sentryobs.Config{DSN: "https://public@example.com/1", Release: "1.0.0", Environment: "stable", Transport: transport}); err != nil {
+	if err := sentryobs.Init(sentryobs.Config{DSN: "https://public@example.com/1", InstallID: "ins_sampled_5", Release: "1.0.0", Environment: "stable", Transport: transport}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
