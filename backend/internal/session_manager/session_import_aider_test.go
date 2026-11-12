@@ -175,7 +175,7 @@ func TestAiderFreshImportReusesOnlyPinnedHistoryFromGitTransfer(t *testing.T) {
 
 func TestAiderPreparedRetryKeepsArchiveAlignedWithNativeSnapshot(t *testing.T) {
 	source, workspace, binDir := t.TempDir(), t.TempDir(), t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	isolateAiderImportHomes(t)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if err := os.WriteFile(filepath.Join(binDir, "aider"), []byte("#!/bin/sh\nexit 73\n"), 0o700); err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestAiderRecoversPublishedHistoryAfterLostCheckpoint(t *testing.T) {
 		for _, damage := range []string{"none", "missing proof", "bad proof", "corrupt copy"} {
 			t.Run(sourceState+"/"+damage, func(t *testing.T) {
 				source, workspace, binDir := t.TempDir(), t.TempDir(), t.TempDir()
-				t.Setenv("HOME", t.TempDir())
+				isolateAiderImportHomes(t)
 				t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 				if err := os.WriteFile(filepath.Join(binDir, "aider"), []byte("#!/bin/sh\nexit 73\n"), 0o700); err != nil {
 					t.Fatal(err)
@@ -322,5 +322,19 @@ func TestAiderRecoversPublishedHistoryAfterLostCheckpoint(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Import scans all supported providers. Keep inherited provider overrides out
+// of these Aider fixtures as well as replacing the ordinary home directory.
+func isolateAiderImportHomes(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	for _, key := range []string{
+		"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR", "QWEN_HOME",
+		"COPILOT_HOME", "OPENCODE_DATA_DIR", "XDG_DATA_HOME",
+		"CLINE_DATA_DIR", "CLINE_DIR", "CURSOR_DATA_DIR", "GROK_HOME", "GEMINI_CLI_HOME",
+	} {
+		t.Setenv(key, "")
 	}
 }

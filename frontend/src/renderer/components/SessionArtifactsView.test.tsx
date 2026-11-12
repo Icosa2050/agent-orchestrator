@@ -18,6 +18,11 @@ import { TooltipProvider } from "./ui/tooltip";
 // The signed-in person's control-plane user ID: only a cloud session's creator shares its files.
 vi.mock("../hooks/useCloudMeUserId", () => ({ useCloudMeUserId: () => "me-1" }));
 
+vi.mock("../lib/cloud-session", async (importOriginal) => ({
+	...await importOriginal<typeof import("../lib/cloud-session")>(),
+	useCloudSession: () => ({ configured: true, status: "authenticated", session: null }),
+}));
+
 // Share is offered only where the control plane serves share links.
 vi.mock("../hooks/useSettings", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../hooks/useSettings")>();

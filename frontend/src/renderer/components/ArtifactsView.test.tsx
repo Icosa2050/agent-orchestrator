@@ -11,6 +11,11 @@ import { TooltipProvider } from "./ui/tooltip";
 // The signed-in person's control-plane user ID: only a cloud session's creator shares its files.
 vi.mock("../hooks/useCloudMeUserId", () => ({ useCloudMeUserId: () => "me-1" }));
 
+vi.mock("../lib/cloud-session", async (importOriginal) => ({
+	...await importOriginal<typeof import("../lib/cloud-session")>(),
+	useCloudSession: () => ({ configured: true, status: mocks.cloudStatus, session: null }),
+}));
+
 // Share is offered only where the control plane serves share links.
 vi.mock("../hooks/useSettings", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../hooks/useSettings")>();
@@ -46,6 +51,7 @@ const mocks = vi.hoisted(() => ({
 	refreshCloudAccess: vi.fn(),
 	artifactFileChanges: vi.fn(),
 	hideShellTopbar: true,
+	cloudStatus: "authenticated" as string,
 	/** Overrides whether the control plane keeps artifacts; undefined keeps the real hook's answer. */
 	cloudArtifacts: undefined as boolean | undefined,
 }));
@@ -210,6 +216,7 @@ describe("ArtifactsView", () => {
 		mocks.workspaces = withArtifacts;
 		mocks.agents = [codexReady];
 		mocks.hideShellTopbar = true;
+		mocks.cloudStatus = "authenticated";
 		mocks.cloudArtifacts = undefined;
 		mocks.navigate.mockReset();
 		mocks.post.mockReset();
@@ -617,6 +624,14 @@ describe("ArtifactsView", () => {
 		const dialog = await screen.findByRole("dialog", { name: "notes.md" });
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(within(dialog).queryByRole("button", { name: "Publish: notes.md" })).toBeNull();
+	});
+
+	it("keeps Scratchpad artifacts local while signed out", async () => {
+		mocks.cloudStatus = "unauthenticated";
+		renderView();
+		await userEvent.click(within(artifactList()).getByRole("button", { name: /^caching-options\.md/ }));
+		const dialog = screen.getByRole("dialog", { name: "caching-options.md" });
+		expect(within(dialog).queryByRole("button", { name: "Publish: caching-options.md" })).not.toBeInTheDocument();
 	});
 
 	it("offers Publish on a Scratchpad file, which belongs to the Scratchpad workspace", async () => {
