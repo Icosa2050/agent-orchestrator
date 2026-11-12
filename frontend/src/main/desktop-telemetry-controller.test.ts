@@ -97,10 +97,9 @@ describe("DesktopTelemetryController", () => {
 		try {
 			const enabledGeneration = "7f80c8a9-ec67-4a16-a067-a444ffcc5cca";
 			await writeFile(path.join(dataDir, "telemetry_policy.json"), `${JSON.stringify({
-				schema_version: 2,
+				schema_version: 3,
 				events_enabled: true,
 				consent_generation: enabledGeneration,
-				consent_production_enabled: true,
 				updated_at: "2026-08-28T10:15:30.000Z",
 			})}\n`, { mode: 0o600 });
 			let failDirectorySync = false;
@@ -220,6 +219,7 @@ describe("DesktopTelemetryController", () => {
 			const authority = new TelemetryPolicyAuthority({ dataDir, packagedDefault: true, platform: "win32" });
 			const controller = new DesktopTelemetryController({ authority, transportFactory: async () => transport, environmentAllowsEvents: true });
 			await controller.initialize();
+			await controller.setEventsEnabled(true, controller.snapshot().consentGeneration);
 			expect(controller.snapshot()).toMatchObject({ eventsEnabled: true, durabilitySupported: true, state: "applied" });
 			await controller.setEventsEnabled(false, controller.snapshot().consentGeneration);
 			expect(transport.closeAndDrain).toHaveBeenCalledOnce();
@@ -234,10 +234,9 @@ describe("DesktopTelemetryController", () => {
 		try {
 			const generation = "7f80c8a9-ec67-4a16-a067-a444ffcc5cca";
 			await writeFile(path.join(dataDir, "telemetry_policy.json"), `${JSON.stringify({
-				schema_version: 2,
+				schema_version: 3,
 				events_enabled: true,
 				consent_generation: generation,
-				consent_production_enabled: false,
 				updated_at: "2026-08-28T10:15:30.000Z",
 			})}\n`, { mode: 0o600 });
 			const transportFactory = vi.fn(async () => ({ closeAndDrain: async () => {}, capture: vi.fn(), clearCache: async () => {} }));

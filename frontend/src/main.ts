@@ -4263,7 +4263,7 @@ app.whenReady().then(async () => {
 	powerMonitor.on("suspend", () => recordUpdateDiagnostic("power-suspend"));
 	powerMonitor.on("resume", () => recordUpdateDiagnostic("power-resume"));
 	void refreshGitHubOwners();
-	const authority = new TelemetryPolicyAuthority({ dataDir: desktopDataDir, packagedDefault: app.isPackaged, platform: process.platform });
+	const authority = new TelemetryPolicyAuthority({ dataDir: desktopDataDir, packagedDefault: false, platform: process.platform });
 	const policyController = new DesktopTelemetryController({
 		authority,
 		environmentAllowsEvents: rendererTelemetryEnabled(process.env, app.isPackaged),

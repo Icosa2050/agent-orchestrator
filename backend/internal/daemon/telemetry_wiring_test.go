@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -58,6 +59,9 @@ func TestNewTelemetrySink_UsesLocalSQLiteWhenEnabled(t *testing.T) {
 
 func TestNewTelemetrySink_MissingRemoteCredentialsDisablesRemoteUsage(t *testing.T) {
 	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	store, err := sqlitetest.Open(dataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +139,11 @@ func (f wiringTestRoundTripper) Do(req *http.Request) (*http.Response, error) { 
 // allowlist. Raw error text must not.
 func TestTelemetryWiringDailyUsageSummaryPreservesCountOnTheWire(t *testing.T) {
 	requests := make(chan map[string]any, 1)
-	remote, err := telemetryadapter.NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "",
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	remote, err := telemetryadapter.NewPostHogSink(dataDir, "phc_test", "https://us.i.posthog.com", "", "",
 		wiringTestRoundTripper(func(req *http.Request) (*http.Response, error) {
 			defer req.Body.Close()
 			var body map[string]any
@@ -204,6 +212,9 @@ func (s *lifecycleCaptureSink) Close(context.Context) error { return nil }
 
 func TestEmitInstallLifecycleEventsFreshInstallOnce(t *testing.T) {
 	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Config{DataDir: dataDir, Telemetry: config.TelemetryConfig{
 		Events: true, Remote: config.TelemetryRemotePostHog, PostHogKey: "phc_test", PostHogHost: "https://us.i.posthog.com",
 	}}

@@ -145,6 +145,10 @@ func startGitHubLoginResolver(ctx context.Context, cfg config.Config, ident port
 				return
 			case <-time.After(delay):
 			}
+			// Identity enrichment is itself telemetry: do not contact GitHub before consent.
+			if ident.ExportSuppressed() {
+				continue
+			}
 			scm := newMultiSCMProvider(cfg.GitLab, log)
 			if scm == nil {
 				continue

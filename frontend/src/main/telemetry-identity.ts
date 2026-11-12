@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-/** Same file the daemon's telemetry Identity reads (adapters/telemetry/identity.go). */
-export const TELEMETRY_OPT_OUT_FILE = "telemetry_opt_out";
+import { analyticsConsentGranted, TELEMETRY_OPT_IN_FILE, TELEMETRY_OPT_OUT_FILE } from "../shared/telemetry-consent";
+export { TELEMETRY_OPT_OUT_FILE } from "../shared/telemetry-consent";
 
 type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -56,7 +55,7 @@ export class TelemetryIdentityController {
 	) {}
 
 	isOptedOut(): boolean {
-		return existsSync(path.join(this.dataDir, TELEMETRY_OPT_OUT_FILE));
+		return !analyticsConsentGranted(this.dataDir);
 	}
 
 	async setOptedOut(optedOut: boolean): Promise<boolean> {
@@ -64,8 +63,15 @@ export class TelemetryIdentityController {
 		if (optedOut) {
 			await mkdir(this.dataDir, { recursive: true });
 			await writeFile(file, "1\n", { mode: 0o600 });
+			await rm(path.join(this.dataDir, TELEMETRY_OPT_IN_FILE), { force: true });
 			await rm(path.join(this.dataDir, "telemetry", "cli-usage-daily.json"), { force: true });
 		} else {
+			await mkdir(this.dataDir, { recursive: true });
+			const temporary = path.join(this.dataDir, `.${TELEMETRY_OPT_IN_FILE}.${randomUUID()}.tmp`);
+			try {
+				await writeFile(temporary, "1\n", { mode: 0o600, flag: "wx" });
+				await rename(temporary, path.join(this.dataDir, TELEMETRY_OPT_IN_FILE));
+			} finally { await rm(temporary, { force: true }); }
 			await rm(file, { force: true });
 		}
 		this.broadcast(optedOut);

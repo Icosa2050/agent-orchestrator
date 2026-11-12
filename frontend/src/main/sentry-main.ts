@@ -2,7 +2,7 @@
 // this transport's lifetime, and the SDK never receives raw renderer text.
 import * as Sentry from "@sentry/electron/main";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { RendererTelemetryCapture } from "../shared/telemetry-policy";
@@ -10,7 +10,8 @@ import { DEFAULT_ELECTRON_SENTRY_DSN, isPublishedSentryBuild, SAFE_APP_ASSET, SA
 import { loadOrCreateTelemetryInstallId } from "../shared/telemetry";
 import type { DesktopTelemetryTransport } from "./desktop-telemetry-controller";
 import { isSafeMainErrorDetail, MAIN_ERROR_CATEGORIES, MAIN_ERROR_REASONS, sanitizeMainErrorCapture, type MainErrorCapture } from "./main-error-capture";
-import { TELEMETRY_OPT_OUT_FILE } from "./telemetry-identity";
+import { telemetryOptOutMarkerPresent } from "../shared/telemetry-consent";
+export { telemetryOptOutMarkerPresent } from "../shared/telemetry-consent";
 
 export function electronMainSentryDsn(version: string, isDev: boolean): string {
 	return process.env.AO_ELECTRON_SENTRY_DSN ?? (isPublishedSentryBuild(version, isDev) ? DEFAULT_ELECTRON_SENTRY_DSN : "");
@@ -218,15 +219,6 @@ function scrubMainSentryEvent(event: Sentry.ErrorEvent, installId: string, versi
 		exception: { values: [{ type: exceptionType, value: "", ...(frames?.length ? { stacktrace: { frames } } : {}) }] },
 		...(debugImages.length ? { debug_meta: { images: debugImages } } : {}),
 	};
-}
-
-/**
- * Fork guard (Icosa2050, see FORK.md): the telemetry_opt_out marker next to
- * the install id stops Electron Sentry too, whatever telemetry_policy.json
- * says. Read on every send so an opt-out applies without a restart.
- */
-export function telemetryOptOutMarkerPresent(dataDir: string): boolean {
-	return existsSync(path.join(dataDir, TELEMETRY_OPT_OUT_FILE));
 }
 
 // A handled main-process failure reported through captureMainError. Its title

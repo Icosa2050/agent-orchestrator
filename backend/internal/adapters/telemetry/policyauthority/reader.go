@@ -73,7 +73,7 @@ func (r *Reader) Read(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, errors.New("telemetry policy authority fields are invalid")
 	}
 	return Snapshot{
-		Present: true, EventsEnabled: record.EventsEnabled, ConsentGeneration: record.ConsentGeneration,
+		Present: true, EventsEnabled: record.SchemaVersion == 3 && record.EventsEnabled, ConsentGeneration: record.ConsentGeneration,
 	}, nil
 }
 
@@ -87,7 +87,7 @@ type diskRecord struct {
 
 func (r diskRecord) versionShapeValid() bool {
 	switch r.SchemaVersion {
-	case 1:
+	case 1, 3:
 		return r.ConsentProductionEnabled == nil
 	case 2:
 		return r.ConsentProductionEnabled != nil
@@ -102,7 +102,7 @@ func validTimestamp(value string) bool {
 }
 
 // EventsAllowed reports whether the daemon may send error events. A missing
-// policy permits sending; a recorded opt-out or environment veto stops it.
+// policy denies sending; only a version 3 explicit choice permits it.
 func (r *Reader) EventsAllowed(ctx context.Context, envEvents, envExplicit bool) bool {
 	if !envEvents || !envExplicit {
 		return false
@@ -111,5 +111,5 @@ func (r *Reader) EventsAllowed(ctx context.Context, envEvents, envExplicit bool)
 	if err != nil {
 		return false
 	}
-	return !snapshot.Present || snapshot.EventsEnabled
+	return snapshot.Present && snapshot.EventsEnabled
 }

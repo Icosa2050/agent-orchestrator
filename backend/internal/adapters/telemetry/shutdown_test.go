@@ -38,7 +38,7 @@ func newShutdownTestSink(t *testing.T, kind string, consume func(context.Context
 		sink = NewLocalSQLiteSink(shutdownLocalStore(consume), log, DefaultRetention)
 	} else {
 		var err error
-		sink, err = NewPostHogSink(t.TempDir(), "phc_test", "https://posthog.test", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+		sink, err = newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://posthog.test", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 			defer req.Body.Close()
 			if err := consume(req.Context()); err != nil {
 				return nil, err

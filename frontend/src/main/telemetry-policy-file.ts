@@ -58,6 +58,7 @@ export class TelemetryPolicyAuthority {
 
 	constructor(private readonly options: {
 		dataDir: string;
+		// Kept for caller compatibility; packaged builds never imply consent.
 		packagedDefault: boolean;
 		platform?: NodeJS.Platform;
 		fs?: TelemetryPolicyFileSystem;
@@ -81,7 +82,7 @@ export class TelemetryPolicyAuthority {
 			stat = await fs.lstat(this.policyPath);
 		} catch (error) {
 			if (!isNotFound(error)) throw error;
-			const record = this.newRecord(this.options.packagedDefault);
+			const record = this.newRecord(false);
 			this.record = record;
 			this.current = this.snapshotOf(record, false);
 			this.writable = true;
@@ -119,7 +120,7 @@ export class TelemetryPolicyAuthority {
 
 	private newRecord(eventsEnabled: boolean): TelemetryPolicyDiskRecord {
 		return {
-			schema_version: 1,
+			schema_version: 3,
 			events_enabled: eventsEnabled,
 			consent_generation: (this.options.newGeneration ?? randomUUID)(),
 			updated_at: (this.options.now?.() ?? new Date()).toISOString(),

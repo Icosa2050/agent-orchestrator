@@ -149,7 +149,7 @@ func TestTenureWorksWithNoDataDir(t *testing.T) {
 // allowlist and that is easy to get wrong.
 func TestPostHogSinkStampsDefaultAgentAndTenure(t *testing.T) {
 	var got map[string]any
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "0.11.3", "codex",
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "0.11.3", "codex",
 		roundTripClient(func(req *http.Request) (*http.Response, error) {
 			defer req.Body.Close()
 			var body map[string]any

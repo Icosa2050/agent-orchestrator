@@ -20,6 +20,9 @@ import (
 // app and (via the identity route) the phone all read one switch.
 const OptOutFile = "telemetry_opt_out"
 
+// OptInFile is written only by an explicit analytics opt-in.
+const OptInFile = "telemetry_opt_in"
+
 const (
 	installIDFile      = "telemetry_install_id"
 	anonymousIDFile    = "telemetry_anonymous_id"
@@ -37,9 +40,8 @@ var (
 // Identity is the daemon's live telemetry identity: the install ID plus the
 // two optional person-level attributes. Safe for concurrent use.
 type Identity struct {
-	dataDir    string
-	optOutPath string
-	fresh      bool
+	dataDir string
+	fresh   bool
 
 	// File operations are fields so tests can fail them.
 	writeFile  func(path string, data []byte) error
@@ -79,7 +81,7 @@ func NewIdentity(dataDir string) (*Identity, error) {
 			return nil, fmt.Errorf("record telemetry anonymous id: %w", err)
 		}
 	}
-	ident := &Identity{writeFile: writeFileAtomic, removeFile: os.Remove, dataDir: dataDir, installID: id, anonymousID: anon, optOutPath: filepath.Join(dataDir, OptOutFile), fresh: freshInstall(dataDir)}
+	ident := &Identity{writeFile: writeFileAtomic, removeFile: os.Remove, dataDir: dataDir, installID: id, anonymousID: anon, fresh: freshInstall(dataDir)}
 	// The bound user is the last sign-in the desktop handed off and the daemon
 	// recorded; a sign-out removes it. Restoring it lets a restarted or
 	// CLI-started daemon report under the signed-in Cloud ID without waiting
@@ -146,12 +148,10 @@ func freshInstall(dataDir string) bool {
 	return err == nil && time.Since(info.ModTime()) < 24*time.Hour
 }
 
-// OptedOut reports whether the user switched telemetry off. Queue admission
-// and each send attempt read the marker so an opt-out stops export without a
-// cache delay.
+// OptedOut is true until explicit analytics consent exists. Queue admission
+// and each send attempt recheck consent and the overriding opt-out marker.
 func (i *Identity) OptedOut() bool {
-	_, err := os.Stat(i.optOutPath)
-	return err == nil
+	return !AnalyticsConsentGranted(i.dataDir)
 }
 
 // InstallID is the durable installation attribution key.

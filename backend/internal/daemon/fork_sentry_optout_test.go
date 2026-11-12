@@ -11,6 +11,7 @@ import (
 	"github.com/getsentry/sentry-go"
 
 	telemetryadapter "github.com/aoagents/agent-orchestrator/backend/internal/adapters/telemetry"
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/telemetry/policyauthority"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/sentryobs"
 	"github.com/aoagents/agent-orchestrator/backend/internal/telemetrymeta"
 )
@@ -114,5 +115,40 @@ func TestOptOutMarkerStopsEveryDaemonSentryPath(t *testing.T) {
 	case <-transport.events:
 	case <-time.After(5 * time.Second):
 		t.Fatal("without the marker the background capture never arrived; the opt-out test proves nothing")
+	}
+}
+
+// Fresh packaged defaults and legacy automatically enabled policies are not consent.
+func TestForkDefaultPolicyStopsEveryDaemonSentryPath(t *testing.T) {
+	for _, raw := range []string{"", `{"schema_version":1,"events_enabled":true,"consent_generation":"7f80c8a9-ec67-4a16-a067-a444ffcc5cca","updated_at":"2026-08-28T10:15:30.000Z"}`} {
+		t.Run(raw, func(t *testing.T) {
+			dir := t.TempDir()
+			if raw != "" {
+				if err := os.WriteFile(filepath.Join(dir, policyauthority.FileName), []byte(raw), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			transport := &optOutRecordingTransport{events: make(chan *sentry.Event, 8)}
+			if err := sentryobs.Init(sentryobs.Config{DSN: "https://public@example.com/1", InstallID: "ins_sampled_5", Release: "1.0.0", Environment: "stable", Transport: transport}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { sentryobs.SetPolicyCheck(nil); _ = sentryobs.Init(sentryobs.Config{}) })
+			reader := policyauthority.New(filepath.Join(dir, policyauthority.FileName))
+			sentryobs.SetPolicyCheck(sentryPolicyHonoringOptOut(dir, func(ctx context.Context) bool { return reader.EventsAllowed(ctx, true, true) }))
+			ctx := context.Background()
+			failure := errors.New("startup failure")
+			sentryobs.CaptureBackground(ctx, failure, "reaper", "reaper_tick", nil)
+			sentryobs.CaptureErrorAsync(ctx, failure, nil, "fresh_async", telemetrymeta.SafeRoute{}, telemetrymeta.FailureSite{})
+			sentryobs.CaptureError(ctx, failure, nil, "fresh_sync", telemetrymeta.SafeRoute{}, telemetrymeta.FailureSite{})
+			sentryobs.CapturePanic(ctx, nil, "fresh_panic", telemetrymeta.SafeRoute{}, telemetrymeta.FailureSite{})
+			if err := sentryobs.Drain(ctx); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case event := <-transport.events:
+				t.Fatalf("unconsented Sentry event: %+v", event)
+			default:
+			}
+		})
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -69,7 +71,11 @@ func (r *wireRecorder) names() []string {
 func newWireSink(t *testing.T) (ports.EventSink, *wireRecorder, func()) {
 	t.Helper()
 	rec := &wireRecorder{}
-	remote, err := telemetryadapter.NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "",
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	remote, err := telemetryadapter.NewPostHogSink(dataDir, "phc_test", "https://us.i.posthog.com", "", "",
 		wireRoundTripper(func(req *http.Request) (*http.Response, error) {
 			defer req.Body.Close()
 			var body struct {

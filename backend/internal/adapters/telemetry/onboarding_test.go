@@ -11,7 +11,7 @@ import (
 
 func TestCLIOnboardingMilestoneIsDurableAndHonorsOptOut(t *testing.T) {
 	dir := t.TempDir()
-	identity, err := NewIdentity(dir)
+	identity, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

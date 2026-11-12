@@ -1,7 +1,7 @@
 export const AGENT_SWITCH_FAILURE_PRODUCTION_ENABLED = true;
 
 export type TelemetryPolicyDiskRecord = {
-	schema_version: 1;
+	schema_version: 3;
 	events_enabled: boolean;
 	consent_generation: string;
 	updated_at: string;
@@ -59,7 +59,7 @@ export function parseTelemetryPolicyDiskRecord(raw: string): TelemetryPolicyPars
 	}
 	if (!value || typeof value !== "object" || Array.isArray(value)) return { ok: false, reason: "invalid_record" };
 	const record = value as Record<string, unknown>;
-	const expectedKeys = record.schema_version === 1 ? RECORD_KEYS_V1 : record.schema_version === 2 ? RECORD_KEYS_V2 : null;
+	const expectedKeys = (record.schema_version === 1 || record.schema_version === 3) ? RECORD_KEYS_V1 : record.schema_version === 2 ? RECORD_KEYS_V2 : null;
 	const keys = Object.keys(record).sort();
 	if (!expectedKeys || keys.length !== expectedKeys.length || keys.some((key, index) => key !== expectedKeys[index])) {
 		return { ok: false, reason: "invalid_record" };
@@ -77,8 +77,9 @@ export function parseTelemetryPolicyDiskRecord(raw: string): TelemetryPolicyPars
 		return { ok: false, reason: "invalid_record" };
 	}
 	return { ok: true, record: {
-		schema_version: 1,
-		events_enabled: record.events_enabled,
+		schema_version: 3,
+		// Legacy enabled records may have been written automatically on launch.
+		events_enabled: record.schema_version === 3 && record.events_enabled,
 		consent_generation: record.consent_generation,
 		updated_at: record.updated_at,
 	} };

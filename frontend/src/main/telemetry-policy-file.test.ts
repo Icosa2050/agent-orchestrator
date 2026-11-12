@@ -17,24 +17,24 @@ afterEach(async () => {
 });
 
 describe("TelemetryPolicyAuthority", () => {
-	it("materializes the packaged default as an owner-only durable record", async () => {
+	it("defaults packaged error reporting off in an owner-only durable record", async () => {
 		const dataDir = await makeDir();
 		const authority = new TelemetryPolicyAuthority({ dataDir, packagedDefault: true, platform: "linux" });
 		const snapshot = await authority.load();
 		const policyPath = path.join(dataDir, "telemetry_policy.json");
 		const mode = (await lstat(policyPath)).mode & 0o777;
-		expect(snapshot.eventsEnabled).toBe(true);
+		expect(snapshot.eventsEnabled).toBe(false);
 		expect(snapshot.acknowledged).toBe(true);
 		expect(mode).toBe(0o600);
 		expect(JSON.parse(await readFile(policyPath, "utf8"))).toEqual({
-			schema_version: 1,
-			events_enabled: true,
+			schema_version: 3,
+			events_enabled: false,
 			consent_generation: snapshot.consentGeneration,
 			updated_at: snapshot.updatedAt,
 		});
 	});
 
-	it("keeps a version 1 opt-in enabled without rewriting it", async () => {
+	it("does not mistake a legacy automatic default for explicit consent", async () => {
 		const dataDir = await makeDir();
 		const policyPath = path.join(dataDir, "telemetry_policy.json");
 		const raw = JSON.stringify({
@@ -45,7 +45,7 @@ describe("TelemetryPolicyAuthority", () => {
 		});
 		await writeFile(policyPath, raw, { mode: 0o600 });
 		const snapshot = await new TelemetryPolicyAuthority({ dataDir, packagedDefault: true, platform: "linux" }).load();
-		expect(snapshot).toMatchObject({ eventsEnabled: true, acknowledged: true });
+		expect(snapshot).toMatchObject({ eventsEnabled: false, acknowledged: true });
 		expect(await readFile(policyPath, "utf8")).toBe(raw);
 	});
 
@@ -132,11 +132,11 @@ describe("TelemetryPolicyAuthority", () => {
 		expect(syncAttempts).toBe(2);
 	});
 
-	it("supports Windows defaults and durable opt-out replacements", async () => {
+	it("defaults Windows off and supports durable replacements", async () => {
 		const dataDir = await makeDir();
 		const authority = new TelemetryPolicyAuthority({ dataDir, packagedDefault: true, platform: "win32" });
 		expect(authority.durabilitySupported).toBe(true);
-		expect(await authority.load()).toMatchObject({ eventsEnabled: true, acknowledged: true });
+		expect(await authority.load()).toMatchObject({ eventsEnabled: false, acknowledged: true });
 		expect(await authority.setEventsEnabled(false)).toMatchObject({ eventsEnabled: false, acknowledged: true });
 		expect(await new TelemetryPolicyAuthority({ dataDir, packagedDefault: true, platform: "win32" }).load()).toMatchObject({ eventsEnabled: false, acknowledged: true });
 	});

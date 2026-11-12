@@ -7,26 +7,26 @@ describe("telemetry policy wire record", () => {
 	});
 	it("accepts only the exact snake_case versioned record", () => {
 		expect(parseTelemetryPolicyDiskRecord(JSON.stringify({
-			schema_version: 1,
+			schema_version: 3,
 			events_enabled: false,
 			consent_generation: "7f80c8a9-ec67-4a16-a067-a444ffcc5cca",
 			updated_at: "2026-08-28T10:15:30.000Z",
 		}))).toEqual({ ok: true, record: {
-			schema_version: 1,
+			schema_version: 3,
 			events_enabled: false,
 			consent_generation: "7f80c8a9-ec67-4a16-a067-a444ffcc5cca",
 			updated_at: "2026-08-28T10:15:30.000Z",
 		} });
 	});
 
-	it("reads a version 1 choice", () => {
+	it("reads a version 3 explicit choice", () => {
 		expect(parseTelemetryPolicyDiskRecord(JSON.stringify({
-			schema_version: 1,
+			schema_version: 3,
 			events_enabled: true,
 			consent_generation: "7f80c8a9-ec67-4a16-a067-a444ffcc5cca",
 			updated_at: "2026-08-28T10:15:30.000Z",
 		}))).toEqual({ ok: true, record: {
-			schema_version: 1,
+			schema_version: 3,
 			events_enabled: true,
 			consent_generation: "7f80c8a9-ec67-4a16-a067-a444ffcc5cca",
 			updated_at: "2026-08-28T10:15:30.000Z",
@@ -50,7 +50,7 @@ describe("telemetry policy wire record", () => {
 
 describe("telemetryPolicySnapshot", () => {
 	const record = (eventsEnabled: boolean): TelemetryPolicyDiskRecord => ({
-		schema_version: 1,
+		schema_version: 3,
 		events_enabled: eventsEnabled,
 		consent_generation: "7f80c8a9-ec67-4a16-a067-a444ffcc5cca",
 		updated_at: "2026-08-28T10:15:30.000Z",

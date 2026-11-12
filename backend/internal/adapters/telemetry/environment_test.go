@@ -158,7 +158,7 @@ func TestReleaseChannelFromMatchesRenderer(t *testing.T) {
 func TestPostHogPropertiesCarrySegmentation(t *testing.T) {
 	stateDir := t.TempDir()
 	writeJSONFile(t, filepath.Join(stateDir, appStateFileName), map[string]any{"installSource": "dmg", "installedAt": "2026-10-01T10:00:00Z"})
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "0.20.0", "", roundTripClient(func(*http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "0.20.0", "", roundTripClient(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 	}), nil)
 	if err != nil {

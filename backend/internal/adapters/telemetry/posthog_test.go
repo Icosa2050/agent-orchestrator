@@ -17,7 +17,7 @@ import (
 
 func TestPostHogSinkCapturesEvent(t *testing.T) {
 	requests := make(chan map[string]any, 1)
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		var body map[string]any
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -100,7 +100,7 @@ func TestLifetimeSessionCountUsesEnqueueTime(t *testing.T) {
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
 	requests := make(chan map[string]any, 2)
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		var body map[string]any
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -139,11 +139,11 @@ func TestLifetimeSessionCountUsesEnqueueTime(t *testing.T) {
 }
 
 func TestProjectHashIsInstallationScoped(t *testing.T) {
-	first, err := NewIdentity(t.TempDir())
+	first, err := newConsentedIdentity(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NewIdentity(t.TempDir())
+	second, err := newConsentedIdentity(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestRenamedEventAllowlists(t *testing.T) {
 // so a reintroduced old emit site would lose its properties and stand out.
 func TestRenamedDaemonEventsExportUnderNewName(t *testing.T) {
 	requests := make(chan map[string]any, len(legacyEventNames))
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		var body map[string]any
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -290,7 +290,7 @@ func TestRenamedDaemonEventsExportUnderNewName(t *testing.T) {
 
 func TestPostHogSinkExportsForeignEventNames(t *testing.T) {
 	var names []string
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		var body struct {
 			Event string `json:"event"`
@@ -329,7 +329,7 @@ func TestSampleRateIsNotARemoteProperty(t *testing.T) {
 
 func TestPostHogSinkSanitizesPayloads(t *testing.T) {
 	requests := make(chan map[string]any, 1)
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		var body map[string]any
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -395,7 +395,7 @@ func TestPostHogSinkSanitizesPayloads(t *testing.T) {
 
 func TestPostHogSinkSanitizesAppActivePayload(t *testing.T) {
 	requests := make(chan map[string]any, 1)
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		var body map[string]any
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -472,7 +472,7 @@ var _ postHogClient = roundTripClient(nil)
 func TestPostHogSinkStampsAppVersionWhenSupplied(t *testing.T) {
 	requests := make(chan map[string]any, 1)
 	newSink := func(appVersion string) *PostHogSink {
-		sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", appVersion, "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+		sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", appVersion, "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 			defer req.Body.Close()
 			var body map[string]any
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -599,7 +599,7 @@ func TestHarnessUpdatePayloadAllowlistCoversTheRolloutMetrics(t *testing.T) {
 // operator's GitHub handle, the sink mirrors it into $set and flips this one
 // event to identified so a breakdown by github_actor is possible.
 func TestPropertiesDerivesPersonSetFromGithubActor(t *testing.T) {
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(*http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 	}), nil)
 	if err != nil {
@@ -678,7 +678,7 @@ func TestSanitizeRemotePayloadKeepsWriteLockHolder(t *testing.T) {
 // identified update clears them on the wire; later events stay anonymous.
 func TestPostHogSinkClearsStalePersonProperties(t *testing.T) {
 	requests := make(chan map[string]any, 2)
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "0.13.1-nightly.202609232348", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "0.13.1-nightly.202609232348", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		var body map[string]any
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {

@@ -18,7 +18,7 @@ import (
 
 func newTestSink(t *testing.T, dir string, requests chan map[string]any, hits *atomic.Int32) *PostHogSink {
 	t.Helper()
-	sink, err := NewPostHogSink(dir, "phc_test", "https://us.i.posthog.com", "1.2.3", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, dir, "phc_test", "https://us.i.posthog.com", "1.2.3", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		if hits != nil {
 			hits.Add(1)
@@ -113,7 +113,7 @@ func TestIdentityStampsEveryEventAndSetsPersonOnce(t *testing.T) {
 
 func TestPersonPropertiesAreRetriedAfterARejectedSend(t *testing.T) {
 	var sent []map[string]any
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
 		var body map[string]any
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -149,7 +149,7 @@ func TestPersonPropertiesAreRetriedAfterARejectedSend(t *testing.T) {
 }
 
 func TestIdentityRejectsMalformedValues(t *testing.T) {
-	ident, err := NewIdentity(t.TempDir())
+	ident, err := newConsentedIdentity(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestOptOutStopsExportAndHidesIdentity(t *testing.T) {
 
 func TestFreshInstallOnlyBeforeFirstExportedEvent(t *testing.T) {
 	dir := t.TempDir()
-	ident, err := NewIdentity(dir)
+	ident, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestFreshInstallOnlyBeforeFirstExportedEvent(t *testing.T) {
 	sink := newTestSink(t, dir, nil, nil)
 	sink.properties(ports.TelemetryEvent{Name: "ao.daemon.started"})
 	_ = sink.Close(context.Background())
-	again, _ := NewIdentity(dir)
+	again, _ := newConsentedIdentity(t, dir)
 	if again.FreshInstall() {
 		t.Fatal("second start reported a fresh install")
 	}
@@ -226,7 +226,7 @@ func TestFreshInstallOnlyBeforeFirstExportedEvent(t *testing.T) {
 	if err := os.Chtimes(path, past, past); err != nil {
 		t.Fatal(err)
 	}
-	upgraded, _ := NewIdentity(old)
+	upgraded, _ := newConsentedIdentity(t, old)
 	if upgraded.FreshInstall() {
 		t.Fatal("upgrade counted as a new install")
 	}
@@ -278,7 +278,7 @@ func TestInstallIDCreationRecoversEmptyFileAndConcurrentReaders(t *testing.T) {
 
 func TestInstalledEventIsReservedOnceEvenWithoutAnExport(t *testing.T) {
 	dir := t.TempDir()
-	first, err := NewIdentity(dir)
+	first, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestInstalledEventIsReservedOnceEvenWithoutAnExport(t *testing.T) {
 		t.Fatalf("first install mark = %t, %v", marked, err)
 	}
 	// No sender processed the queued event before this restart.
-	second, err := NewIdentity(dir)
+	second, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestInstalledEventIsReservedOnceEvenWithoutAnExport(t *testing.T) {
 }
 
 func TestCanceledIdentityWritesLeaveStateUnchanged(t *testing.T) {
-	ident, err := NewIdentity(t.TempDir())
+	ident, err := newConsentedIdentity(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +384,7 @@ func TestAccountSwitchNeverReusesTheFirstAccountsInstallID(t *testing.T) {
 
 func TestInstallIDRetiredAcrossRestartAndDirectSwitch(t *testing.T) {
 	dir := t.TempDir()
-	first, err := NewIdentity(dir)
+	first, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestInstallIDRetiredAcrossRestartAndDirectSwitch(t *testing.T) {
 
 	// Daemon restarts, A signed out while the app was closed, then the app pushes
 	// a signed-out state.
-	second, err := NewIdentity(dir)
+	second, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func TestInstallIDRetiredAcrossRestartAndDirectSwitch(t *testing.T) {
 		t.Fatal("install reset left the CLI usage summary on disk")
 	}
 
-	third, err := NewIdentity(dir)
+	third, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestCloudIdentitySurvivesRestartAcrossSignInSignOutSignIn(t *testing.T) {
 	ctx := context.Background()
 	restart := func() *Identity {
 		t.Helper()
-		ident, err := NewIdentity(dir)
+		ident, err := newConsentedIdentity(t, dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -484,13 +484,13 @@ func TestCloudIdentitySurvivesRestartAcrossSignInSignOutSignIn(t *testing.T) {
 
 func TestMalformedBoundUserIsNotRestored(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := NewIdentity(dir); err != nil {
+	if _, err := newConsentedIdentity(t, dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, boundUserFile), []byte("/Users/someone/path\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ident, err := NewIdentity(dir)
+	ident, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,7 +517,7 @@ func TestOptOutSinkKeepsOptedOutEventsOutOfAggregateBuckets(t *testing.T) {
 func TestSendRechecksOptOutBeforeRetry(t *testing.T) {
 	dir := t.TempDir()
 	attempts := 0
-	sink, err := NewPostHogSink(dir, "phc_test", "https://example.test", "", "", roundTripClient(func(_ *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, dir, "phc_test", "https://example.test", "", "", roundTripClient(func(_ *http.Request) (*http.Response, error) {
 		attempts++
 		// The user opts out while the first request is in flight; it then fails
 		// transiently, so the retry would otherwise go out.
@@ -542,7 +542,7 @@ func TestQueuedEventStopsAtSendGateAfterOptOut(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var attempts atomic.Int32
-	sink, err := NewPostHogSink(dir, "phc_test", "https://example.test", "", "", roundTripClient(func(_ *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, dir, "phc_test", "https://example.test", "", "", roundTripClient(func(_ *http.Request) (*http.Response, error) {
 		if attempts.Add(1) == 1 {
 			close(started)
 			<-release
@@ -581,7 +581,7 @@ func TestQueuedEventStopsAtSendGateAfterOptOut(t *testing.T) {
 
 func TestRotationFailureKeepsTheBindingAndSuppressesExport(t *testing.T) {
 	dir := t.TempDir()
-	ident, err := NewIdentity(dir)
+	ident, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -632,7 +632,7 @@ func TestRotationFailureKeepsTheBindingAndSuppressesExport(t *testing.T) {
 }
 
 func TestBindingWriteAndClearFailuresFailClosed(t *testing.T) {
-	ident, err := NewIdentity(t.TempDir())
+	ident, err := newConsentedIdentity(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -694,7 +694,7 @@ func TestSinkExportsNothingWhileIdentityIsUnpersisted(t *testing.T) {
 // daemon that later receives the hand-off adopts that ID too.
 func TestDesktopRetiredBindingHoldsWithoutTheDaemon(t *testing.T) {
 	dir := t.TempDir()
-	running, err := NewIdentity(dir)
+	running, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +709,7 @@ func TestDesktopRetiredBindingHoldsWithoutTheDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cliStarted, err := NewIdentity(dir)
+	cliStarted, err := newConsentedIdentity(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

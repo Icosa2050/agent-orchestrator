@@ -11,13 +11,18 @@ account. Desktop and daemon events include a random installation identifier
 to group activity even when the event uses an account ID as `distinct_id`.
 Telemetry is not wholly anonymous.
 
-Share usage analytics and Share error events are on by default in production
-desktop releases for fresh installs and existing users, unless a user turned
-either choice off or an environment setting disables it. Both can be turned
-off at any time in Settings > General > Privacy. A packaged desktop release
-also enables telemetry for the daemon it starts.
-Development builds and daemons started directly do not send remote telemetry by
-default.
+In the Icosa2050 fork, Share usage analytics and Share error events are **off by
+default**, including packaged releases and upgrades. Enable either explicitly in
+Settings > General > Privacy. Analytics uses an owner-only `telemetry_opt_in`
+file containing `1\n`; error reporting uses an explicit version-3
+`telemetry_policy.json` choice. Older enabled policy records may have been
+created automatically, so they do not establish consent and require a new choice.
+The existing `telemetry_opt_out` marker overrides both switches. Missing,
+malformed, unsafe or unreadable consent fails closed. Environment exporter/DSN
+settings configure transports but cannot substitute for these consent records.
+Without analytics consent the renderer receives no bootstrap and never imports
+PostHog, so no PostHog flags, assets or scripts load. Daemon export and usage
+recording use the same consent gate; local diagnostic event storage is unchanged.
 
 ## Sentry projects
 
@@ -37,12 +42,11 @@ events is enabled, subject to the install sampling and daily caps below. This
 covers fatal crashes, handled main-process failures, unhandled renderer window
 errors, and rejected promises.
 
-On a fresh or existing packaged install, Share error events starts on unless
-it was explicitly turned off. You can turn it off at any time in Settings.
+On a fresh packaged install, Share error events starts off. An explicit choice
+persists across restarts and can be revoked at any time in Settings.
 Renderer diagnostics pass through the existing main-owned consent boundary;
 the renderer has no direct Sentry transport. The mobile app keeps its own
-Sentry project and DSN. Earlier error-sharing choices remain effective on
-upgrade. On Windows, the policy is saved with a flushed temporary file and
+Sentry project and DSN. Legacy enabled policies require a fresh explicit choice on upgrade; opt-outs remain effective. On Windows, the policy is saved with a flushed temporary file and
 an atomic replacement that retries temporary file locks, so the same Settings
 choice controls Electron and daemon Sentry there. Share usage analytics is a
 separate choice for PostHog.

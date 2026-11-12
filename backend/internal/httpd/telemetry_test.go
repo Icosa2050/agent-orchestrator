@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -259,8 +261,12 @@ func TestCLIUsageErrorRouteEmitsTelemetry(t *testing.T) {
 
 func TestCLIUsageErrorRouteHashesInvalidCommandsBeforeRemoteExport(t *testing.T) {
 	requests := make(chan map[string]any, 1)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	sink, err := telemetryadapter.NewPostHogSink(
-		t.TempDir(),
+		dir,
 		"phc_test",
 		"https://us.i.posthog.com",
 		"",

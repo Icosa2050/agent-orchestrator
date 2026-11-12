@@ -222,9 +222,9 @@ func TestCaptureChecksDurableConsentAtEachCapture(t *testing.T) {
 	policyPath := filepath.Join(t.TempDir(), policyauthority.FileName)
 	reader := policyauthority.New(policyPath)
 	SetPolicyCheck(func(ctx context.Context) bool { return reader.EventsAllowed(ctx, true, true) })
-	writePolicy := func(eventsEnabled, productionConsent bool) {
+	writePolicy := func(eventsEnabled bool) {
 		t.Helper()
-		raw := fmt.Sprintf(`{"schema_version":2,"events_enabled":%t,"consent_generation":"7f80c8a9-ec67-4a16-a067-a444ffcc5cca","consent_production_enabled":%t,"updated_at":"2026-08-28T10:15:30.000Z"}`, eventsEnabled, productionConsent)
+		raw := fmt.Sprintf(`{"schema_version":3,"events_enabled":%t,"consent_generation":"7f80c8a9-ec67-4a16-a067-a444ffcc5cca","updated_at":"2026-08-28T10:15:30.000Z"}`, eventsEnabled)
 		if err := os.WriteFile(policyPath, []byte(raw), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -233,22 +233,17 @@ func TestCaptureChecksDurableConsentAtEachCapture(t *testing.T) {
 		CaptureError(context.Background(), errString("synthetic"), nil, "fp", telemetrymeta.RoutePattern(nil), telemetrymeta.FailureSite{})
 	}
 	capture()
+	if len(transport.events) != 0 {
+		t.Fatal("missing policy reached transport")
+	}
+	writePolicy(true)
+	capture()
 	if len(transport.events) != 1 {
-		t.Fatal("missing policy did not use default on")
-	}
-	writePolicy(true, false)
-	capture()
-	if len(transport.events) != 2 {
-		t.Fatal("legacy production flag vetoed opt-in")
-	}
-	writePolicy(true, true)
-	capture()
-	if len(transport.events) != 3 {
 		t.Fatal("opt-in did not reach transport")
 	}
-	writePolicy(false, true)
+	writePolicy(false)
 	capture()
-	if len(transport.events) != 3 {
+	if len(transport.events) != 1 {
 		t.Fatal("durable opt-out reached transport")
 	}
 }

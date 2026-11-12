@@ -15,7 +15,7 @@ async function controller(fetcher = vi.fn(async () => new Response(null, { statu
 describe("TelemetryIdentityController opt-out", () => {
 	it("writes and clears the marker the daemon reads, and broadcasts", async () => {
 		const { dir, ctl, broadcast } = await controller();
-		expect(ctl.isOptedOut()).toBe(false);
+		expect(ctl.isOptedOut()).toBe(true);
 		await ctl.setOptedOut(true);
 		expect(ctl.isOptedOut()).toBe(true);
 		await expect(stat(path.join(dir, TELEMETRY_OPT_OUT_FILE))).resolves.toBeTruthy();

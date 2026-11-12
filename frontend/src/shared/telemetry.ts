@@ -2,6 +2,7 @@ import { access, link, lstat, mkdir, readFile, rmdir, stat, unlink, writeFile } 
 import os from "node:os";
 import path from "node:path";
 import { randomInt, randomUUID } from "node:crypto";
+import { analyticsConsentGranted } from "./telemetry-consent";
 import type { TelemetryPolicySnapshot } from "./telemetry-policy";
 import { detectCiEnvironment, installDay, normalizeInstallSource, safeOsVersion } from "./install-environment";
 
@@ -94,7 +95,8 @@ export function parseDisabledEvents(raw: string | undefined): string[] {
 }
 
 /**
- * Whether the renderer may export to PostHog.
+ * Whether this build permits the renderer exporter. Explicit durable analytics
+ * consent is also required by buildTelemetryBootstrap.
  *
  * Unpackaged builds are off by default so a developer's ordinary session does
  * not land in the production project as a real install. Setting
@@ -320,10 +322,10 @@ export async function buildTelemetryBootstrap(
 	// own background requests.
 	if (!rendererTelemetryEnabled(env, isPackaged)) return null;
 	const dataDir = defaultDataDir(platform, env, homeDir);
-	if (!dataDir) return null;
+	if (!dataDir || !analyticsConsentGranted(dataDir)) return null;
 	if (!policy) return null;
 	// This policy controls failure reporting only. Existing anonymous PostHog
-	// product analytics retain their own packaged/env gate above.
+	// product analytics require the separate explicit consent and build/env gates above.
 	const eventsEnabled = policy.eventsEnabled && policy.acknowledged;
 	const experimentCohort = await loadOrAssignExperimentCohort(dataDir);
 	const installId = await loadOrCreateTelemetryInstallId(dataDir);

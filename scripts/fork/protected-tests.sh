@@ -33,6 +33,10 @@ src/renderer/hooks/useRemoteHosts.self.test.tsx 3
 src/shared/sentry-config.test.ts 3
 src/main/sentry-main.test.ts 19
 src/main/telemetry-identity.test.ts 20
+src/main/fork-telemetry-defaults.test.ts 8
+src/main/telemetry-policy-file.test.ts 12
+src/shared/telemetry-policy.test.ts 18
+src/main/desktop-telemetry-controller.test.ts 20
 src/renderer/lib/telemetry.init.test.ts 53
 src/main/cloud-share-ipc.test.ts 20
 src/main/cloud-cp-proxy.test.ts 13
@@ -45,11 +49,12 @@ backend_tests='
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
 ./internal/daemon ^TestPublishRemoteHost 1
-./internal/daemon ^TestOptOut 4
+./internal/daemon ^(TestOptOut|TestForkDefaultPolicy) 5
 ./internal/storage/sqlite/store ^TestForkSessionRetention 1
 ./internal/service/session ^TestDeleteExpired 1
 ./internal/mobilebridge . 116
-./internal/adapters/telemetry OptOut 4
+./internal/adapters/telemetry (OptOut|TestFork) 5
+./internal/adapters/telemetry/policyauthority . 4
 '
 
 fail() { echo "protected-tests: $*" >&2; exit 1; }

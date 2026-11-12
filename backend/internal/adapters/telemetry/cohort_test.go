@@ -78,7 +78,7 @@ func TestPostHogPropertiesCarryExperimentCohort(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, experimentCohortFile), []byte("7\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sink, err := NewPostHogSink(dir, "phc_test", "https://us.i.posthog.com", "0.20.0", "", roundTripClient(func(*http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, dir, "phc_test", "https://us.i.posthog.com", "0.20.0", "", roundTripClient(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 	}), nil)
 	if err != nil {

@@ -20,17 +20,17 @@ func readRaw(t *testing.T, raw string) (Snapshot, error) {
 	return snapshot, err
 }
 
-func TestReaderReadsVersionOneChoice(t *testing.T) {
+func TestReaderDoesNotTreatVersionOneDefaultAsConsent(t *testing.T) {
 	got, err := readRaw(t, `{"schema_version":1,"events_enabled":true,"consent_generation":"`+generation+`","updated_at":"2026-08-28T10:15:30.000Z"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Present || !got.EventsEnabled || got.ConsentGeneration != generation {
+	if !got.Present || got.EventsEnabled || got.ConsentGeneration != generation {
 		t.Fatalf("snapshot = %+v", got)
 	}
 }
 
-func TestReaderReadsLegacyVersionTwoChoice(t *testing.T) {
+func TestReaderDoesNotTreatVersionTwoDefaultAsConsent(t *testing.T) {
 	for _, want := range []bool{true, false} {
 		value := "false"
 		if want {
@@ -40,7 +40,7 @@ func TestReaderReadsLegacyVersionTwoChoice(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !got.Present || !got.EventsEnabled {
+		if !got.Present || got.EventsEnabled {
 			t.Fatalf("legacy production flag %s changed the choice: snapshot = %+v", value, got)
 		}
 	}
@@ -63,12 +63,12 @@ func TestReaderRejectsRecordsWhoseShapeDoesNotMatchTheirVersion(t *testing.T) {
 	}
 }
 
-func TestEventsAllowedDefaultsOnUnlessOptedOut(t *testing.T) {
+func TestEventsAllowedDefaultsOffWithoutExplicitConsent(t *testing.T) {
 	dir := t.TempDir()
 	reader := New(filepath.Join(dir, FileName))
 	ctx := context.Background()
-	if !reader.EventsAllowed(ctx, true, true) {
-		t.Fatal("no policy file: want error reporting on")
+	if reader.EventsAllowed(ctx, true, true) {
+		t.Fatal("no policy file: want error reporting off")
 	}
 	if reader.EventsAllowed(ctx, true, false) {
 		t.Fatal("events not set explicitly: want them off")
@@ -86,14 +86,14 @@ func TestEventsAllowedDefaultsOnUnlessOptedOut(t *testing.T) {
 		t.Fatal("opted out in the app: want events off")
 	}
 	write(`{"schema_version":1,"events_enabled":true,"consent_generation":"`+generation+`","updated_at":"2026-08-28T10:15:30.000Z"}`, 0o600)
-	if !reader.EventsAllowed(ctx, true, true) {
-		t.Fatal("prior opt-in should send")
+	if reader.EventsAllowed(ctx, true, true) {
+		t.Fatal("legacy default must not send")
 	}
 	write(`{"schema_version":2,"events_enabled":true,"consent_generation":"`+generation+`","consent_production_enabled":false,"updated_at":"2026-08-28T10:15:30.000Z"}`, 0o600)
-	if !reader.EventsAllowed(ctx, true, true) {
-		t.Fatal("legacy production flag should not veto an opt-in")
+	if reader.EventsAllowed(ctx, true, true) {
+		t.Fatal("legacy flag must not imply consent")
 	}
-	write(`{"schema_version":2,"events_enabled":true,"consent_generation":"`+generation+`","consent_production_enabled":true,"updated_at":"2026-08-28T10:15:30.000Z"}`, 0o600)
+	write(`{"schema_version":3,"events_enabled":true,"consent_generation":"`+generation+`","updated_at":"2026-08-28T10:15:30.000Z"}`, 0o600)
 	if !reader.EventsAllowed(ctx, true, true) {
 		t.Fatal("opt-in: want error reporting on")
 	}
@@ -105,7 +105,7 @@ func TestEventsAllowedDefaultsOnUnlessOptedOut(t *testing.T) {
 		t.Fatal("explicit opt-out: want error reporting off")
 	}
 	if runtime.GOOS != "windows" {
-		write(`{"schema_version":2,"events_enabled":true,"consent_generation":"`+generation+`","consent_production_enabled":true,"updated_at":"2026-08-28T10:15:30.000Z"}`, 0o644)
+		write(`{"schema_version":3,"events_enabled":true,"consent_generation":"`+generation+`","updated_at":"2026-08-28T10:15:30.000Z"}`, 0o644)
 		if reader.EventsAllowed(ctx, true, true) {
 			t.Fatal("unsafe file: want events off")
 		}
