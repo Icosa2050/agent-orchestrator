@@ -629,7 +629,9 @@ describe("startAutoUpdates", () => {
         "ditto: /cache/app.ShipIt/update.abc/AO.app/Contents/Resources/._app.asar__: No such file or directory",
       ));
       updaterEvents.get("update-downloaded")?.({ version: "2.2.0" });
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await vi.waitFor(() => {
+        expect(JSON.parse(readFileSync(nodePath.join(stateDir, "staged-update.json"), "utf8")).version).toBe("2.2.0");
+      });
       const second = await importAutoUpdaterKeepingStagedFile();
       await second.module.startAutoUpdates(stateDir);
       expect(second.module.getUpdateStatus().staged?.version).toBe("2.2.0");
