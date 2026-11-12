@@ -1,9 +1,16 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { previewDocumentThemeStyle, type ThemeStyle } from "../../lib/theme";
 import { useUiStore } from "../../stores/ui-store";
 import { SettingsOptionMenu } from "./SettingsOptionMenu";
+
+// Radix restores focus on a zero-delay timer after unmount. Drain that timer
+// while this JSDOM realm still owns Event, before Vitest restores globals.
+afterEach(async () => {
+	cleanup();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+});
 
 describe("SettingsOptionMenu", () => {
 	it("filters searchable options by label and value", async () => {
