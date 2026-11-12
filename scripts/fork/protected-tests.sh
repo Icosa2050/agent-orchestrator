@@ -34,6 +34,7 @@ src/shared/sentry-config.test.ts 3
 src/main/sentry-main.test.ts 19
 src/main/telemetry-identity.test.ts 20
 src/main/fork-telemetry-defaults.test.ts 8
+src/main/fork-version-floor.test.ts 2
 src/main/telemetry-policy-file.test.ts 12
 src/shared/telemetry-policy.test.ts 18
 src/main/desktop-telemetry-controller.test.ts 20

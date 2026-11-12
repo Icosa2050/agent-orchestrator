@@ -31,6 +31,11 @@ are no blind syncs.
 | Sessions and worktrees are kept by default. Upstream #7440 added a daemon pass that deletes archived sessions after `session_retention_days`; the default must stay 0 (keep), and the cleanup reconcile must never remove a worktree the user did not accept for cleanup. | `backend/internal/storage/sqlite/migrations/20261030182857237_session_retention.sql`, `backend/internal/service/session/service.go` (`DeleteExpired`), `backend/internal/session_manager/workspace_cleanup.go` | `TestForkSessionRetentionDefaultsToKeep` in `./internal/storage/sqlite/store`, `TestDeleteExpired*` in `./internal/service/session` |
 | Sentry DSNs stay empty in dev builds. Production defaults may only be used when `isDev` is false, and `AO_SENTRY_DSN=""` / `AO_ELECTRON_SENTRY_DSN=""` must keep disabling them. | `frontend/src/shared/sentry-config.ts`, `frontend/src/main/sentry-main.ts`, `frontend/src/main.ts`, `backend/internal/config/config.go`, `backend/internal/observe/sentryobs/` | `sentry-config.test.ts`, `sentry-main.test.ts` |
 
+The upstream desktop minimum-version check must not run on fork startup. Its
+remote policy can otherwise force a local app to quit. `fork-version-floor.test.ts`
+protects the omission and the independent updater startup; the latter still reads
+the fork release feed from `app-update.yml`.
+
 Artifact Publish is also protected: desktop `cloudShare:publish` and Cloud requests must refuse signed-out calls before uploading or contacting the control plane. Manual credentials cannot be linked through the desktop Cloud API; link a machine explicitly from its own CLI if desired.
 
 Fork guard and Public boundary are unconditional reusable jobs of CI on every PR and push to main. `ci-ok` requires both to succeed, even when other lanes are skipped.
