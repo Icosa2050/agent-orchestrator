@@ -31,6 +31,9 @@ src/renderer/hooks/useRemoteHosts.self.test.tsx 3
 src/shared/sentry-config.test.ts 3
 src/main/sentry-main.test.ts 19
 src/main/telemetry-identity.test.ts 20
+src/main/cloud-share-ipc.test.ts 20
+src/main/cloud-cp-proxy.test.ts 20
+src/main/cloud-folder-push.test.ts 10
 '
 
 # package (relative to backend/), -run regex (no spaces) and minimum listed tests.
