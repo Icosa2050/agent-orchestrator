@@ -16,6 +16,9 @@ import (
 
 func TestTelemetryIdentityRoutes(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ident, err := telemetryadapter.NewIdentity(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +104,9 @@ func TestTelemetryIdentityRoutes(t *testing.T) {
 // ID that is still linked to the previous account.
 func TestTelemetryIdentityRouteSuppressesPhoneAfterFailedRotation(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ident, err := telemetryadapter.NewIdentity(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +168,9 @@ func TestTelemetryIdentityRouteSuppressesPhoneAfterFailedRotation(t *testing.T) 
 // one. The daemon must keep the newer identity.
 func TestTelemetryIdentityRouteRejectsAnOlderSequence(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ident, err := telemetryadapter.NewIdentity(dir)
 	if err != nil {
 		t.Fatal(err)

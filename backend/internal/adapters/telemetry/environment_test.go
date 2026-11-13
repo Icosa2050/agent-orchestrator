@@ -158,7 +158,7 @@ func TestReleaseChannelFromMatchesRenderer(t *testing.T) {
 func TestPostHogPropertiesCarrySegmentation(t *testing.T) {
 	stateDir := t.TempDir()
 	writeJSONFile(t, filepath.Join(stateDir, appStateFileName), map[string]any{"installSource": "dmg", "installedAt": "2026-10-01T10:00:00Z"})
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "0.20.0", "", roundTripClient(func(*http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://us.i.posthog.com", "0.20.0", "", roundTripClient(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 	}), nil)
 	if err != nil {
@@ -218,48 +218,5 @@ func TestMilestonesClaimOnce(t *testing.T) {
 	unwritable := NewMilestones(filepath.Join(t.TempDir(), "missing"))
 	if first, known := unwritable.Claim("x"); first || known {
 		t.Fatalf("unwritable claim = %t, %t", first, known)
-	}
-}
-
-func TestFirstOpenEventOncePerInstallIDOnAnyBuild(t *testing.T) {
-	dir := t.TempDir()
-	ident, err := NewIdentity(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// An old install: the install event was spent (or never fresh). first_open
-	// must still fire once.
-	if err := os.WriteFile(filepath.Join(dir, installedEventFile), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, OptOutFile), []byte("1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if marked, err := ident.MarkFirstOpenEvent(context.Background()); marked || err != nil {
-		t.Fatalf("opted out: %t, %v", marked, err)
-	}
-	if err := os.Remove(filepath.Join(dir, OptOutFile)); err != nil {
-		t.Fatal(err)
-	}
-	if marked, err := ident.MarkFirstOpenEvent(context.Background()); !marked || err != nil {
-		t.Fatalf("first: %t, %v", marked, err)
-	}
-	restarted, err := NewIdentity(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if marked, err := restarted.MarkFirstOpenEvent(context.Background()); marked || err != nil {
-		t.Fatalf("after restart: %t, %v", marked, err)
-	}
-	// A replaced install ID is a new install and sends its own first_open.
-	if err := os.WriteFile(filepath.Join(dir, installIDFile), []byte("ins_replaced\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	replaced, err := NewIdentity(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if marked, err := replaced.MarkFirstOpenEvent(context.Background()); !marked || err != nil {
-		t.Fatalf("new install id: %t, %v", marked, err)
 	}
 }

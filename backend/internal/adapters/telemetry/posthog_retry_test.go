@@ -18,7 +18,7 @@ import (
 func newRetryTestSink(t *testing.T, respond func(attempt int) (*http.Response, error)) (*PostHogSink, *int) {
 	t.Helper()
 	attempts := 0
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://example.test", "", "", roundTripClient(func(_ *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://example.test", "", "", roundTripClient(func(_ *http.Request) (*http.Response, error) {
 		attempts++
 		return respond(attempts)
 	}), nil)
@@ -134,7 +134,7 @@ func TestPostHogSinkRetryReusesSameEventUUID(t *testing.T) {
 	// non-empty uuid so PostHog dedupes a first request it may already have
 	// ingested, rather than double-counting it.
 	var uuids []string
-	sink, err := NewPostHogSink(t.TempDir(), "phc_test", "https://example.test", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
+	sink, err := newConsentedPostHogSink(t, t.TempDir(), "phc_test", "https://example.test", "", "", roundTripClient(func(req *http.Request) (*http.Response, error) {
 		raw, _ := io.ReadAll(req.Body)
 		var parsed map[string]any
 		_ = json.Unmarshal(raw, &parsed)

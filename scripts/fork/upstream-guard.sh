@@ -47,6 +47,11 @@ frontend/src/renderer/hooks/useRemoteHosts
 frontend/src/renderer/lib/account-remote-hosts
 frontend/src/renderer/routes/_shell.tsx
 frontend/src/main/telemetry-identity
+frontend/src/main/cloud-share
+frontend/src/main/cloud-cp-proxy
+frontend/src/main/cloud-folder-push
+frontend/src/renderer/lib/telemetry
+frontend/src/renderer/components/ShareArtifactPopover
 frontend/src/main/sentry-main
 frontend/src/shared/sentry-config
 frontend/src/main.ts
@@ -65,6 +70,8 @@ docs/self-hosted-remote.md
 FORK.md
 scripts/fork/
 .github/workflows/fork-guard.yml
+.github/workflows/public-boundary.yml
+.github/workflows/ci.yml
 '
 
 # Files carrying fork-only fixes; an upstream change there can drop the fix

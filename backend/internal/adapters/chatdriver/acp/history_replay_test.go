@@ -396,7 +396,7 @@ func TestACPReplayAcceptsUpdatesDuringDrain(t *testing.T) {
 	assertReplayHistoryEqual(t, history, after)
 }
 
-func TestACPReplayLoadLargeHistoryThroughSDK(t *testing.T) {
+func TestACPReplayLoadLargeHistoryThroughTransport(t *testing.T) {
 	// More than the SDK queue capacity, with about 20 MiB of text. Distinct
 	// messages keep this test about replay delivery, not quadratic concatenation.
 	const count = 4096
@@ -410,15 +410,21 @@ func TestACPReplayLoadLargeHistoryThroughSDK(t *testing.T) {
 	agentR, agentW := io.Pipe()
 	agent := &fakeAgent{loadUpdates: updates}
 	agent.conn = acpsdk.NewAgentSideConnection(agent, agentW, clientR)
-	conv.conn = acpsdk.NewClientSideConnection(conv, clientW, agentR)
+	// Match the production transport: session notifications are captured in
+	// wire order before the SDK sees the load response. Feeding the SDK
+	// directly bypasses this path and can overflow its bounded queue.
+	wire, sdkWriter, sdkReader := newLegacyACPTransport(clientW)
+	conv.legacyWire = wire
+	conv.conn = acpsdk.NewClientSideConnection(conv, sdkWriter, sdkReader)
+	go wire.forward(agentR, conv.handleNotification)
 	t.Cleanup(func() { _ = clientR.Close(); _ = clientW.Close(); _ = agentR.Close(); _ = agentW.Close() })
 	loader := newRefreshableConversation(conv, acpsdk.LoadSessionRequest{SessionId: "session-1", Cwd: t.TempDir(), McpServers: []acpsdk.McpServer{}})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	conv.beginHistoryReplay("session-1")
-	// Hold the normalization mutex until the SDK response barrier returns.
-	// An inline handler cannot finish even its first update, fills the SDK
-	// queue, and disconnects. Capturing must deliver the complete burst anyway.
+	// Hold the normalization mutex until the load response returns. A handler
+	// that normalizes inline would block the wire before even its first update.
+	// Capturing must deliver the complete burst without taking that mutex.
 	func() {
 		conv.mu.Lock()
 		defer conv.mu.Unlock()

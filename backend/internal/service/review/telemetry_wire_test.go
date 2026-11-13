@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -69,7 +71,11 @@ func (r *wireRecorder) names() []string {
 func newWireSink(t *testing.T) (ports.EventSink, *wireRecorder, func()) {
 	t.Helper()
 	rec := &wireRecorder{}
-	remote, err := telemetryadapter.NewPostHogSink(t.TempDir(), "phc_test", "https://us.i.posthog.com", "", "",
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	remote, err := telemetryadapter.NewPostHogSink(dataDir, "phc_test", "https://us.i.posthog.com", "", "",
 		wireRoundTripper(func(req *http.Request) (*http.Response, error) {
 			defer req.Body.Close()
 			var body struct {
@@ -139,9 +145,9 @@ func TestReviewFunnelReachesTheWireWithItsProperties(t *testing.T) {
 	}
 	closeSink()
 
-	triggered, ok := rec.find("ao.review.triggered")
+	triggered, ok := rec.find("ao.reviews.triggered")
 	if !ok {
-		t.Fatalf("ao.review.triggered never reached the wire; got %v", rec.names())
+		t.Fatalf("ao.reviews.triggered never reached the wire; got %v", rec.names())
 	}
 	if triggered.props["trigger"] != "auto" {
 		t.Fatalf("triggered.trigger = %#v, want auto (missing allowlist entry strips it silently)", triggered.props["trigger"])
@@ -150,9 +156,9 @@ func TestReviewFunnelReachesTheWireWithItsProperties(t *testing.T) {
 		t.Fatalf("triggered.harness = %#v, want claude-code", triggered.props["harness"])
 	}
 
-	submitted, ok := rec.find("ao.review.submitted")
+	submitted, ok := rec.find("ao.reviews.submitted")
 	if !ok {
-		t.Fatalf("ao.review.submitted never reached the wire; got %v", rec.names())
+		t.Fatalf("ao.reviews.submitted never reached the wire; got %v", rec.names())
 	}
 	for key, want := range map[string]any{
 		"verdict":            "changes_requested",

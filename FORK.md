@@ -21,14 +21,24 @@ are no blind syncs.
 
 | Capability | Code paths | Tests that must pass |
 |---|---|---|
-| Manual remote-host pairing and connection **without an AO Cloud account** (fork #14). The `remotes:list/add/update/remove/connect/disconnect` IPC handlers must not call `requireAccount` or need an account id. Only `remotes:importAccountHost`, `remotes:pruneAccountHosts` and `remotes:issueAccountToken` may require one. | `frontend/src/main/remotes-main.ts`, `remotes-ipc.ts`, `remotes-store.ts`, `frontend/src/renderer/components/settings/RemoteHostsSettings.tsx`, `components/RemoteHostsSection.tsx`, `hooks/useRemoteHosts.ts`, `lib/account-remote-hosts.ts`, `routes/_shell.tsx`, `docs/self-hosted-remote.md` | `remotes-main.test.ts`, `remotes-ipc.test.ts`, `remotes-store.test.ts`, `RemoteHostsSettings.test.tsx`, `RemoteHostsSection.test.tsx`, `useRemoteHosts.test.tsx`, `useRemoteHosts.self.test.tsx` |
+| Manual remote-host pairing and connection **without an AO Cloud account** (fork #14). The `remotes:list/add/update/remove/connect/disconnect` IPC handlers must not call `requireAccount` or need an account id. Only `remotes:syncAccountHosts` and `remotes:linkAccountHost` require one. Manual pairing codes exchange directly with the host for an encrypted per-device token, which survives desktop restart. | `frontend/src/main/remotes-main.ts`, `remotes-ipc.ts`, `remotes-store.ts`, `frontend/src/renderer/components/settings/RemoteHostsSettings.tsx`, `components/RemoteHostsSection.tsx`, `hooks/useRemoteHosts.ts`, `lib/account-remote-hosts.ts`, `routes/_shell.tsx`, `docs/self-hosted-remote.md` | `remotes-main.test.ts`, `remotes-ipc.test.ts`, `remotes-store.test.ts`, `RemoteHostsSettings.test.tsx`, `RemoteHostsSection.test.tsx`, `useRemoteHosts.test.tsx`, `useRemoteHosts.self.test.tsx` |
 | Local credentials stay local. `~/.ao/remotes.json` entries without `accountUserId` are manual pairings: they are never uploaded, never issued account tokens and never pruned by cloud import. | `frontend/src/main/remotes-main.ts`, `remotes-store.ts` | as above |
 | Desktop remote proxy, including the HTTP/2 destroyed-session fix (fork #17). | `frontend/src/main/remote-proxy.ts` | `remote-proxy.test.ts` |
 | LAN listener: `ao remote-host enable/disable/status`, port 3011, LAN-only mode without a public tunnel. | `backend/internal/httpd/lan_listener.go`, `backend/internal/httpd/controllers/mobile*.go`, `backend/internal/cli/remote_host.go`, `backend/internal/daemon/remote_host_directory.go`, `backend/internal/mobilebridge/` (`DefaultPort = 3011`) | `go test` on `./internal/httpd` (`TestLAN*`, `TestMobileLAN*`; in `lan_*_test.go`, `auth_test.go`, `mobile_connect_telemetry_test.go`), `./internal/httpd/controllers` (`TestLANOnly*`, `TestTunnelOnly*`, `TestMobileStatus*`), `./internal/cli` (`TestRemoteHost*`), `./internal/daemon` (`TestPublishRemoteHost*`), `./internal/mobilebridge` |
 | Sign-in-free use, plus ssh and CLI control of a host: the daemon and `ao` CLI work with no account. | whole app; watch new `requireAccount`/`requireSignIn` gates | guard: gating sections |
+| Telemetry defaults OFF on fresh and upgraded installs. Usage analytics requires the explicit `telemetry_opt_in` marker; error reporting requires a version-3 policy written by a user choice. Missing, unsafe or unreadable consent fails closed. The `telemetry_opt_out` marker always wins. Tests include fresh packaged startup with no PostHog import, no renderer fetch and no Electron error transport, and daemon zero-request regressions. | `frontend/src/shared/telemetry-consent.ts`, `telemetry-policy.ts`, `frontend/src/main/telemetry-policy-file.ts`, `backend/internal/adapters/telemetry/consent.go`, `policyauthority/reader.go` | `fork-telemetry-defaults.test.ts`, policy/controller tests, `TestFork*`, policy-authority tests |
 | Telemetry opt-out: the `telemetry_opt_out` marker file next to the install id must keep stopping export: daemon and renderer PostHog, usage/session telemetry, and daemon and Electron Sentry, whatever `telemetry_policy.json` says. | `backend/internal/adapters/telemetry/optout.go`, `identity.go`, `backend/internal/daemon/fork_sentry_optout.go`, `frontend/src/main/telemetry-identity.ts`, `frontend/src/main/sentry-main.ts` | `TestOptOut*` in `./internal/adapters/telemetry` and `./internal/daemon`, `telemetry-identity.test.ts`, `sentry-main.test.ts` |
 | Sessions and worktrees are kept by default. Upstream #7440 added a daemon pass that deletes archived sessions after `session_retention_days`; the default must stay 0 (keep), and the cleanup reconcile must never remove a worktree the user did not accept for cleanup. | `backend/internal/storage/sqlite/migrations/20261030182857237_session_retention.sql`, `backend/internal/service/session/service.go` (`DeleteExpired`), `backend/internal/session_manager/workspace_cleanup.go` | `TestForkSessionRetentionDefaultsToKeep` in `./internal/storage/sqlite/store`, `TestDeleteExpired*` in `./internal/service/session` |
 | Sentry DSNs stay empty in dev builds. Production defaults may only be used when `isDev` is false, and `AO_SENTRY_DSN=""` / `AO_ELECTRON_SENTRY_DSN=""` must keep disabling them. | `frontend/src/shared/sentry-config.ts`, `frontend/src/main/sentry-main.ts`, `frontend/src/main.ts`, `backend/internal/config/config.go`, `backend/internal/observe/sentryobs/` | `sentry-config.test.ts`, `sentry-main.test.ts` |
+
+The upstream desktop minimum-version check must not run on fork startup. Its
+remote policy can otherwise force a local app to quit. `fork-version-floor.test.ts`
+protects the omission and the independent updater startup; the latter still reads
+the fork release feed from `app-update.yml`.
+
+Artifact Publish is also protected: desktop `cloudShare:publish` and Cloud requests must refuse signed-out calls before uploading or contacting the control plane. Manual credentials cannot be linked through the desktop Cloud API; link a machine explicitly from its own CLI if desired.
+
+Fork guard and Public boundary are unconditional reusable jobs of CI on every PR and push to main. `ci-ok` requires both to succeed, even when other lanes are skipped.
 
 All of these run through `scripts/fork/protected-tests.sh`, which holds the
 file list and a minimum test count per file or `go test` selection.
@@ -97,8 +107,7 @@ What to check in each flagged section of the report:
   local path and test.
 - **Account / sign-in gating:** any new gate on add, connect, list, the LAN
   listener or the CLI is a conflict (see below).
-- **Outbound endpoints, DSN / API-key defaults:** a new endpoint must be opt-in
-  or covered by the opt-out. Dev builds must keep empty DSNs.
+- **Outbound endpoints, DSN / API-key defaults:** a new endpoint must require explicit opt-in; an absent opt-out is not consent. Dev builds must keep empty DSNs.
 - **Telemetry opt-out / dev DSN guard changed:** the `telemetry_opt_out` marker
   must still stop export, and an opted-out install must stay opted out after
   the sync.

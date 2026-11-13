@@ -1,7 +1,8 @@
-import { access, link, mkdir, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { access, link, lstat, mkdir, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomInt, randomUUID } from "node:crypto";
+import { analyticsConsentGranted } from "./telemetry-consent";
 import type { TelemetryPolicySnapshot } from "./telemetry-policy";
 import { detectCiEnvironment, installDay, normalizeInstallSource, safeOsVersion } from "./install-environment";
 
@@ -27,6 +28,12 @@ export type TelemetryBootstrap = {
 	/** Install ID file mtime, used to refresh event age in a long-lived renderer. */
 	installTimestampMs?: number;
 	lifetimeSessions?: number;
+	/**
+	 * The signed-in AO Cloud user ID, present only when the stored WorkOS session
+	 * belongs to the account the daemon recorded in telemetry_bound_user. The
+	 * renderer then starts identified as that ID instead of an anonymous one.
+	 */
+	cloudUserId?: string;
 	appVersion: string;
 	platform: NodeJS.Platform;
 	/**
@@ -88,7 +95,8 @@ export function parseDisabledEvents(raw: string | undefined): string[] {
 }
 
 /**
- * Whether the renderer may export to PostHog.
+ * Whether this build permits the renderer exporter. Explicit durable analytics
+ * consent is also required by buildTelemetryBootstrap.
  *
  * Unpackaged builds are off by default so a developer's ordinary session does
  * not land in the production project as a real install. Setting
@@ -150,6 +158,47 @@ export async function loadOrAssignExperimentCohort(dataDir: string): Promise<num
 		}
 	}
 	return undefined;
+}
+
+const CLOUD_USER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The AO Cloud user the daemon recorded as bound to this install, or null. A
+ * symlink, a non-file or a malformed value is ignored rather than trusted.
+ */
+export async function boundCloudUserId(dataDir: string): Promise<string | null> {
+	const file = path.join(dataDir, "telemetry_bound_user");
+	try {
+		if (!(await lstat(file)).isFile()) return null;
+		const value = (await readFile(file, "utf8")).trim();
+		return CLOUD_USER_ID_PATTERN.test(value) ? value : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Claims ao.app.first_opened for this install: true at most once, ever, and
+ * only for a fresh install (install day 0, no session yet). The marker is
+ * created exclusively under the data dir, so a reload, a second window or a
+ * cleared localStorage cannot claim it again. Installs that ran a build which
+ * sent ao.install.created already hold this file, so an upgrade never claims
+ * it. A marker that cannot be created is not claimed.
+ */
+export type FirstOpenClaim = "claimed" | "ineligible" | "unknown";
+
+export async function claimFirstOpen(dataDir: string, facts: Pick<TelemetryBootstrap, "daysSinceInstall" | "lifetimeSessions">): Promise<FirstOpenClaim> {
+	if (facts.daysSinceInstall !== 0) return "ineligible";
+	// An unreadable session count is not "no sessions": the CLI may already
+	// have started one. The caller asks again once the daemon answers.
+	if (facts.lifetimeSessions === undefined) return "unknown";
+	if (facts.lifetimeSessions > 0) return "ineligible";
+	try {
+		await writeFile(path.join(dataDir, "telemetry_first_open_emitted"), "", { mode: 0o600, flag: "wx" });
+		return "claimed";
+	} catch {
+		return "ineligible";
+	}
 }
 
 export async function loadOrCreateTelemetryInstallId(dataDir: string): Promise<string> {
@@ -273,10 +322,10 @@ export async function buildTelemetryBootstrap(
 	// own background requests.
 	if (!rendererTelemetryEnabled(env, isPackaged)) return null;
 	const dataDir = defaultDataDir(platform, env, homeDir);
-	if (!dataDir) return null;
+	if (!dataDir || !analyticsConsentGranted(dataDir)) return null;
 	if (!policy) return null;
 	// This policy controls failure reporting only. Existing anonymous PostHog
-	// product analytics retain their own packaged/env gate above.
+	// product analytics require the separate explicit consent and build/env gates above.
 	const eventsEnabled = policy.eventsEnabled && policy.acknowledged;
 	const experimentCohort = await loadOrAssignExperimentCohort(dataDir);
 	const installId = await loadOrCreateTelemetryInstallId(dataDir);

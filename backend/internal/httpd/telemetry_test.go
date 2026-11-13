@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,8 +53,8 @@ func TestCLIInvokedRouteEmitsTelemetryForUserCommands(t *testing.T) {
 	if got := sink.events[0].Payload["actor_type"]; got != "user" {
 		t.Fatalf("actor_type = %#v, want user", got)
 	}
-	if sink.events[1].Name != "ao.app.active" {
-		t.Fatalf("second event name = %q, want ao.app.active", sink.events[1].Name)
+	if sink.events[1].Name != "ao.cli.active" {
+		t.Fatalf("second event name = %q, want ao.cli.active", sink.events[1].Name)
 	}
 	if got := sink.events[1].Payload["channel"]; got != "cli" {
 		t.Fatalf("channel = %#v, want cli", got)
@@ -199,8 +201,8 @@ func TestCLIInvokedRouteDedupeIncludesActorType(t *testing.T) {
 	if sink.events[1].Name != "ao.cli.invoked" || sink.events[1].Payload["actor_type"] != "user" {
 		t.Fatalf("second emitted event = %#v, want user ao.cli.invoked", sink.events[1])
 	}
-	if sink.events[2].Name != "ao.app.active" {
-		t.Fatalf("third emitted event = %#v, want ao.app.active", sink.events[2])
+	if sink.events[2].Name != "ao.cli.active" {
+		t.Fatalf("third emitted event = %#v, want ao.cli.active", sink.events[2])
 	}
 }
 
@@ -233,8 +235,8 @@ func TestCLIUsageErrorRouteEmitsTelemetry(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", rec.Code)
 	}
-	if len(sink.events) != 1 || sink.events[0].Name != "ao.cli.usage_errors" {
-		t.Fatalf("events = %#v, want one ao.cli.usage_errors event", sink.events)
+	if len(sink.events) != 1 || sink.events[0].Name != "ao.usage.cli_usage_errors" {
+		t.Fatalf("events = %#v, want one ao.usage.cli_usage_errors event", sink.events)
 	}
 	payload := sink.events[0].Payload
 	if got := payload["component"]; got != "cli" {
@@ -259,8 +261,12 @@ func TestCLIUsageErrorRouteEmitsTelemetry(t *testing.T) {
 
 func TestCLIUsageErrorRouteHashesInvalidCommandsBeforeRemoteExport(t *testing.T) {
 	requests := make(chan map[string]any, 1)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, telemetryadapter.OptInFile), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	sink, err := telemetryadapter.NewPostHogSink(
-		t.TempDir(),
+		dir,
 		"phc_test",
 		"https://us.i.posthog.com",
 		"",

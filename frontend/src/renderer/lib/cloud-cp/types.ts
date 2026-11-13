@@ -31,6 +31,11 @@ export interface CloudCpOrganization {
 	role: string;
 	/** This org's own offering (`/me` organizations[i].offering); absent on an older control plane. */
 	offering?: CloudCpOffering;
+	/**
+	 * Whose workspace this is: "personal" (one person's own), "team" or
+	 * "enterprise". Absent on an older control plane.
+	 */
+	kind?: string;
 }
 
 /** Sandbox providers a control plane offers (`/me` sandboxProviders). */
@@ -614,6 +619,14 @@ export interface CloudCpSession {
 	mode: string;
 	/** Coding-agent model the session launched with; empty or absent means the harness default. */
 	model?: string;
+	/**
+	 * The model the session runs now: its owner's Chat pick, else `model`.
+	 * The control plane always sends it, "" for the harness default; only an
+	 * older one leaves it out (read `model` then).
+	 */
+	currentModel?: string;
+	/** The reasoning effort its turns run with now; absent for the model's default. */
+	currentReasoningEffort?: string;
 	interfaceMode: CloudCpInterfaceMode;
 	deniedCommands: string[];
 	activityState: string;
@@ -691,6 +704,12 @@ export interface CloudCpSessionArtifact {
 	size: number;
 	sha256: string;
 	updatedAt: string;
+	/** Set on a file the agent registered with `ao artifact add`. */
+	registered?: boolean;
+	/** The artifact's identity, kept when its file is renamed. */
+	id?: string;
+	/** The paths the artifact had before it was renamed, latest last. */
+	previousPaths?: string[];
 }
 
 /** One kept version of a cloud artifact file, numbered per path; the newest is the committed file. */
@@ -1247,6 +1266,79 @@ export interface CloudCpHarnessStatus {
 export interface CloudCpHarnessInspectResponse {
 	harnesses: CloudCpHarnessStatus[];
 }
+
+// ---------------------------------------------------------------------------
+// Harness versions (`harness_version_handlers.go`)
+// ---------------------------------------------------------------------------
+
+/** The harnesses whose CLI release AO Cloud manages for an organization. */
+export type CloudCpManagedHarness = "claude-code" | "codex" | "cursor";
+
+/**
+ * One harness as an organization's new Cloud sessions run it. `plan`,
+ * `advisory` and `job` are the local daemon's AgentInstallPlan,
+ * AgentUpdateAdvisory and InstallJob shapes, so AO Cloud is shown with the
+ * code that shows a computer's harnesses.
+ */
+export interface CloudCpHarnessVersion {
+	agentId: CloudCpManagedHarness;
+	/** The release AO tested and its images bake. */
+	defaultVersion: string;
+	/** The newer release the organization chose in its place; absent while it runs the default. */
+	selectedVersion?: string;
+	/** A release the organization chose that AO's tested release has since caught up with; new sessions run `defaultVersion`. */
+	supersededVersion?: string;
+	plan: {
+		agentId: string;
+		automatic: boolean;
+		available: boolean;
+		documentationUrl: string;
+		method: string;
+		methods: Array<{
+			id: string;
+			label: string;
+			available: boolean;
+			recommended: boolean;
+			reinstallAvailable: boolean;
+			/** False for a caller who may not change the version; updateReason says why. */
+			updateAvailable: boolean;
+			updateReason?: string;
+		}>;
+	};
+	advisory: {
+		agentId: string;
+		checkedAt: string;
+		/** The release new sessions run. */
+		currentVersion?: string;
+		/** The newest release the publisher has. */
+		latestVersion?: string;
+		maintenanceMethod?: string;
+		source?: string;
+		reason?: "lookup_failed" | "build_unordered";
+		status: "unknown" | "current" | "behind_latest" | "ahead_of_latest";
+	};
+	/** The latest install of the chosen release a session's worker reported; absent before any. */
+	job?: {
+		target: string;
+		/** failed: that session ran the AO-tested release instead. */
+		status: "succeeded" | "failed";
+		method?: string;
+		error?: string;
+		output?: string;
+		startedAt?: string;
+		finishedAt?: string;
+		updatedAt?: string;
+	};
+	/** Tools the harness's sessions run besides its CLI (Claude Code's Chat adapter), always at the release AO tested. Read-only. */
+	components?: Array<{ tool: string; version: string; defaultVersion: string }>;
+}
+
+/** GET /orgs/{orgId}/harness-versions. */
+export interface CloudCpHarnessVersionsResponse {
+	/** The caller administers the organization, so may change the versions. */
+	editable: boolean;
+	agents: CloudCpHarnessVersion[];
+}
 export interface CloudCpListSessionsQuery extends CloudCpListQuery {
 	/** Restrict the listing to one project. */
 	projectId?: string;
@@ -1391,6 +1483,16 @@ export interface CloudCpChatEventsQuery {
 	 * it with 400; callers filter the page themselves either way.
 	 */
 	types?: readonly string[];
+	/**
+	 * Read back from this sequence instead of forward from `after`: the newest
+	 * `limit` events below it (and above `after`, which must be lower), extended
+	 * back once to where their turns start. 9007199254740991 reads the newest
+	 * page. An older control plane ignores it and reads forward; its page then
+	 * has no `hasOlder`.
+	 */
+	before?: number;
+	/** With `before` only: only events created at or after this ISO time. */
+	since?: string;
 }
 
 /** GET /orgs/{orgId}/sessions/{sessionId}/chat-events */
@@ -1398,6 +1500,10 @@ export interface CloudCpChatEventsResponse {
 	events: CloudCpClientEvent[];
 	hasMore: boolean;
 	nextAfter: number;
+	/** Only on a page read with `before`: older events remain above `after`. */
+	hasOlder?: boolean;
+	/** Only on a page read with `before`: the `before` of the next older page. */
+	nextBefore?: number;
 }
 
 /** POST /orgs/{orgId}/sessions/{sessionId}/chat/prompt-suggestion */
@@ -1591,6 +1697,30 @@ export interface CloudCpCreateGitHubProjectRequest {
 	githubRepositoryId: string;
 	displayName?: string;
 	config?: Record<string, unknown>;
+}
+
+/**
+ * POST /orgs/{orgId}/github/repositories: an empty private repository for a
+ * local folder, made in an account the org's GitHub App installation covers,
+ * and granted to the org. `owner` picks the account when several are
+ * connected (422 repository_owner_required without it).
+ */
+export interface CloudCpCreateGitHubRepositoryRequest {
+	name: string;
+	owner?: string;
+	description?: string;
+}
+
+export interface CloudCpCreateGitHubRepositoryResponse {
+	repository: CloudCpGitHubAppRepository;
+	/** False when an empty repository with that name already existed and was connected. */
+	created: boolean;
+	/**
+	 * The repository's push-only git endpoint, relative to the control plane
+	 * (/api/cloud/v1/orgs/{orgId}/github/git/<owner>/<name>.git). It takes only
+	 * pushes that create branches; the desktop pushes from the main process.
+	 */
+	pushPath: string;
 }
 
 /** A billing plan's limits, from the plan's Stripe product metadata. */
@@ -1811,6 +1941,16 @@ export interface CloudCpShareLink {
 	 * links turned on: the link's 22-character code (letters and digits).
 	 */
 	code?: string;
+	/**
+	 * Only in the creation response, with a code, and only when the control
+	 * plane names a public origin for share links: https://<origin>/s/<code>.
+	 */
+	shortUrl?: string;
+	/**
+	 * How many people hold access because they opened this link. Absent on a
+	 * control plane that predates it, which also can't remove them on revoke.
+	 */
+	joinedCount?: number;
 }
 
 /** A project or session someone shared with the caller. */

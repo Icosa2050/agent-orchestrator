@@ -6,15 +6,11 @@ name: Fork guard
 # and empty dev Sentry DSNs. See FORK.md.
 #
 # The guard job itself is cheap and always runs (sync/* branches included).
-# The test jobs run on sync/* branches, when the guard needs review, or when
-# their code changed. A "needs review" verdict is a warning; failing protected
-# tests fail the workflow.
+# Protected tests run on every PR and main push through CI, independent of
+# path filters. A needs-review verdict warns; failing tests fail ci-ok.
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  workflow_call:
   workflow_dispatch:
     inputs:
       range:
@@ -25,17 +21,12 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   guard:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       verdict: ${{ steps.guard.outputs.verdict }}
-      run_tests: ${{ steps.scope.outputs.run_tests }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,28 +81,9 @@ jobs:
             *) echo "::error title=Fork guard::upstream-guard.sh failed (exit $code)"; exit "$code" ;;
           esac
 
-      - name: Decide test scope
-        id: scope
-        env:
-          RANGE: ${{ steps.range.outputs.range }}
-          HEAD_REF: ${{ github.head_ref }}
-          VERDICT: ${{ steps.guard.outputs.verdict }}
-        run: |
-          set -euo pipefail
-          run=false
-          case "$HEAD_REF" in sync/*) run=true ;; esac
-          if [ "$VERDICT" = "needs-review" ]; then run=true; fi
-          base=${RANGE%%..*}; head=${RANGE##*..}
-          if git diff --name-only "$(git merge-base "$base" "$head")" "$head" |
-            grep -qE '^(frontend/src/main/|frontend/src/shared/|frontend/src/renderer/(hooks|lib|components)/|frontend/package(-lock)?\.json|frontend/vite|backend/internal/(httpd|cli|daemon|mobilebridge|adapters/telemetry|config)/|backend/go\.(mod|sum)|scripts/fork/|\.github/workflows/fork-guard\.yml)'; then
-            run=true
-          fi
-          echo "run_tests=$run" >>"$GITHUB_OUTPUT"
-          echo "Protected tests: $run" >>"$GITHUB_STEP_SUMMARY"
 
   frontend-local-pairing:
     needs: guard
-    if: needs.guard.outputs.run_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -133,7 +105,6 @@ jobs:
 
   backend-lan-listener:
     needs: guard
-    if: needs.guard.outputs.run_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

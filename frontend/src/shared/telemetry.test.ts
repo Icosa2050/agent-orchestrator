@@ -3,8 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 import {
+	boundCloudUserId,
 	bootstrapDistinctId,
 	buildTelemetryBootstrap,
+	claimFirstOpen,
 	defaultDataDir,
 	EXPERIMENT_COHORT_BUCKETS,
 	loadOrAssignExperimentCohort,
@@ -31,6 +33,7 @@ test("defaultDataDir prefers AO_DATA_DIR", () => {
 
 test("loadOrCreateTelemetryInstallId persists a stable install id", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 
 	const first = await loadOrCreateTelemetryInstallId(dir);
@@ -44,6 +47,7 @@ test("loadOrCreateTelemetryInstallId persists a stable install id", async () => 
 
 test("loadOrCreateTelemetryInstallId heals an empty file and publishes one id to concurrent callers", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	const file = path.join(dir, "telemetry_install_id");
 	await writeFile(file, " \n");
@@ -76,18 +80,20 @@ test("renderer telemetry is off on unpackaged builds unless explicitly opted in"
 // unpackaged build never constructs a PostHog client at all.
 test("buildTelemetryBootstrap withholds the bootstrap on an unpackaged build", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 
-	const disabled = await buildTelemetryBootstrap({}, "0.11.2", "linux", dir, false, enabledPolicy);
+	const disabled = await buildTelemetryBootstrap({ AO_DATA_DIR: dir }, "0.11.2", "linux", dir, false, enabledPolicy);
 	expect(disabled).toBeNull();
-	const optedIn = await buildTelemetryBootstrap({ AO_TELEMETRY_RENDERER: "on" }, "0.11.2", "linux", dir, false, enabledPolicy);
+	const optedIn = await buildTelemetryBootstrap({ AO_DATA_DIR: dir, AO_TELEMETRY_RENDERER: "on" }, "0.11.2", "linux", dir, false, enabledPolicy);
 	expect(optedIn?.appVersion).toBe("0.11.2");
 });
 
 test("failure-reporting opt-out does not withhold PostHog identity", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
-	const bootstrap = await buildTelemetryBootstrap({}, "0.11.2", "linux", dir, true, {
+	const bootstrap = await buildTelemetryBootstrap({ AO_DATA_DIR: dir }, "0.11.2", "linux", dir, true, {
 		...enabledPolicy,
 		eventsEnabled: false,
 	});
@@ -97,6 +103,7 @@ test("failure-reporting opt-out does not withhold PostHog identity", async () =>
 
 test("buildTelemetryBootstrap provides the install ID file timestamp for event age", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	await loadOrCreateTelemetryInstallId(dir);
 	const installedAt = new Date(Date.now() - 60_000);
@@ -109,10 +116,11 @@ test("buildTelemetryBootstrap provides the install ID file timestamp for event a
 
 test("buildTelemetryBootstrap carries the deny list across the process boundary", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 
 	const bootstrap = await buildTelemetryBootstrap(
-		{ AO_TELEMETRY_DISABLED_EVENTS: "ao.v2.app.active, ao.renderer.* ,, " },
+		{ AO_DATA_DIR: dir, AO_TELEMETRY_DISABLED_EVENTS: "ao.v2.app.active, ao.renderer.* ,, " },
 		"0.11.2",
 		"linux",
 		dir,
@@ -129,6 +137,7 @@ test("parseDisabledEvents treats absent or blank policy as no policy", () => {
 
 test("buildTelemetryBootstrap withholds an install id linked to an AO Cloud account", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	const env = { AO_DATA_DIR: dir };
 	const installId = await loadOrCreateTelemetryInstallId(dir);
@@ -150,6 +159,7 @@ test("buildTelemetryBootstrap withholds an install id linked to an AO Cloud acco
 
 test("buildTelemetryBootstrap withholds the install id when the bound-user marker cannot be inspected", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	const installId = await loadOrCreateTelemetryInstallId(dir);
 	// A self-referencing symlink fails with ELOOP, not ENOENT.
@@ -168,6 +178,7 @@ async function rotate(dir: string, next: string): Promise<void> {
 
 test("bootstrapDistinctId never returns an ID retired between the marker check and the ID read", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	const retired = await loadOrCreateTelemetryInstallId(dir);
 	await writeFile(path.join(dir, "telemetry_bound_user"), "user_A\n");
@@ -197,6 +208,7 @@ test("bootstrapDistinctId never returns an ID retired between the marker check a
 
 test("readTelemetryInstallContext reads app-state.json and sends only enum and day values", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-install-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	const base = { stateDir: dir, arch: "arm64", osVersion: "15.1.2", env: {}, exists: () => false };
 	expect(await readTelemetryInstallContext(base)).toEqual({ arch: "arm64", osVersion: "15.1.2", installSource: "unknown", isCi: false, isContainer: false });
@@ -221,6 +233,7 @@ test("readTelemetryInstallContext reads app-state.json and sends only enum and d
 
 test("buildTelemetryBootstrap carries the install context", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-bootstrap-install-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	const install = { arch: "x64", installSource: "exe", isCi: false, isContainer: false };
 	const bootstrap = await buildTelemetryBootstrap({ AO_DATA_DIR: dir }, "1.2.3", "win32", "/home/test", true, enabledPolicy, install);
@@ -229,6 +242,7 @@ test("buildTelemetryBootstrap carries the install context", async () => {
 
 test("loadOrAssignExperimentCohort assigns one sticky bucket shared with the daemon", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	const first = await loadOrAssignExperimentCohort(dir);
 	expect(Number.isInteger(first)).toBe(true);
@@ -242,6 +256,7 @@ test("loadOrAssignExperimentCohort assigns one sticky bucket shared with the dae
 
 test("loadOrAssignExperimentCohort keeps the daemon's bucket and omits an invalid one", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	await writeFile(path.join(dir, "telemetry_experiment_cohort"), "42\n");
 	expect(await loadOrAssignExperimentCohort(dir)).toBe(42);
@@ -252,8 +267,47 @@ test("loadOrAssignExperimentCohort keeps the daemon's bucket and omits an invali
 
 test("buildTelemetryBootstrap carries the experiment cohort", async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-telemetry-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
 	tempDirs.push(dir);
 	await writeFile(path.join(dir, "telemetry_experiment_cohort"), "13\n");
 	const bootstrap = await buildTelemetryBootstrap({ AO_DATA_DIR: dir }, "1.0.0", "darwin", "/home/test", true, enabledPolicy);
 	expect(bootstrap?.experimentCohort).toBe(13);
+});
+
+test("claimFirstOpen claims once, for a fresh install only", async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-first-open-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
+	tempDirs.push(dir);
+	expect(await claimFirstOpen(dir, { daysSinceInstall: 1, lifetimeSessions: 0 })).toBe("ineligible");
+	expect(await claimFirstOpen(dir, { daysSinceInstall: 0, lifetimeSessions: 3 })).toBe("ineligible");
+	// An unreadable count is not "no sessions": the CLI may already have started one.
+	expect(await claimFirstOpen(dir, { daysSinceInstall: 0 })).toBe("unknown");
+	expect(await claimFirstOpen(dir, {})).toBe("ineligible");
+	expect(await claimFirstOpen(dir, { daysSinceInstall: 0, lifetimeSessions: 0 })).toBe("claimed");
+	expect(await claimFirstOpen(dir, { daysSinceInstall: 0, lifetimeSessions: 0 })).toBe("ineligible");
+});
+
+test("claimFirstOpen never claims on an upgrade that already recorded the old install event", async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-first-open-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
+	tempDirs.push(dir);
+	// Builds that sent ao.install.created wrote the install ID here.
+	await writeFile(path.join(dir, "telemetry_first_open_emitted"), "ins_existing\n");
+	expect(await claimFirstOpen(dir, { daysSinceInstall: 0, lifetimeSessions: 0 })).toBe("ineligible");
+});
+
+test("boundCloudUserId reads only a plain, well-formed binding file", async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), "ao-bound-"));
+	await writeFile(path.join(dir, "telemetry_opt_in"), "1\n", { mode: 0o600 });
+	tempDirs.push(dir);
+	const file = path.join(dir, "telemetry_bound_user");
+	expect(await boundCloudUserId(dir)).toBeNull();
+	await writeFile(file, "user_01H\n");
+	expect(await boundCloudUserId(dir)).toBe("user_01H");
+	await writeFile(file, "../../etc/passwd\n");
+	expect(await boundCloudUserId(dir)).toBeNull();
+	await rm(file);
+	await writeFile(path.join(dir, "target"), "user_01H\n");
+	await symlink(path.join(dir, "target"), file);
+	expect(await boundCloudUserId(dir)).toBeNull();
 });

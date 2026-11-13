@@ -44,7 +44,8 @@ const PACKAGED_EXTERNAL_DEPENDENCIES = [
 
 function ignoreFromVitePackage(file: string): boolean {
 	if (!file) return false;
-	if (file.startsWith("/.vite")) return false;
+	// Release source maps are uploaded to Sentry, never shipped (vite.sentry.ts).
+	if (file.startsWith("/.vite")) return file.endsWith(".map");
 	if (file === "/node_modules") return false;
 	return !PACKAGED_EXTERNAL_DEPENDENCIES.some(
 		(dependency) => file === dependency || file.startsWith(`${dependency}/`),
@@ -200,6 +201,8 @@ const config: ForgeConfig = {
 		// App icon. electron-packager appends the per-platform extension
 		// (.icns on macOS, .ico on Windows); Linux menu icons come from the
 		// deb/rpm makers below, and the runtime window icon from src/main.ts.
+		// Fork: use our .icns on every macOS version. An upstream Assets.car
+		// and CFBundleIconName would override it on macOS 26+.
 		icon: "assets/icon",
 		extraResource: extraResourcesForPlatform(process.platform),
 		afterCopyExtraResources: [(buildPath, _version, platform, _arch, callback) => {
@@ -479,6 +482,7 @@ const config: ForgeConfig = {
 				{ entry: "src/main.ts", config: "vite.main.config.ts", target: "main" },
 				{ entry: "src/preload.ts", config: "vite.preload.config.ts", target: "preload" },
 				{ entry: "src/annotate-preload.ts", config: "vite.preload.config.ts", target: "preload" },
+				{ entry: "src/privacy-guide-preload.ts", config: "vite.preload.config.ts", target: "preload" },
 			],
 			renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }],
 		}),

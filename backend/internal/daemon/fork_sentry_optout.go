@@ -2,10 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
 
 	telemetryadapter "github.com/aoagents/agent-orchestrator/backend/internal/adapters/telemetry"
 )
@@ -16,9 +12,8 @@ import (
 // before every capture, so an opt-out applies without a restart. A marker that
 // cannot be checked counts as present.
 func sentryPolicyHonoringOptOut(dataDir string, policy func(context.Context) bool) func(context.Context) bool {
-	marker := filepath.Join(dataDir, telemetryadapter.OptOutFile)
 	return func(ctx context.Context) bool {
-		if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		if telemetryadapter.OptOutMarkerPresent(dataDir) {
 			return false
 		}
 		return policy(ctx)

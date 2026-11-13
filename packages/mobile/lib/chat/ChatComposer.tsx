@@ -30,14 +30,16 @@ import {
 } from "./composerSuggestions";
 import { chatSheetRoute } from "./chatSheetRegistry";
 import { ChatAttachmentMenu } from "./ChatAttachmentMenu";
-import { ComposerAttachment } from "./ComposerAttachment";
+import { ComposerAttachmentTray } from "./ComposerAttachmentTray";
 import { ComposerGlass, composerGlassSupported } from "./composer-glass";
 import { COMPOSER_DISC, COMPOSER_FIELD_HEIGHT, COMPOSER_FONT_SCALE_CAP, COMPOSER_RADIUS, composerStyleRules, useComposerFieldSize } from "./composerStyles";
 import { ChatTurnSettingsControl } from "./ChatTurnSettingsControl";
 import { EffortSliderOverlay } from "../effort-slider";
 import { useChatEffort } from "./useChatEffort";
 import { compactCount } from "../files/model";
-import { composerDeliveryPresentation, composerDeliveryRoute, composerPrimaryAction, type ComposerDeliveryIntent } from "./composerDeliveryModel";
+import { composerDeliveryPresentation, composerDeliveryRoute, composerPrimaryAction, hardwareReturnIntent, type ComposerDeliveryIntent } from "./composerDeliveryModel";
+import { HardwareReturn } from "./HardwareReturn";
+import { useKeyboardSendRefocus } from "./useKeyboardSendRefocus";
 import { contextMeterModel } from "./contextMeter";
 import { RequestCard } from "./RequestCard";
 import type { RequestDockModel } from "./requestDockModel";
@@ -48,7 +50,7 @@ import type { DashboardPR, SessionPRSummary } from "../api";
 import { PRChipContent, prChipAccessibilityLabel } from "./PRChip";
 import { decodeResponseDraft, encodeResponseDraft, responseReplyText, responseExcerpts, excerptDraftText, isChatExcerpt, type ResponseQuote, type ResponseQuoteRequest } from "./responseQuotes";
 import { afterDraftWrites } from "./pendingSend";
-import { forgetComposerAttachments, readComposerAttachments, updateComposerAttachments, useComposerAttachments, type ComposerAttachment as Attachment } from "./composerAttachments";
+import { composerTrayItems, forgetComposerAttachments, readComposerAttachments, removeComposerAttachment, updateComposerAttachments, useComposerAttachments, type ComposerAttachment as Attachment } from "./composerAttachments";
 import { attachComposerImages, MAX_ATTACHMENTS } from "./composerImages";
 import { useImagePaste } from "./useImagePaste";
 
@@ -133,6 +135,8 @@ export function ChatComposer({
 	onRestoreRequest,
 	openingTurnId,
 	startingAgentName,
+	fileUploads,
+	attachmentsUnavailable,
 }: {
 	quoteRequest?: ResponseQuoteRequest;
 	onQuoteHandled?(id: string): void;
@@ -164,8 +168,10 @@ export function ChatComposer({
 	onAcknowledgeSend(id: string): Promise<void>;
 	completedRetry?: { id: string; draftText: string };
 	onSteer(text: string): Promise<string>;
-	onPromoteQueuedTurn(turnId: string): Promise<void>;
-	onCancelQueuedTurn(turnId: string): Promise<void>;
+	/** Steers with a queued message. Left out where the host can't, which hides the action. */
+	onPromoteQueuedTurn?(turnId: string): Promise<void>;
+	/** Deletes a queued message. Left out where the host can't, which hides the action. */
+	onCancelQueuedTurn?(turnId: string): Promise<void>;
 	onInterrupt(): void;
 	onSettings(settings: TurnSettings): Promise<void>;
 	onConfigOption(id: string, value: { value: string } | { enabled: boolean }): Promise<ChatConfigOption[]>;
@@ -196,6 +202,15 @@ export function ChatComposer({
 	openingTurnId?: string;
 	/** Set while the session starts, for the placeholder. */
 	startingAgentName?: string;
+	/**
+	 * Files of any type go with the message as uploads, up to this size each,
+	 * instead of being embedded as text: an Orchestrator Cloud session takes
+	 * them that way. A picked file is then sent as a resource with only its
+	 * local `uri`, which the screen reads and uploads when the message is sent.
+	 */
+	fileUploads?: { maxBytes: number };
+	/** Nothing can be attached here (an organization whose plan takes no files): attach stays in place, dimmed. */
+	attachmentsUnavailable?: boolean;
 }) {
 	const t = useTheme();
 	const router = useRouter();
@@ -222,6 +237,7 @@ export function ChatComposer({
 	const attachmentKey = machine ? `${machine}.${sessionId}` : sessionId;
 	const { items: attachments, notice: attachmentNotice } = useComposerAttachments(attachmentKey);
 	const clearAttachments = useCallback(() => updateComposerAttachments(attachmentKey, () => ({ items: [] })), [attachmentKey]);
+	const trayItems = useMemo(() => composerTrayItems(attachments), [attachments]);
 	const dismissAttachmentNotice = useCallback(() => updateComposerAttachments(attachmentKey, (current) => current.notice ? { items: current.items } : current), [attachmentKey]);
 	const [localError, setLocalError] = useState<string>();
 	const [submitting, setSubmitting] = useState(false);
@@ -230,6 +246,8 @@ export function ChatComposer({
 	// `bottom` resolves against the pill's content box, which leaves out its
 	// padding, and sat the slider that far down over the pill's top edge.
 	const [pillHeight, setPillHeight] = useState(0);
+	// Return on a hardware keyboard: typing carries on in the field after the send.
+	const keyboardSend = useKeyboardSendRefocus(inputRef, submitting);
 	const [promotingQueuedTurnId, setPromotingQueuedTurnId] = useState<string>();
 	const [cancellingQueuedTurnId, setCancellingQueuedTurnId] = useState<string>();
 	const [hiddenQueuedTurnIds, setHiddenQueuedTurnIds] = useState<Set<string>>(() => new Set());
@@ -261,7 +279,9 @@ export function ChatComposer({
 	// round button, and it stays open while anything waits to be sent. While the
 	// mic is open it is the slim pill again with only the waveform and the stop
 	// button, so the trace gets the whole width.
-	const expanded = !dictating && (focused || hasDraft || attachments.length > 0);
+	// `keyboardSend.holding` keeps it open through a hardware-Return send, while the
+	// draft has cleared and the field has yet to get its focus back.
+	const expanded = !dictating && (focused || keyboardSend.holding || hasDraft || attachments.length > 0);
 	// 0 collapsed, 1 open. Everything that changes as the pill opens reads it, so
 	// the row, the field's insets and the settings move as one.
 	const reduceMotion = useReducedMotion();
@@ -352,8 +372,11 @@ export function ChatComposer({
 	}, [completedRetry, draftKey, onAcknowledgeSend, clearAttachments]);
 
 
-	const submit = useCallback(async (intent: ComposerDeliveryIntent = "send") => {
-		if (submitting || pending || disabled || (draftKey && !draftLoaded)) return;
+	// Whether a send can start now. Hardware Return is taken only then; otherwise it
+	// stays the field's and inserts a newline, rather than being caught and dropped.
+	const canSubmit = !submitting && !pending && !disabled && !(draftKey && !draftLoaded);
+	const submit = useCallback(async (intent: ComposerDeliveryIntent = "send", from: "button" | "keyboard" = "button") => {
+		if (!canSubmit) return;
 		const trimmed = responseReplyText(text, quotes);
 		if (!trimmed && attachments.length === 0) return;
 		// This send owns these attachments and no others: it can finish after the
@@ -363,7 +386,10 @@ export function ChatComposer({
 		// Dismissed on the tap, not after the send lands. Waiting for the request
 		// tied the keyboard's exit to the network, so it dropped whenever the
 		// answer arrived — which read as the keyboard being taken away mid-sentence.
-		Keyboard.dismiss();
+		// Return on a hardware keyboard keeps the field: the next message is typed
+		// straight after, as at a desk.
+		if (from === "keyboard") keyboardSend.begin();
+		else Keyboard.dismiss();
 		setLocalError(undefined);
 		dismissAttachmentNotice();
 		setSubmitting(true);
@@ -399,9 +425,10 @@ export function ChatComposer({
 			setLocalError(userFacingError(cause));
 			haptics.error();
 		} finally { setSubmitting(false); }
-	}, [text, quotes, attachments, steerEligible, onSteer, onSend, onAcknowledgeSend, draftKey, draftLoaded, submitting, pending, disabled, attachmentKey, dismissAttachmentNotice]);
+	}, [text, quotes, attachments, steerEligible, onSteer, onSend, onAcknowledgeSend, draftKey, canSubmit, keyboardSend.begin, attachmentKey, dismissAttachmentNotice]);
 
-	const pasteLayout = useImagePaste(stopped || submitting ? null : (assets, overflow) => {
+	// Pasting is a way to attach too, so it follows the same gate as the menu.
+	const pasteLayout = useImagePaste(stopped || submitting || attachmentsUnavailable ? null : (assets, overflow) => {
 		setLocalError(undefined);
 		if (attachComposerImages(attachmentKey, assets, overflow)) haptics.tap();
 	});
@@ -421,12 +448,14 @@ export function ChatComposer({
 		}
 	};
 	const addFile = async () => {
+		if (fileUploads) return addUploadFile(fileUploads.maxBytes);
 		const key = attachmentKey;
 		setLocalError(undefined);
 		dismissAttachmentNotice();
-		const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, type: ["text/*", "application/json", "application/xml", "application/yaml"] });
-		if (result.canceled) return;
 		try {
+			// Inside the try: a picker that fails says so rather than rejecting unseen.
+			const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, type: ["text/*", "application/json", "application/xml", "application/yaml"] });
+			if (result.canceled) return;
 			const existing = readComposerAttachments(key).items.length;
 			const added: Attachment[] = [];
 			for (const asset of result.assets) {
@@ -436,6 +465,30 @@ export function ChatComposer({
 				const bytes = new TextEncoder().encode(body).byteLength;
 				if (bytes > MAX_EMBEDDED_FILE_BYTES) throw new Error(`${asset.name} is too large to embed. Reference a worktree file with @ instead.`);
 				added.push({ id: `${asset.uri}-${Date.now()}`, kind: "resource", name: asset.name, bytes, resource: { uri: `mobile-attachment://${encodeURIComponent(asset.name)}`, name: asset.name, mimeType: asset.mimeType || "text/plain", text: body } });
+			}
+			updateComposerAttachments(key, (current) => ({ items: [...current.items, ...added], notice: current.notice }));
+		} catch (cause) {
+			const notice = userFacingError(cause);
+			updateComposerAttachments(key, (current) => ({ items: current.items, notice }));
+		}
+	};
+
+	// Any file, kept as a local copy and uploaded with the message (see `fileUploads`).
+	const addUploadFile = async (maxBytes: number) => {
+		const key = attachmentKey;
+		setLocalError(undefined);
+		dismissAttachmentNotice();
+		try {
+			// Inside the try: a picker that fails says so rather than rejecting unseen.
+			const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, type: "*/*" });
+			if (result.canceled) return;
+			const existing = readComposerAttachments(key).items.length;
+			const added: Attachment[] = [];
+			for (const asset of result.assets) {
+				if (existing + added.length >= MAX_ATTACHMENTS) throw new Error(`You can attach up to ${MAX_ATTACHMENTS} items.`);
+				const bytes = asset.size ?? 0;
+				if (bytes > maxBytes) throw new Error(`${asset.name} is larger than ${Math.round(maxBytes / (1 << 20))} MB, the most this session takes.`);
+				added.push({ id: `${asset.uri}-${Date.now()}`, kind: "resource", name: asset.name, bytes, resource: { uri: asset.uri, name: asset.name, mimeType: asset.mimeType || "application/octet-stream" } });
 			}
 			updateComposerAttachments(key, (current) => ({ items: [...current.items, ...added], notice: current.notice }));
 		} catch (cause) {
@@ -498,7 +551,7 @@ export function ChatComposer({
 	>
 		<View style={styles.steerDisc}><AppSymbol name={steer} size={iconSize.sm} color={t.accent} /></View>
 	</Pressable> : null;
-	const attachMenu = <ChatAttachmentMenu disabled={stopped || submitting} canAttachFile={Boolean(canEmbedFiles)} onChoosePhoto={() => void addImage()} onChooseFile={() => void addFile()} />;
+	const attachMenu = <ChatAttachmentMenu disabled={stopped || submitting || Boolean(attachmentsUnavailable)} canAttachFile={Boolean(canEmbedFiles || fileUploads)} onChoosePhoto={() => void addImage()} onChooseFile={() => void addFile()} />;
 	const canDictate = voice.state !== "unavailable" && voice.state !== "denied";
 	// One round button that follows the prompt, as on the new-task sheet: it
 	// stops the mic while it is open, stops the turn while one runs and nothing
@@ -566,7 +619,6 @@ export function ChatComposer({
 		<Animated.View style={[styles.dock, styles.floatingDock, { paddingBottom: restingInset }, dockRise]}>
 			<DockFade />
 			{chips}
-			{attachments.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachments}>{attachments.map((item) => <ComposerAttachment key={item.id} name={item.name} image={item.kind === "image" ? item.image : undefined} onRemove={() => updateComposerAttachments(attachmentKey, (current) => ({ items: current.items.filter((candidate) => candidate.id !== item.id), notice: current.notice }))} />)}</ScrollView> : null}
 			{/* Composer-local only. Conversation and action failures are banners above
 			    the timeline; echoing them here showed one failure twice. */}
 			{localError || attachmentNotice || voice.error ? <Text accessibilityRole="alert" style={styles.error}>{localError || attachmentNotice || voice.error}</Text> : null}
@@ -578,7 +630,7 @@ export function ChatComposer({
 					return <View key={entry.turnId} style={[styles.queueRow, index > 0 && styles.queueRowDivider]}>
 						<AppSymbol name={queued} size={iconSize.sm} color={t.textTertiary} />
 						<Text numberOfLines={1} style={styles.queueText}>{entry.message.text}</Text>
-						{canSteer ? <Pressable
+						{canSteer && onPromoteQueuedTurn ? <Pressable
 							accessibilityRole="button"
 							accessibilityLabel={`Steer queued message: ${entry.message.text}`}
 							accessibilityState={{ busy: promoting, disabled: queueActionPending }}
@@ -603,7 +655,7 @@ export function ChatComposer({
 						>
 							{promoting ? <ActivityIndicator size="small" color={t.accent} /> : <AppSymbol name={steer} size={iconSize.sm} color={t.accent} />}
 						</Pressable> : null}
-						<Pressable
+						{onCancelQueuedTurn ? <Pressable
 							accessibilityRole="button"
 							accessibilityLabel={`Delete queued message: ${entry.message.text}`}
 							accessibilityState={{ busy: cancelling, disabled: queueActionPending }}
@@ -619,7 +671,7 @@ export function ChatComposer({
 							style={({ pressed }) => [styles.queueDelete, pressed && iconFeedback.pressed]}
 						>
 							{cancelling ? <ActivityIndicator size="small" color={t.textTertiary} /> : <AppSymbol name="close" size={iconSize.sm} color={t.textTertiary} />}
-						</Pressable>
+						</Pressable> : null}
 					</View>;
 				})}
 			</View> : null}
@@ -657,34 +709,40 @@ export function ChatComposer({
 						}} style={({ pressed }) => [styles.removeQuote, pressed && iconFeedback.pressed]}><AppSymbol name="close" size={iconSize.md} color={t.textSecondary} /></Pressable>
 					</View>)}
 				</ScrollView> : null}
+				{/* What goes with the message, inside the pill over the field. */}
+				<ComposerAttachmentTray items={trayItems} onRemove={(id) => removeComposerAttachment(attachmentKey, id)} />
 				{/* The field keeps one place in the tree whatever the pill's shape, so it
 				    keeps its focus as the pill opens around it. While the mic is open
 				    the dictation takes its place, and the field waits hidden with the
 				    draft the transcript will be added to. */}
 				<Animated.View style={[styles.composerRow, fieldSize.row, fieldInsets]}>
 					{dictating ? <DictationField state={voice.state} partial={voice.partial} subscribeLevel={voice.subscribeLevel} style={styles.dictation} waveformOnly /> : null}
-					<TextInput
-						ref={inputRef}
-						onLayout={pasteLayout}
-						accessibilityLabel="Message the agent"
-						editable={!stopped && !submitting}
-						value={text}
-						onChangeText={(value) => { latestText.current = value; setText(value); }}
-						onSelectionChange={(event) => setCursor(event.nativeEvent.selection.start)}
-						onFocus={() => setFocused(true)}
-						onBlur={() => setFocused(false)}
-						placeholder={placeholder}
-						placeholderTextColor={t.textFaint}
-						maxFontSizeMultiplier={COMPOSER_FONT_SCALE_CAP}
-						{...textSelectionColors(t)}
-						// No height of its own: a multiline field grows with its text
-						// between the rule's min and max and then scrolls. Setting the
-						// height from the content-size event lagged a line behind, so
-						// each new line first scrolled the field and cut off its top line.
-						style={[styles.input, fieldSize.field, dictating && styles.hiddenField]}
-						multiline
-						maxLength={40_000}
-					/>
+					{/* Return on a hardware keyboard (iPad); the wrapper holds the field's
+					    place in the row, so it hides with the field while dictating. */}
+					<HardwareReturn style={[styles.inputSlot, dictating && styles.hiddenField]} enabled={!sendBlocked} onReturn={(modifiers) => { void submit(hardwareReturnIntent(modifiers), "keyboard"); }}>
+						<TextInput
+							ref={inputRef}
+							onLayout={pasteLayout}
+							accessibilityLabel="Message the agent"
+							editable={!stopped && !submitting}
+							value={text}
+							onChangeText={(value) => { latestText.current = value; setText(value); }}
+							onSelectionChange={(event) => setCursor(event.nativeEvent.selection.start)}
+							onFocus={() => { setFocused(true); keyboardSend.focused(); }}
+							onBlur={() => setFocused(false)}
+							placeholder={placeholder}
+							placeholderTextColor={t.textFaint}
+							maxFontSizeMultiplier={COMPOSER_FONT_SCALE_CAP}
+							{...textSelectionColors(t)}
+							// No height of its own: a multiline field grows with its text
+							// between the rule's min and max and then scrolls. Setting the
+							// height from the content-size event lagged a line behind, so
+							// each new line first scrolled the field and cut off its top line.
+							style={[styles.input, fieldSize.field, dictating && styles.hiddenField]}
+							multiline
+							maxLength={40_000}
+						/>
+					</HardwareReturn>
 				</Animated.View>
 				{/* Mounted closed too, at no height, so the settings are already
 				    drawn when the row opens rather than appearing partway through. */}
@@ -798,7 +856,10 @@ const makeStyles = (t: Theme) => StyleSheet.create({
 	// the accent to send or dictate, red while the mic is open, and the stop
 	// control's quiet fill while it stops the turn.
 	roundTarget: { width: touchTarget, height: touchTarget, alignItems: "center", justifyContent: "center" },
-	roundDisc: { width: COMPOSER_DISC, height: COMPOSER_DISC, borderRadius: radius.pill, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+	// Unclipped: the faces swap in place, and Android skips drawing a clipping
+	// view's child that resized in the same update as the view's own fill, which
+	// left the dictate glyph blank after the stop glyph when a turn ended.
+	roundDisc: { width: COMPOSER_DISC, height: COMPOSER_DISC, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
 	roundAccent: { backgroundColor: t.accent },
 	roundStop: { backgroundColor: t.bgSubtle, borderWidth: rowDividerWidth, borderColor: t.borderDefault },
 	dictating: { backgroundColor: t.red },

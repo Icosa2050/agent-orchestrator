@@ -10,7 +10,7 @@ import {
 	type RefObject,
 } from "react";
 import { agentLabel } from "@aoagents/product-ui";
-import { Ungroup, X } from "lucide-react";
+import { X } from "@/components/app-icons";
 import { useTranslation } from "react-i18next";
 import { beginPaneTabDrag } from "../lib/pane-drag";
 import { MIN_PANE_PX, ratioVar, type CssDivider } from "../lib/pane-split";
@@ -20,12 +20,11 @@ import type { Theme } from "../stores/ui-store";
 import type { TerminalTarget } from "../types/terminal";
 import type { WorkspaceSession } from "../types/workspace";
 import { useShellAgentStore, useShellAgentStream } from "../stores/shell-agent-store";
-import { AgentAvatar } from "./AgentAvatar";
-import { ShellAgentStatus } from "./ShellTerminalTab";
+import { ShellAgentIcon, shellAgentStateLabel } from "./ShellTerminalTab";
 import { TerminalPane } from "./TerminalPane";
 import { Pressable } from "./ui/pressable";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "./ui/context-menu";
+import { TabContextMenu, type TabMenuSpec } from "./TabContextMenu";
 import { terminalTabActionClassName } from "./TerminalTabFrame";
 
 /**
@@ -196,21 +195,19 @@ export type SplitGroupMember = {
  * the others show only their icon, named by a tooltip. Each member is its own
  * target: clicking it shows the group with that pane focused, and dragging it
  * moves it within the split or out of the group. Hovering the tab swaps the
- * focused member's icon for a close button, as on other tabs, and its context
- * menu ungroups it, followed by `menuItems`: the focused member's own tab menu.
+ * focused member's icon for a close button, as on other tabs, and its menu
+ * (`useTabMenuItems`) ungroups it, followed by the focused member's own rows.
  */
 export function SplitGroupTab({
 	active,
 	focusedKey,
 	members,
-	onUngroup,
-	menuItems,
+	menu,
 }: {
 	active: boolean;
 	focusedKey?: string;
 	members: SplitGroupMember[];
-	onUngroup: () => void;
-	menuItems?: ReactNode;
+	menu: TabMenuSpec & { kind: "group" };
 }) {
 	const { t } = useTranslation();
 	// A shell in a split has no strip tab of its own, so the group tab keeps
@@ -222,7 +219,7 @@ export function SplitGroupTab({
 		if (!agent) return { ...member, agent };
 		// A default-named shell ("Terminal 3") reads as its agent.
 		const label = /^Terminal \d+$/.test(member.label) ? agentLabel(agent.harness) : member.label;
-		return { ...member, agent, label, icon: <AgentAvatar className="size-icon-sm!" decorative provider={agent.harness} /> };
+		return { ...member, agent, label, icon: <ShellAgentIcon agent={agent} done={false} /> };
 	});
 	const frame = (
 		<span
@@ -239,9 +236,11 @@ export function SplitGroupTab({
 		>
 			{shown.map((member, index) => {
 				const focused = member.key === focusedKey;
+				// The aria-label hides the badge's own text, so it names the agent's state too.
+				const stateLabel = member.agent ? shellAgentStateLabel(t, member.agent, false) : undefined;
 				const segment = (
 					<Pressable
-						aria-label={member.label}
+						aria-label={stateLabel ? `${member.label} · ${stateLabel}` : member.label}
 						aria-selected={active && focused}
 						className={cn(
 							"inline-flex h-full min-w-0 cursor-pointer items-center gap-2 leading-none",
@@ -252,6 +251,13 @@ export function SplitGroupTab({
 						onClick={(event) => {
 							if (event.detail > 1) return;
 							member.onSelect();
+						}}
+						// A middle-click closes this member's pane, as its close button does.
+						onMouseDown={(event) => { if (event.button === 1) event.preventDefault(); }}
+						onAuxClick={(event) => {
+							if (event.button !== 1) return;
+							event.preventDefault();
+							member.onClose();
 						}}
 						onPointerDown={(event) => {
 							// A member drags on its own; the group tab itself stays in place.
@@ -271,7 +277,6 @@ export function SplitGroupTab({
 							{member.icon}
 						</span>
 						{focused ? <span className="truncate">{member.label}</span> : null}
-						{focused && member.agent ? <ShellAgentStatus agent={member.agent} done={false} /> : null}
 					</Pressable>
 				);
 				return (
@@ -292,6 +297,13 @@ export function SplitGroupTab({
 										className={terminalTabActionClassName}
 										onClick={(event) => {
 											event.stopPropagation();
+											member.onClose();
+										}}
+										// The X covers the member's icon, so a middle-click there closes the pane too.
+										onMouseDown={(event) => { if (event.button === 1) event.preventDefault(); }}
+										onAuxClick={(event) => {
+											if (event.button !== 1) return;
+											event.preventDefault();
 											member.onClose();
 										}}
 										onPointerDown={(event) => event.stopPropagation()}
@@ -319,21 +331,5 @@ export function SplitGroupTab({
 			) : null}
 		</span>
 	);
-	return (
-		<ContextMenu>
-			<ContextMenuTrigger asChild>{frame}</ContextMenuTrigger>
-			<ContextMenuContent className={menuItems ? "min-w-56" : "min-w-44"}>
-				<ContextMenuItem onSelect={onUngroup}>
-					<Ungroup aria-hidden="true" />
-					{t("splitPane.ungroup")}
-				</ContextMenuItem>
-				{menuItems ? (
-					<>
-						<ContextMenuSeparator />
-						{menuItems}
-					</>
-				) : null}
-			</ContextMenuContent>
-		</ContextMenu>
-	);
+	return <TabContextMenu spec={menu}>{frame}</TabContextMenu>;
 }

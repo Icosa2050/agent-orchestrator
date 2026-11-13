@@ -301,12 +301,12 @@ async function callApi<T>(api: CloudShareApi, baseUrl: string, method: string, a
 
 /**
  * Whether the control plane serves share links: the routes exist only while
- * its share flag is on, so a 404 means it does not. It needs no sign-in: a
- * signed-out request gets 401 from a control plane that serves them. Null
- * when the control plane could not be reached.
+ * its share flag is on, so a 404 means it does not. Signed-out installs never
+ * probe the control plane. Null when an authenticated probe cannot reach it.
  */
 export async function shareLinksAvailable(api: CloudShareApi, baseUrl: string): Promise<boolean | null> {
 	const token = await api.getToken();
+	if (!token) return false;
 	try {
 		const response = await api.fetch(apiUrl(baseUrl, "/me/artifact-shares"), {
 			method: "GET",
@@ -460,9 +460,12 @@ export async function uploadShare(
 	signal?: AbortSignal,
 ): Promise<{ share: CloudShareLink; replaced: boolean }> {
 	const { baseUrl, snapshot } = input;
-	const start = await callApi<UploadStart>(api, baseUrl, "POST", "/me/artifact-shares/uploads", input.shareId
-		? { name: input.name, size: snapshot.size, sha256: snapshot.sha256, shareId: input.shareId }
-		: { name: input.name, size: snapshot.size, sha256: snapshot.sha256, project: input.project, feature: input.feature }, signal);
+	// An update names where the file is now too, so its link follows a file
+	// moved to another folder.
+	const start = await callApi<UploadStart>(api, baseUrl, "POST", "/me/artifact-shares/uploads", {
+		name: input.name, size: snapshot.size, sha256: snapshot.sha256, project: input.project, feature: input.feature,
+		...(input.shareId ? { shareId: input.shareId } : {}),
+	}, signal);
 	const handle = await fs.open(snapshot.path, "r");
 	// One failed part stops the others before the upload is aborted and the
 	// snapshot closed.

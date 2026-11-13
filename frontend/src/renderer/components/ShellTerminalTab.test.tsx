@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ShellTerminal } from "../hooks/useShellTerminals";
@@ -36,17 +37,20 @@ function renderTab(overrides: Partial<Parameters<typeof ShellTerminalTab>[0]> = 
 	const onSelect = vi.fn();
 	const onClose = vi.fn();
 	const onRename = vi.fn();
+	// A tab's menu looks up session actions, which need a query client.
 	render(
-		<TooltipProvider>
-			<ShellTerminalTab
-				isActive={false}
-				onClose={onClose}
-				onRename={onRename}
-				onSelect={onSelect}
-				shell={shell}
-				{...overrides}
-			/>
-		</TooltipProvider>,
+		<QueryClientProvider client={new QueryClient()}>
+			<TooltipProvider>
+				<ShellTerminalTab
+					isActive={false}
+					onClose={onClose}
+					onRename={onRename}
+					onSelect={onSelect}
+					shell={shell}
+					{...overrides}
+				/>
+			</TooltipProvider>
+		</QueryClientProvider>,
 	);
 	return { onSelect, onClose, onRename };
 }
@@ -178,6 +182,14 @@ describe("ShellTerminalTab rename", () => {
 	it("closes from the glyph slot without selecting the tab", () => {
 		const { onClose, onSelect } = renderTab({ appearance: "connected" });
 		fireEvent.click(screen.getByRole("button", { name: "Close terminal ao" }));
+		expect(onClose).toHaveBeenCalledOnce();
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("closes on a middle-click", () => {
+		const { onClose, onSelect } = renderTab({ appearance: "connected" });
+		const frame = screen.getByRole("tab", { name: "ao" }).closest("[data-terminal-tab-frame]")!;
+		fireEvent(frame, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
 		expect(onClose).toHaveBeenCalledOnce();
 		expect(onSelect).not.toHaveBeenCalled();
 	});
