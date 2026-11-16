@@ -21,7 +21,7 @@ mode=${1:-all}
 # path (relative to frontend/) and minimum passing tests.
 frontend_tests='
 forge.config.test.ts 35
-src/renderer/components/ShareArtifactPopover.test.tsx 39
+src/renderer/components/ShareArtifactPopover.test.tsx 68
 src/main/remotes-main.test.ts 41
 src/main/remotes-ipc.test.ts 8
 src/main/remotes-store.test.ts 22
@@ -30,7 +30,7 @@ src/renderer/components/settings/RemoteHostsSettings.test.tsx 12
 src/renderer/components/RemoteHostsSection.test.tsx 1
 src/renderer/hooks/useRemoteHosts.test.tsx 15
 src/renderer/hooks/useRemoteHosts.self.test.tsx 3
-src/shared/sentry-config.test.ts 3
+src/shared/sentry-config.test.ts 7
 src/main/sentry-main.test.ts 19
 src/main/telemetry-identity.test.ts 20
 src/main/fork-telemetry-defaults.test.ts 8
@@ -39,16 +39,19 @@ src/main/telemetry-policy-file.test.ts 12
 src/shared/telemetry-policy.test.ts 18
 src/main/desktop-telemetry-controller.test.ts 20
 src/renderer/lib/telemetry.init.test.ts 53
+src/main/cloud-share.test.ts 20
 src/main/cloud-share-ipc.test.ts 20
-src/main/cloud-cp-proxy.test.ts 13
+src/main/cloud-cp-proxy.test.ts 22
 src/main/cloud-folder-push.test.ts 84
 '
 
 # package (relative to backend/), -run regex (no spaces) and minimum listed tests.
 backend_tests='
 ./internal/httpd ^(TestLAN|TestMobileLAN|TestAccountTokenIssuanceReturnsThroughRealLANListener) 29
+./internal/httpd ^TestForkAgentAccounts 2
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
+./internal/cli ^TestForkTriage 1
 ./internal/daemon ^TestPublishRemoteHost 1
 ./internal/daemon ^(TestOptOut|TestForkDefaultPolicy) 5
 ./internal/storage/sqlite/store ^TestForkSessionRetention 1
@@ -69,7 +72,7 @@ run_frontend() {
 		files+=("$file")
 	done <<<"$frontend_tests"
 	report=$(mktemp "${TMPDIR:-/tmp}/protected-vitest.XXXXXX")
-	npx vitest run --config vite.renderer.config.ts --reporter=default --reporter=json --outputFile.json="$report" "${files[@]}"
+	npx vitest run --maxWorkers=2 --config vite.renderer.config.ts --reporter=default --reporter=json --outputFile.json="$report" "${files[@]}"
 	# vitest's file arguments are substring filters, so check every file ran
 	# and kept at least its floor of passing tests.
 	# shellcheck disable=SC2016 # JavaScript template literals, not shell.

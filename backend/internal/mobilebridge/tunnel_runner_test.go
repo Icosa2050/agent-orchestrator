@@ -605,10 +605,16 @@ func TestTunnelRunnerWaitsForARelinkAfterANewPassword(t *testing.T) {
 		bin, _ := fakeCloudflared(t, registeredLine)
 		r := namedRunner(t, bin, src)
 		r.recheckEvery, r.relinkWait = time.Hour, 300*time.Millisecond
+		if relinked {
+			// Relinking writes durable state. Do not race that filesystem I/O
+			// against a subsecond grace period on a loaded runner.
+			r.relinkWait = 20 * time.Second
+		}
 		nudge := make(chan struct{}, 1)
 		r.nudge = nudge
 
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
 		done := make(chan error, 1)
 		go func() { done <- r.runOnce(ctx) }()
 		for deadline := time.Now().Add(10 * time.Second); r.Runtime.UnsettledHostname() == ""; time.Sleep(20 * time.Millisecond) {
@@ -618,18 +624,43 @@ func TestTunnelRunnerWaitsForARelinkAfterANewPassword(t *testing.T) {
 		}
 		link(t, src, "") // the new password
 		nudge <- struct{}{}
-		time.Sleep(100 * time.Millisecond)
 		if relinked {
-			link(t, src, "new-account-digest")
-		}
-		select {
-		case err := <-done:
-			if relinked || !errors.Is(err, errFixedTunnelChanged) {
-				t.Fatalf("relinked %v: runOnce = %v", relinked, err)
+			// Cache removal proves the watcher observed the missing link, so
+			// restoring it immediately still exercises the relink grace.
+			for {
+				if _, err := os.Stat(src.CachePath); errors.Is(err, os.ErrNotExist) {
+					break
+				}
+				select {
+				case err := <-done:
+					t.Fatalf("stopped before relinking: %v", err)
+				case <-ctx.Done():
+					t.Fatal("watcher did not observe the missing link")
+				case <-time.After(time.Millisecond):
+				}
 			}
-		case <-time.After(time.Second):
-			if !relinked {
-				t.Fatal("kept the fixed address with no link")
+			link(t, src, "new-account-digest")
+			// Wait for the successful response to be cached, not an assumed
+			// scheduling delay, before checking that the connector survived.
+			for {
+				cached, _ := loadNamedTunnelCache(src.CachePath, src.cacheKey(r.HostID, "new-account-digest"))
+				if cached.RunToken != "" {
+					break
+				}
+				select {
+				case err := <-done:
+					t.Fatalf("stopped while relinking: %v", err)
+				case <-ctx.Done():
+					t.Fatal("new link was not accepted")
+				case <-time.After(time.Millisecond):
+				}
+			}
+		}
+		if relinked {
+			select {
+			case err := <-done:
+				t.Fatalf("relinked %v: runOnce = %v", relinked, err)
+			default:
 			}
 			cloud.mu.Lock()
 			got := cloud.digests[len(cloud.digests)-1]
@@ -639,6 +670,15 @@ func TestTunnelRunnerWaitsForARelinkAfterANewPassword(t *testing.T) {
 			}
 			cancel()
 			<-done
+		} else {
+			select {
+			case err := <-done:
+				if !errors.Is(err, errFixedTunnelChanged) {
+					t.Fatalf("relinked %v: runOnce = %v", relinked, err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("kept the fixed address with no link")
+			}
 		}
 		cancel()
 	}

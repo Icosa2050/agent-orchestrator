@@ -34,13 +34,14 @@ import { ComposerAttachmentTray } from "./ComposerAttachmentTray";
 import { ComposerGlass, composerGlassSupported } from "./composer-glass";
 import { COMPOSER_DISC, COMPOSER_FIELD_HEIGHT, COMPOSER_FONT_SCALE_CAP, COMPOSER_RADIUS, composerStyleRules, useComposerFieldSize } from "./composerStyles";
 import { ChatTurnSettingsControl } from "./ChatTurnSettingsControl";
+import type { ChatTurnSettingsControlProps } from "./ChatTurnSettingsControl.types";
 import { EffortSliderOverlay } from "../effort-slider";
 import { useChatEffort } from "./useChatEffort";
 import { compactCount } from "../files/model";
 import { composerDeliveryPresentation, composerDeliveryRoute, composerPrimaryAction, hardwareReturnIntent, type ComposerDeliveryIntent } from "./composerDeliveryModel";
 import { HardwareReturn } from "./HardwareReturn";
 import { useKeyboardSendRefocus } from "./useKeyboardSendRefocus";
-import { contextMeterModel } from "./contextMeter";
+import { contextMeterModel, quotaChipModel } from "./contextMeter";
 import { RequestCard } from "./RequestCard";
 import type { RequestDockModel } from "./requestDockModel";
 import { createRequestGate } from "./requestGate";
@@ -74,8 +75,10 @@ const CHIP_SLOP = (touchTarget - CHIP_HEIGHT) / 2;
 const COMPOSER_FADE_MS = 160;
 /** How far above the dock the conversation starts fading out behind it. */
 const DOCK_FADE_RISE = space.xxl;
-/** The fade's gradient: from that height down past the chips, solid below. */
+/** The fade's gradient: from that height down past the chips, `DOCK_FADE_FLOOR` below. */
 const DOCK_FADE_HEIGHT = DOCK_FADE_RISE + CHIP_HEIGHT;
+/** The fade's cover below the chips, the bars' frost at the screen edge (see `frost`). */
+const DOCK_FADE_FLOOR = 0.92;
 
 // The composer's one-off glyphs.
 /** Redirect the running turn now. */
@@ -123,9 +126,10 @@ export function ChatComposer({
 	onInterrupt,
 	onSettings,
 	onConfigOption,
+	otherAgents,
 	restingInset,
 	dockRiseOverride,
-	quotaActive,
+	onOpenUsage,
 	request,
 	requestDismissed,
 	onRequestDecide,
@@ -175,6 +179,8 @@ export function ChatComposer({
 	onInterrupt(): void;
 	onSettings(settings: TurnSettings): Promise<void>;
 	onConfigOption(id: string, value: { value: string } | { enabled: boolean }): Promise<ChatConfigOption[]>;
+	/** The model menu's other agents; choosing one's model switches the session's agent. */
+	otherAgents?: ChatTurnSettingsControlProps["otherAgents"];
 	/**
 	 * What the dock owes with the keyboard down — the home-indicator inset. The
 	 * dock keeps it at all times and closes the difference to the keyboard by
@@ -187,8 +193,8 @@ export function ChatComposer({
 	 * unset to ride the progress. See `chatDockRiseOverride`.
 	 */
 	dockRiseOverride?: number;
-	/** The account-quota banner is up, so the context meter stands down. */
-	quotaActive?: boolean;
+	/** Opens the context & usage sheet, from the quota chip. */
+	onOpenUsage?(): void;
 	/** A pending request, which takes the composer's place until it is answered. */
 	request?: RequestDockModel | null;
 	/** The user pushed the request aside to type instead. */
@@ -255,7 +261,9 @@ export function ChatComposer({
 	const queuedMessages = useMemo(() => queuedConversationMessages(snapshot, openingTurnId), [openingTurnId, snapshot]);
 	const visibleQueuedMessages = useMemo(() => queuedMessages.filter((entry) => !hiddenQueuedTurnIds.has(entry.turnId)), [hiddenQueuedTurnIds, queuedMessages]);
 	// Absent below 70%: a permanent token gauge is chrome nobody reads.
-	const contextMeter = contextMeterModel(snapshot.usage, Boolean(quotaActive));
+	const contextMeter = contextMeterModel(snapshot.usage);
+	// Absent below 75% of the account's usage limit, for the same reason.
+	const quotaChip = quotaChipModel(snapshot.rateLimits);
 	// A blocking question is the next thing to do, so it takes the input's place
 	// rather than pointing at a card somewhere up the timeline.
 	const requestCard = request && !requestDismissed ? (
@@ -588,10 +596,17 @@ export function ChatComposer({
 		opacity: interpolate(openness.value, [0.35, 1], [0, 1], "clamp"),
 		transform: [{ translateY: interpolate(openness.value, [0, 1], [space.sm, 0], "clamp") }],
 	}));
-	// The session's state as chips over the composer, open or not: its PR, what
-	// it changed, and how full the context is once that matters.
-	const chips = activeReviewPR || changes || contextMeter ? <Animated.View entering={FadeIn.duration(COMPOSER_FADE_MS)} exiting={FadeOut.duration(COMPOSER_FADE_MS)}>
+	// The session's state as chips over the composer, open or not: the account's
+	// quota once that matters, its PR, what it changed, and how full the context
+	// is once that matters.
+	const chips = activeReviewPR || changes || contextMeter || quotaChip ? <Animated.View entering={FadeIn.duration(COMPOSER_FADE_MS)} exiting={FadeOut.duration(COMPOSER_FADE_MS)}>
 		<ScrollView key={fieldSize.fontScale} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.chips}>
+			{/* First: the row scrolls with no indicator, and this is the only quota
+			    warning, so it must not start off screen behind the PR and changes chips. */}
+			{quotaChip ? <ComposerChip accessibilityLabel={quotaChip.accessibilityLabel} accessibilityHint="Opens context and usage" onPress={onOpenUsage}>
+				<AppSymbol name="warning" size={iconSize.xs} color={quotaChip.severity === "critical" ? t.red : t.amber} />
+				<Text numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.chrome} style={[styles.contextText, styles.tabular, { color: quotaChip.severity === "critical" ? t.red : t.amber }]}>{quotaChip.label}</Text>
+			</ComposerChip> : null}
 			{activeReviewPR ? <ComposerChip accessibilityLabel={prChipAccessibilityLabel(activeReviewPR, reviewPRSummary)} accessibilityHint="Opens the pull request review" onPress={onOpenReview}>
 				<PRChipContent pr={activeReviewPR} summary={reviewPRSummary} />
 			</ComposerChip> : null}
@@ -748,7 +763,7 @@ export function ChatComposer({
 				    drawn when the row opens rather than appearing partway through. */}
 				<Animated.View pointerEvents={expanded ? "box-none" : "none"} style={[styles.controlsRow, { paddingLeft: CORNER_CONTROL, paddingRight: CORNER_CONTROL }, controlsOpening]}>
 					<View style={styles.settingsSlot}>
-						<ChatTurnSettingsControl {...settingsProps} effort={{ choices: effort.choices, open: effort.open, onToggle: effort.toggle }} />
+						<ChatTurnSettingsControl {...settingsProps} otherAgents={otherAgents} effort={{ choices: effort.choices, open: effort.open, onToggle: effort.toggle }} />
 					</View>
 					{steerAction}
 				</Animated.View>
@@ -768,8 +783,11 @@ export function ChatComposer({
 
 /**
  * The conversation fading out behind the dock, as a system bar's scroll edge
- * does: clear above it, the page's colour by the time it reaches the composer,
- * so text running under the chips and the pill never competes with them.
+ * does: clear above it, nearly the page's colour by the time it reaches the
+ * composer, so text running under the chips and the pill never competes with
+ * them. Never fully solid: the conversation stays faintly visible below the
+ * pill, behind the system navigation, so the composer floats over the page
+ * rather than sitting on a strip of its own.
  *
  * The gradient is a strip of fixed height at the dock's top, and the page's
  * colour below it is a plain view that follows the dock's layout. A gradient
@@ -784,14 +802,14 @@ function DockFade() {
 				<Defs>
 					<LinearGradient id="dockFade" x1="0" y1="0" x2="0" y2="1">
 						<Stop offset="0" stopColor={color} stopOpacity={0} />
-						<Stop offset="0.5" stopColor={color} stopOpacity={0.85} />
-						<Stop offset="1" stopColor={color} stopOpacity={1} />
+						<Stop offset="0.5" stopColor={color} stopOpacity={0.7} />
+						<Stop offset="1" stopColor={color} stopOpacity={DOCK_FADE_FLOOR} />
 					</LinearGradient>
 				</Defs>
 				<Rect x="0" y="0" width="100%" height="100%" fill="url(#dockFade)" />
 			</Svg>
 		</View>
-		<View style={{ flex: 1, backgroundColor: color }} />
+		<View style={{ flex: 1, backgroundColor: color, opacity: DOCK_FADE_FLOOR }} />
 	</View>;
 }
 
@@ -870,6 +888,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
 	contextTrack: { width: 34, height: 4, borderRadius: radius.pill, overflow: "hidden", backgroundColor: t.bgSubtle },
 	contextFill: { height: 4, borderRadius: radius.pill },
 	contextText: { fontFamily: "DMSans_600SemiBold", fontSize: type.footnote.fontSize, fontWeight: "600" },
+	tabular: { fontVariant: ["tabular-nums"] },
 	// As tall as the row; it yields before the controls do.
 	steerAction: { width: touchTarget, height: touchTarget, alignItems: "center", justifyContent: "center" },
 	dictation: { minHeight: COMPOSER_FIELD_HEIGHT },

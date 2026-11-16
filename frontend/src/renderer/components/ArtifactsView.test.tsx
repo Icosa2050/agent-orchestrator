@@ -41,6 +41,11 @@ vi.mock("./NotificationCenter", () => ({ NotificationCenter: () => <button type=
 
 const mocks = vi.hoisted(() => ({
 	workspaces: [] as WorkspaceSummary[],
+	remoteWorkspaces: [] as WorkspaceSummary[],
+	remoteHosts: [] as Array<{ hostId: string; label: string; url: string; status: "connected" | "offline" }>,
+	remoteFailedHostIds: [] as string[],
+	remoteRefetch: vi.fn(),
+	remoteDel: vi.fn(),
 	agents: [] as Array<Record<string, unknown>>,
 	navigate: vi.fn(),
 	post: vi.fn(),
@@ -54,6 +59,13 @@ const mocks = vi.hoisted(() => ({
 	cloudStatus: "authenticated" as string,
 	/** Overrides whether the control plane keeps artifacts; undefined keeps the real hook's answer. */
 	cloudArtifacts: undefined as boolean | undefined,
+	/** Who each published link opens for, as the link list says. */
+	shareAccess: new Map<string, "restricted" | "anyone">(),
+}));
+
+vi.mock("./ShareArtifactPopover", async (importOriginal) => ({
+	...await importOriginal<typeof import("./ShareArtifactPopover")>(),
+	useReconciledShareLinks: () => mocks.shareAccess,
 }));
 
 // These tests are about the live preview a card falls back to; the cached image path has its own tests.
@@ -73,6 +85,7 @@ vi.mock("../hooks/useWorkspaceQuery", () => ({
 	cloudSessionsQueryKey: ["cloud-sessions"],
 	workspaceQueryKeyForHost: () => ["workspaces"],
 	useWorkspaceQuery: () => ({ data: mocks.workspaces, isLoading: false, error: null }),
+	useRemoteWorkspaces: () => ({ data: mocks.remoteWorkspaces ?? [], failedHostIds: mocks.remoteFailedHostIds, refetch: mocks.remoteRefetch }),
 }));
 vi.mock("../hooks/useCloudCp", () => ({
 	useCloudCp: () => ({ client: { deleteSessionArtifact: mocks.deleteCloudArtifact } }),
@@ -86,7 +99,7 @@ vi.mock("../lib/cloud-cp/renderer-client", async (importOriginal) => ({
 	cloudCpFetch: async () => new Response("Cloud artifact thumbnail"),
 }));
 vi.mock("./CloudArtifactFrame", () => ({
-	CloudArtifactFrame: ({ title, url }: { title: string; url: string }) => <iframe data-testid="cloud-artifact-preview" title={title} src={url} />,
+	CloudArtifactFrame: ({ title, url, source }: { title: string; url: string; source?: string }) => <iframe data-source={source ?? "cloud"} data-testid="cloud-artifact-preview" title={title} src={url} />,
 }));
 vi.mock("./ArtifactFileView", () => ({
 	ArtifactFileView: ({ cloud, path, rawUrl, readOnly }: { cloud?: boolean; path: string; rawUrl?: string; readOnly?: boolean }) => <div data-testid="artifact-file-preview" data-cloud={cloud} data-path={path} data-raw-url={rawUrl} data-read-only={readOnly} />,
@@ -96,6 +109,14 @@ vi.mock("../hooks/useAgentReadinessQuery", () => ({ useAgentReadinessQuery: () =
 vi.mock("../lib/api-client", async (importOriginal) => ({
 	...await importOriginal<typeof import("../lib/api-client")>(),
 	apiClient: { POST: mocks.post, GET: mocks.get, DELETE: mocks.del },
+}));
+vi.mock("../lib/host-clients", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/host-clients")>();
+	return { ...actual, clientForSessionHost: (hostId?: string) => hostId ? { DELETE: mocks.remoteDel } : actual.clientForSessionHost(hostId) };
+});
+vi.mock("../lib/shell-context", async (importOriginal) => ({
+	...await importOriginal<typeof import("../lib/shell-context")>(),
+	useShellMaybe: () => ({ remoteHosts: mocks.remoteHosts }),
 }));
 vi.mock("../lib/telemetry", async (importOriginal) => ({
 	...await importOriginal<typeof import("../lib/telemetry")>(),
@@ -201,6 +222,7 @@ function expectMenuItems(names: string[]) {
 describe("ArtifactsView", () => {
 	afterEach(() => vi.unstubAllGlobals());
 	beforeEach(() => {
+		mocks.shareAccess = new Map();
 		window.localStorage.removeItem("ao.artifacts.view");
 		useArtifactsViewStore.setState({ view: "gallery", collapsedSections: [], pinnedArtifactIds: [] });
 		vi.stubGlobal("IntersectionObserver", class {
@@ -214,6 +236,11 @@ describe("ArtifactsView", () => {
 			disconnect() {}
 		});
 		mocks.workspaces = withArtifacts;
+		mocks.remoteWorkspaces = [];
+		mocks.remoteHosts = [];
+		mocks.remoteFailedHostIds = [];
+		mocks.remoteRefetch.mockReset();
+		mocks.remoteDel.mockReset();
 		mocks.agents = [codexReady];
 		mocks.hideShellTopbar = true;
 		mocks.cloudStatus = "authenticated";
@@ -243,7 +270,7 @@ describe("ArtifactsView", () => {
 		]);
 		expect(gallery.getByText("agent-orchestrator · Design the Artifacts entry point")).toBeInTheDocument();
 		expect(gallery.getByText("agent-orchestrator · Review pricing")).toBeInTheDocument();
-		expect(gallery.getByText("Scratchpad · Compare caching options")).toBeInTheDocument();
+		expect(gallery.getByText("Sessions · Compare caching options")).toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: /team/i })).not.toBeInTheDocument();
 	});
 
@@ -251,13 +278,13 @@ describe("ArtifactsView", () => {
 		const user = userEvent.setup();
 		renderView();
 		await user.click(screen.getByRole("button", { name: "Filter" }));
-		await user.click(screen.getByRole("menuitemcheckbox", { name: "Scratchpad" }));
+		await user.click(screen.getByRole("menuitemcheckbox", { name: "Sessions" }));
 		await user.keyboard("{Escape}");
 		expect(within(artifactList()).getAllByRole("listitem")).toHaveLength(1);
-		expect(within(artifactList()).getByText("Scratchpad · Compare caching options")).toBeInTheDocument();
+		expect(within(artifactList()).getByText("Sessions · Compare caching options")).toBeInTheDocument();
 		expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Filter" })).toHaveAttribute("data-active", "true");
-		expect(screen.getByRole("button", { name: "Remove filter Project: Scratchpad" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Remove filter Project: Sessions" })).toBeInTheDocument();
 		await user.type(await openSearch(user), "no such thing");
 		await user.click(screen.getByRole("button", { name: "Clear filters" }));
 		expect(screen.queryByRole("searchbox", { name: "Search artifacts" })).not.toBeInTheDocument();
@@ -281,7 +308,7 @@ describe("ArtifactsView", () => {
 		renderView();
 		await user.click(screen.getByRole("button", { name: "Filter" }));
 		expect(screen.getAllByRole("menuitemcheckbox").map((item) => item.textContent)).toEqual([
-			"All projects", "agent-orchestrator", "All types", "All images", "All videos", "All documents", "Public", "Not shared", "All",
+			"All projects", "agent-orchestrator", "All types", "All images", "All videos", "All documents", "Public", "Shared privately", "Not shared", "All",
 		]);
 		const names = () => within(artifactList()).getAllByRole("listitem").map((row) => row.textContent ?? "");
 		// The menu stays open, so several types are picked in one go.
@@ -353,7 +380,7 @@ describe("ArtifactsView", () => {
 		await user.type(await openSearch(user), "pricing");
 		expect(screen.getAllByText("pricing.md")).toHaveLength(1);
 		expect(screen.queryByText("artifacts-user-flow.html")).not.toBeInTheDocument();
-		expect(screen.queryByText("Scratchpad")).not.toBeInTheDocument();
+		expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
 
 		await user.clear(screen.getByRole("searchbox", { name: "Search artifacts" }));
 		await user.type(screen.getByRole("searchbox", { name: "Search artifacts" }), "no such thing");
@@ -373,7 +400,7 @@ describe("ArtifactsView", () => {
 		expect(within(artifactList()).getAllByRole("listitem")).toHaveLength(2);
 		expect(screen.queryByText("caching-options.md")).not.toBeInTheDocument();
 		await user.clear(search);
-		await user.type(search, "Scratchpad");
+		await user.type(search, "Sessions");
 
 		expect(screen.getAllByRole("listitem")).toHaveLength(1);
 		expect(screen.getAllByText("caching-options.md")).toHaveLength(1);
@@ -392,6 +419,57 @@ describe("ArtifactsView", () => {
 		await user.click(screen.getByRole("button", { name: "List view" }));
 		expect(screen.getAllByRole("listitem")).toHaveLength(2);
 		expect(screen.getByText("agent-orchestrator · Review pricing")).toBeInTheDocument();
+	});
+
+	it("lists a remote machine's artifacts under its own location, and deletes them on that machine", async () => {
+		const user = userEvent.setup();
+		mocks.remoteHosts = [{ hostId: "https://h-vm.useao.dev", label: "build-vm", url: "https://h-vm.useao.dev", status: "connected" }];
+		// The same project and session IDs as this computer's: the machine keeps them apart.
+		mocks.remoteWorkspaces = [{
+			hostId: "https://h-vm.useao.dev",
+			id: "ao",
+			name: "agent-orchestrator",
+			path: "/home/ao/code/ao",
+			sessions: [{ ...session("ao-2", "Benchmark on the VM", [{ name: "bench.md", updatedAt: "2026-10-12T10:00:00Z" }]), hostId: "https://h-vm.useao.dev" }],
+		}];
+		mocks.remoteDel.mockResolvedValue({});
+		useArtifactsViewStore.setState({ view: "list", pinnedArtifactIds: [JSON.stringify(["ao-2", "bench.md", "https://h-vm.useao.dev"])] });
+		renderView();
+
+		const location = screen.getByRole("group", { name: "Artifact location" });
+		expect(within(location).getAllByRole("button").map((button) => button.textContent)).toEqual(["All", "On this machine", "build-vm"]);
+		await user.click(within(location).getByRole("button", { name: "build-vm" }));
+		const rows = within(artifactList()).getAllByRole("listitem");
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toHaveTextContent("bench.md");
+		expect(rows[0]).toHaveTextContent("agent-orchestrator · build-vm · Benchmark on the VM");
+		// Pinned by its machine's key.
+		expect(within(rows[0]!).getByRole("img", { name: "Pinned" })).toBeInTheDocument();
+
+		await user.click(screen.getByRole("button", { name: "Select" }));
+		await user.click(screen.getByRole("checkbox", { name: "Select bench.md" }));
+		await user.click(screen.getByRole("button", { name: "Delete" }));
+		await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete 1 artifact" }));
+		await waitFor(() => expect(mocks.remoteDel).toHaveBeenCalledWith("/api/v1/sessions/{sessionId}/artifact-files", { params: { path: { sessionId: "ao-2" }, query: { path: "bench.md" } } }));
+		expect(mocks.del).not.toHaveBeenCalled();
+		expect(useArtifactsViewStore.getState().pinnedArtifactIds).toEqual([]);
+	});
+
+	it("says when a remote machine's artifacts could not be loaded, with a retry, instead of showing no matches", async () => {
+		const user = userEvent.setup();
+		mocks.remoteHosts = [{ hostId: "https://h-vm.useao.dev", label: "build-vm", url: "https://h-vm.useao.dev", status: "connected" }];
+		mocks.remoteFailedHostIds = ["https://h-vm.useao.dev"];
+		renderView();
+
+		expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load artifacts from build-vm.");
+		await user.click(within(screen.getByRole("group", { name: "Artifact location" })).getByRole("button", { name: "build-vm" }));
+		expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load artifacts from build-vm.");
+		expect(screen.queryByText("No matches")).not.toBeInTheDocument();
+		await user.click(within(screen.getByRole("alert")).getByRole("button", { name: "Retry" }));
+		expect(mocks.remoteRefetch).toHaveBeenCalledTimes(1);
+		// Another location does not name the machine.
+		await user.click(within(screen.getByRole("group", { name: "Artifact location" })).getByRole("button", { name: "On this machine" }));
+		expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 	});
 
 	it("selects artifacts one by one and deletes them together after confirming", async () => {
@@ -641,7 +719,7 @@ describe("ArtifactsView", () => {
 		expect(await within(dialog).findByRole("button", { name: "Publish: caching-options.md" })).toBeInTheDocument();
 	});
 
-	it("marks a published artifact with the globe, and offers Copy public link and Unpublish instead of Publish", async () => {
+	it("marks a published artifact with the globe, and offers Copy link and Unpublish instead of Publish", async () => {
 		const user = userEvent.setup();
 		const published = session("ao-2", "Review pricing", [{ name: "pricing.md", updatedAt: "2026-10-10T10:00:00Z" }]);
 		published.artifactFiles![0].shareUrl = "https://share.test/pricing";
@@ -653,7 +731,7 @@ describe("ArtifactsView", () => {
 		expect(within(row("caching-options.md")).queryByRole("img", { name: "Published" })).not.toBeInTheDocument();
 
 		await user.click(within(row("pricing.md")).getByRole("button", { name: "More actions: pricing.md" }));
-		expect(await screen.findByRole("menuitem", { name: "Copy public link" })).toBeInTheDocument();
+		expect(await screen.findByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
 		expect(screen.getByRole("menuitem", { name: "Unpublish" })).toBeInTheDocument();
 		expect(screen.queryByRole("menuitem", { name: "Publish" })).not.toBeInTheDocument();
 		await user.keyboard("{Escape}");
@@ -661,7 +739,7 @@ describe("ArtifactsView", () => {
 		await user.click(within(row("caching-options.md")).getByRole("button", { name: "More actions: caching-options.md" }));
 		expect(await screen.findByRole("menuitem", { name: "Publish" })).toBeInTheDocument();
 		expect(screen.queryByRole("menuitem", { name: "Unpublish" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("menuitem", { name: "Copy public link" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("menuitem", { name: "Copy link" })).not.toBeInTheDocument();
 	});
 
 	it.each(["list", "gallery"] as const)("names the globe Published on hover in %s view", async (view) => {
@@ -675,10 +753,65 @@ describe("ArtifactsView", () => {
 		expect(await screen.findByRole("tooltip")).toHaveTextContent("Published");
 	});
 
+	it.each(["list", "gallery"] as const)("marks a private link with an amber link, not the globe, in %s view", async (view) => {
+		const published = session("ao-2", "Review pricing", [
+			{ name: "pricing.md", updatedAt: "2026-10-10T10:00:00Z" },
+			{ name: "roadmap.md", updatedAt: "2026-10-09T10:00:00Z" },
+		]);
+		published.artifactFiles![0].shareUrl = "https://share.test/pricing";
+		published.artifactFiles![1].shareUrl = "https://share.test/roadmap";
+		mocks.shareAccess = new Map([["https://share.test/pricing", "restricted"], ["https://share.test/roadmap", "anyone"]]);
+		mocks.workspaces = [{ ...withArtifacts[0], sessions: [published] }];
+		useArtifactsViewStore.setState({ view });
+		renderView();
+		const item = (name: string) => within(artifactList()).getByRole("button", { name: new RegExp(`^${name.replace(".", "\\.")}`) }).closest("li")!;
+		const shared = within(item("pricing.md")).getByRole("img", { name: "Shared privately" });
+		expect(shared).toHaveClass("text-status-in-review");
+		expect(shared.querySelector("svg")).toHaveClass("icon-link");
+		expect(within(item("pricing.md")).queryByRole("img", { name: "Published" })).toBeNull();
+		expect(within(item("roadmap.md")).getByRole("img", { name: "Published" })).toHaveClass("text-success");
+		expect(within(item("roadmap.md")).getByRole("img", { name: "Published" }).querySelector("svg")).toHaveClass("icon-globe");
+		fireEvent.pointerMove(shared, { pointerType: "mouse" });
+		expect(await screen.findByRole("tooltip")).toHaveTextContent("Shared privately");
+	});
+
+	it("marks a published artifact with a muted link until the link list says who it opens for", async () => {
+		const published = session("ao-2", "Review pricing", [{ name: "pricing.md", updatedAt: "2026-10-10T10:00:00Z" }]);
+		published.artifactFiles![0].shareUrl = "https://share.test/pricing";
+		mocks.workspaces = [{ ...withArtifacts[0], sessions: [published] }];
+		useArtifactsViewStore.setState({ view: "list" });
+		renderView();
+		const mark = within(artifactList()).getByRole("img", { name: "Published" });
+		expect(mark).toHaveAttribute("data-artifact-share-mark", "published");
+		expect(mark).toHaveClass("text-muted-foreground");
+		expect(mark).not.toHaveClass("text-success");
+	});
+
+	it("filters to privately shared artifacts", async () => {
+		const user = userEvent.setup();
+		const published = session("ao-2", "Review pricing", [
+			{ name: "pricing.md", updatedAt: "2026-10-10T10:00:00Z" },
+			{ name: "roadmap.md", updatedAt: "2026-10-09T10:00:00Z" },
+		]);
+		published.artifactFiles![0].shareUrl = "https://share.test/pricing";
+		published.artifactFiles![1].shareUrl = "https://share.test/roadmap";
+		mocks.shareAccess = new Map([["https://share.test/pricing", "restricted"], ["https://share.test/roadmap", "anyone"]]);
+		mocks.workspaces = [{ ...withArtifacts[0], sessions: [withArtifacts[0].sessions[0], published] }, withArtifacts[1]];
+		renderView();
+		const rows = () => within(artifactList()).getAllByRole("listitem").map((row) => row.textContent ?? "");
+
+		await user.click(screen.getByRole("button", { name: "Filter" }));
+		await user.click(screen.getByRole("menuitemcheckbox", { name: "Shared privately" }));
+		expect(rows()).toEqual([expect.stringContaining("pricing.md")]);
+		await user.click(screen.getByRole("menuitemcheckbox", { name: "Public" }));
+		expect(rows()).toEqual([expect.stringContaining("pricing.md"), expect.stringContaining("roadmap.md")]);
+	});
+
 	it("filters to public artifacts, or ones not shared, and removes the filter from its chip", async () => {
 		const user = userEvent.setup();
 		const published = session("ao-2", "Review pricing", [{ name: "pricing.md", updatedAt: "2026-10-10T10:00:00Z" }]);
 		published.artifactFiles![0].shareUrl = "https://share.test/pricing";
+		mocks.shareAccess = new Map([["https://share.test/pricing", "anyone"]]);
 		mocks.workspaces = [{ ...withArtifacts[0], sessions: [withArtifacts[0].sessions[0], published] }, withArtifacts[1]];
 		renderView();
 		const rows = () => within(artifactList()).getAllByRole("listitem").map((row) => row.textContent ?? "");
@@ -691,13 +824,13 @@ describe("ArtifactsView", () => {
 		await user.click(screen.getByRole("menuitemcheckbox", { name: "Not shared" }));
 		expect(rows()).toEqual([expect.stringContaining("artifacts-user-flow.html"), expect.stringContaining("caching-options.md")]);
 		// Filters narrow together: unshared artifacts of the Scratchpad.
-		await user.click(screen.getByRole("menuitemcheckbox", { name: "Scratchpad" }));
+		await user.click(screen.getByRole("menuitemcheckbox", { name: "Sessions" }));
 		expect(rows()).toEqual([expect.stringContaining("caching-options.md")]);
 		await user.keyboard("{Escape}");
-		expect(screen.getByRole("button", { name: "Remove filter Project: Scratchpad" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Remove filter Project: Sessions" })).toBeInTheDocument();
 
 		await user.click(screen.getByRole("button", { name: "Remove filter Sharing: Not shared" }));
-		await user.click(screen.getByRole("button", { name: "Remove filter Project: Scratchpad" }));
+		await user.click(screen.getByRole("button", { name: "Remove filter Project: Sessions" }));
 		expect(rows()).toHaveLength(3);
 		expect(screen.getByRole("button", { name: "Filter" })).not.toHaveAttribute("data-active");
 	});
@@ -795,6 +928,37 @@ describe("ArtifactsView", () => {
 		const unsafe = renderView();
 		expect(unsafe.container.querySelector("iframe")).toBeNull();
 		expect(within(artifactList()).getByTitle("No preview available")).toBeInTheDocument();
+	});
+
+	it("asks again about a page whose check failed for a passing reason, but keeps a good answer", async () => {
+		const html = session("ao-html", "Design review", [{ name: "page.html", kind: "html", updatedAt: "2026-10-11T10:00:00Z" }]);
+		html.artifactFiles![0].inlineUrl = "http://ao-inline-artifact.ao-html.localhost:3002/page.html";
+		html.artifactFiles![0].rawUrl = "http://127.0.0.1:3002/page.html?raw=true";
+		mocks.workspaces = [{ id: "ao", name: "AO", path: "/code/ao", sessions: [html] }];
+		const fetch = vi.fn()
+			.mockResolvedValueOnce(new Response(null, { status: 503 }))
+			.mockResolvedValue(new Response("<h1>Design review</h1>"));
+		vi.stubGlobal("fetch", fetch);
+		// One query cache across mounts, as the app keeps while a card scrolls away and back.
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		const tree = (mount: string) => (
+			<QueryClientProvider client={client}>
+				<TooltipProvider>
+					<ArtifactsView key={mount} />
+				</TooltipProvider>
+			</QueryClientProvider>
+		);
+		const view = render(tree("first"));
+		await waitFor(() => expect(within(artifactList()).getByTitle("No preview available")).toBeInTheDocument());
+		expect(view.container.querySelector("iframe")).toBeNull();
+		// The daemon was briefly unavailable: the next mount asks again and frames the page.
+		view.rerender(tree("second"));
+		await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
+		expect(fetch).toHaveBeenCalledTimes(2);
+		// A good answer is kept for this version of the file.
+		view.rerender(tree("third"));
+		await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
+		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
 	it("draws a pinned page once, at the top, with one live thumbnail", async () => {
@@ -906,13 +1070,17 @@ describe("ArtifactsView", () => {
 		expect(preview).toHaveAttribute("data-src", "http://127.0.0.1:3002/report.pdf?v=2026-10-11T10%3A00%3A00Z");
 	});
 
-	it("shows image previews and falls back to a placeholder when the image fails", () => {
+	it("shows image previews and falls back to a placeholder when the image fails", async () => {
 		const image = session("ao-image", "Cover image", [{ name: "cover.png", kind: "file", updatedAt: "2026-10-11T10:00:00Z" }]);
 		image.artifactFiles![0].rawUrl = "http://127.0.0.1:3002/cover.png";
 		mocks.workspaces = [{ id: "ao", name: "AO", path: "/code/ao", sessions: [image] }];
+		// No small copy can be made here, so the card shows the original.
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 		renderView();
 		const project = within(artifactList());
-		const preview = project.getByRole("button", { name: /^cover\.png/ }).closest("li")!.querySelector("img")!;
+		const card = project.getByRole("button", { name: /^cover\.png/ }).closest("li")!;
+		await waitFor(() => expect(card.querySelector("img")).not.toBeNull());
+		const preview = card.querySelector("img")!;
 		expect(preview).toHaveAttribute("src", image.artifactFiles![0].rawUrl);
 		fireEvent.error(preview);
 		expect(project.getByRole("button", { name: /^cover\.png/ }).closest("li")!.querySelector("img")).toBeNull();
@@ -1108,14 +1276,30 @@ describe("ArtifactsView", () => {
 		expect(mocks.navigate).not.toHaveBeenCalled();
 	});
 
+	it("previews a remote machine's HTML in the modal, framed from its proxy URL and never in the Browser", async () => {
+		const user = userEvent.setup();
+		const proxied = "http://ao-preview-abc123.localhost:4100/page.html?raw=true";
+		mocks.remoteHosts = [{ hostId: "https://h-vm.useao.dev", label: "build-vm", url: "https://h-vm.useao.dev", status: "connected" }];
+		const remote = session("ao-9", "VM design", [{ name: "page.html", kind: "html", updatedAt: "2026-10-11T10:00:00Z" }]);
+		remote.artifactFiles![0].rawUrl = proxied;
+		mocks.workspaces = [];
+		mocks.remoteWorkspaces = [{ hostId: "https://h-vm.useao.dev", id: "ao", name: "AO", path: "/home/ao/code/ao", sessions: [{ ...remote, hostId: "https://h-vm.useao.dev" }] }];
+		renderView();
+		await user.click(within(artifactList()).getByRole("button", { name: /^page\.html/ }));
+		const frame = within(screen.getByRole("dialog", { name: "page.html" })).getByTestId("cloud-artifact-preview");
+		expect(frame).toHaveAttribute("src", proxied);
+		expect(frame).toHaveAttribute("data-source", "host");
+		expect(mocks.navigate).not.toHaveBeenCalled();
+	});
+
 	it("offers New artifact beside the filters with the same Scratchpad and project menu", async () => {
 		const user = userEvent.setup();
 		mocks.post.mockResolvedValue({ data: { session: { id: "standalone-7" } } });
 		renderView();
 
 		await user.click(screen.getByRole("button", { name: "New artifact" }));
-		expectMenuItems(["Scratchpad", "agent-orchestrator"]);
-		await user.click(screen.getByRole("menuitem", { name: "Scratchpad" }));
+		expectMenuItems(["Sessions", "agent-orchestrator"]);
+		await user.click(screen.getByRole("menuitem", { name: "Sessions" }));
 
 		await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith({ to: "/sessions/$sessionId", params: { sessionId: "standalone-7" } }));
 		expect(mocks.post).toHaveBeenCalledWith("/api/v1/sessions", {
@@ -1140,7 +1324,7 @@ describe("ArtifactsView", () => {
 		expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
 
 		await user.click(screen.getByRole("button", { name: "Create artifact" }));
-		expectMenuItems(["Scratchpad", "agent-orchestrator", "px0"]);
+		expectMenuItems(["Sessions", "agent-orchestrator", "px0"]);
 	});
 
 	it("gives each project the sidebar's icon in the New artifact menu", async () => {
@@ -1151,7 +1335,7 @@ describe("ArtifactsView", () => {
 		const item = screen.getByRole("menuitem", { name: "agent-orchestrator" });
 		expect(item.querySelector('[aria-hidden="true"]')?.textContent).toBe("A");
 		// Scratchpad keeps its file icon: it is not a project.
-		expect(screen.getByRole("menuitem", { name: "Scratchpad" }).textContent).toBe("Scratchpad");
+		expect(screen.getByRole("menuitem", { name: "Sessions" }).textContent).toBe("Sessions");
 	});
 
 	it("starts a Scratchpad artifact session without a project id and opens it", async () => {
@@ -1161,7 +1345,7 @@ describe("ArtifactsView", () => {
 		renderView();
 
 		await user.click(screen.getByRole("button", { name: "Create artifact" }));
-		await user.click(screen.getByRole("menuitem", { name: "Scratchpad" }));
+		await user.click(screen.getByRole("menuitem", { name: "Sessions" }));
 
 		await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith({ to: "/sessions/$sessionId", params: { sessionId: "standalone-9" } }));
 		expect(mocks.post).toHaveBeenCalledWith("/api/v1/sessions", {
@@ -1195,7 +1379,7 @@ describe("ArtifactsView", () => {
 		renderView();
 
 		await user.click(screen.getByRole("button", { name: "Create artifact" }));
-		await user.click(screen.getByRole("menuitem", { name: "Scratchpad" }));
+		await user.click(screen.getByRole("menuitem", { name: "Sessions" }));
 
 		await waitFor(() => expect(useUiStore.getState().globalToast).toMatchObject({ title: "Agent is not ready" }));
 		expect(mocks.navigate).not.toHaveBeenCalled();

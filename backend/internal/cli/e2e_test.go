@@ -37,6 +37,9 @@ var aoBin string
 
 func TestMain(m *testing.M) {
 	testenv.ClearSession()
+	if os.Getenv("AO_CLI_BATCH_HELPER") == "1" {
+		os.Exit(m.Run())
+	}
 	dir, err := os.MkdirTemp("", "ao-e2e-bin")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "e2e: mktemp:", err)
@@ -217,6 +220,17 @@ func TestE2E_VersionAndHelp(t *testing.T) {
 }
 
 func TestE2E_DoctorDoesNotTouchTheStore(t *testing.T) {
+	// An empty GH_CONFIG_DIR does not isolate macOS Keychain credentials.
+	// This store-safety test must never validate the developer's real login.
+	bin := t.TempDir()
+	name, script := "gh", "#!/bin/sh\nexit 1\n"
+	if runtime.GOOS == "windows" {
+		name, script = "gh.cmd", "@exit /b 1\r\n"
+	}
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	e := newEnv(t)
 
 	out, code := e.run(t, "doctor")

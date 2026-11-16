@@ -1,17 +1,17 @@
 import { artifactFileIcon } from "./artifact-file-icon";
-import { ChevronDown, File, Filter, Globe, List, Loader2, Package, Pin, Plus, SelectMultiple, Trash2 } from "@/components/app-icons";
+import { ChevronDown, File, Filter, List, Loader2, Package, Pin, Plus, SelectMultiple, Trash2 } from "@/components/app-icons";
 import { useProjectAvatars } from "../hooks/useProjectAvatars";
 import { ProjectIcon } from "./ProjectIcon";
 import { ScrollArea } from "radix-ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useCloudCp } from "../hooks/useCloudCp";
 import { useCloudMeUserId } from "../hooks/useCloudMeUserId";
 import { useTranslation } from "react-i18next";
 import { useCloudOffering } from "../hooks/useCloudOffering";
 import { useCreateArtifactSession } from "../hooks/useCreateArtifactSession";
 import { deleteSessionArtifactFile } from "../hooks/useSessionWorkspaceFiles";
-import { cloudSessionsQueryKey, useWorkspaceQuery, workspaceQueryKeyForHost } from "../hooks/useWorkspaceQuery";
+import { cloudSessionsQueryKey, useRemoteWorkspaces, useWorkspaceQuery, workspaceQueryKeyForHost } from "../hooks/useWorkspaceQuery";
 import {
 	ARTIFACT_SHARINGS,
 	ARTIFACT_TYPES,
@@ -22,6 +22,9 @@ import {
 	canChangeSessionArtifacts,
 	filterArtifactGroups,
 	groupArtifactsByProject,
+	hostArtifactLocation,
+	withHostShareLinks,
+	withShareAccess,
 	type ArtifactGroup,
 	type ArtifactLocation,
 	type ArtifactRow,
@@ -29,14 +32,17 @@ import {
 	type ArtifactType,
 } from "../lib/artifacts";
 import { formatTimeCompact } from "../lib/format-time";
+import { LOCAL_HOST } from "../lib/hosts";
+import { useShellMaybe } from "../lib/shell-context";
 import { useNavigateToSession } from "../lib/navigate-to-session";
 import { cn } from "../lib/utils";
 import { useArtifactsViewStore, type ArtifactViewMode } from "../stores/artifacts-view-store";
 import { useUiStore } from "../stores/ui-store";
 import { CLOUD_PROJECT_KIND, STANDALONE_WORKSPACE_ID, type WorkspaceSummary } from "../types/workspace";
 import { DeferredArtifactActionsMenu } from "./ArtifactActionsMenu";
-import { useArtifactShareFile, useReconciledShareLinks } from "./ShareArtifactPopover";
+import { useArtifactShareFile, useHostShareLinks, useReconciledShareLinks } from "./ShareArtifactPopover";
 import { ArtifactGalleryCard, type ArtifactCardSelection } from "./ArtifactGalleryCard";
+import { ArtifactShareMark } from "./ArtifactShareMark";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Checkbox } from "./ui/checkbox";
 import { ArtifactPreviewModal } from "./ArtifactPreviewModal";
@@ -55,6 +61,7 @@ import {
 import { Pressable } from "./ui/pressable";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { useEdgeFadeRef } from "../hooks/useEdgeFade";
+import { GridSpacer, useVirtualGridRows } from "../hooks/useVirtualGridRows";
 
 // Three previews a row; narrow panels drop to two, then one.
 const ARTIFACT_GRID_CLASS = "grid grid-cols-1 gap-4 @lg:grid-cols-2 @2xl:grid-cols-3";
@@ -79,16 +86,31 @@ function ArtifactProjectIcon({ workspace, avatarUrl }: { workspace: Pick<Workspa
  * in cloud sessions when the control plane keeps artifacts.
  */
 export function ArtifactsView() {
-	const fadeRef = useEdgeFadeRef<HTMLDivElement>();
+	const edgeFadeRef = useEdgeFadeRef<HTMLDivElement>();
+	const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+	const fadeRef = useCallback((node: HTMLDivElement | null) => {
+		edgeFadeRef(node);
+		setScrollElement(node);
+	}, [edgeFadeRef]);
 	const { t } = useTranslation();
 	const cloudArtifacts = useCloudOffering().artifacts;
 	const workspaceQuery = useWorkspaceQuery({ includeCloud: cloudArtifacts });
 	const workspaces = workspaceQuery.data;
+	// Every saved remote host, so an offline host's last list still shows.
+	const remoteHosts = useShellMaybe()?.remoteHosts;
+	const remoteHostIds = useMemo(() => remoteHosts?.map((host) => host.hostId), [remoteHosts]);
+	const remote = useRemoteWorkspaces({ cachedHostIds: remoteHostIds });
+	const remoteWorkspaces = remote.data;
+	const hostLabels = useMemo(() => new Map((remoteHosts ?? []).map((host) => [host.hostId, host.label])), [remoteHosts]);
 	const orchestratorTitle = t("shell.orchestrator");
 	// Published marks and the Sharing filter read each file's shareUrl; bring
 	// the publish records behind it up to date first.
-	useReconciledShareLinks();
-	const groups = useMemo(() => groupArtifactsByProject(workspaces ?? [], orchestratorTitle), [workspaces, orchestratorTitle]);
+	const shareAccess = useReconciledShareLinks();
+	const hostShareLinks = useHostShareLinks();
+	const groups = useMemo(
+		() => withShareAccess(withHostShareLinks(groupArtifactsByProject([...(workspaces ?? []), ...remoteWorkspaces], orchestratorTitle), hostShareLinks), shareAccess),
+		[workspaces, remoteWorkspaces, orchestratorTitle, hostShareLinks, shareAccess],
+	);
 	const [query, setQuery] = useState("");
 	// Each filter keeps several values at once; an empty list shows every artifact.
 	const [projectIds, setProjectIds] = useState<readonly string[]>([]);
@@ -96,7 +118,7 @@ export function ArtifactsView() {
 	const [types, setTypes] = useState<readonly ArtifactType[]>([]);
 	const [sharings, setSharings] = useState<readonly ArtifactSharing[]>([]);
 	const [preview, setPreview] = useState<{ row: ArtifactRow; projectName: string } | null>(null);
-	const openPreview = (row: ArtifactRow, projectName: string) => setPreview({ row, projectName });
+	const openPreview = useCallback((row: ArtifactRow, projectName: string) => setPreview({ row, projectName }), []);
 	// The open preview follows its row as the list refreshes, so a file an
 	// agent rewrites shows its new content.
 	const previewRow = useMemo(() => {
@@ -120,18 +142,21 @@ export function ArtifactsView() {
 		return visibleGroups
 			.flatMap((group) => group.rows.map((row) => ({
 				row,
-				projectName: group.isScratchpad ? t("standalone.workspaceName") : group.name,
+				projectName: withHostLabel(group.isScratchpad ? t("standalone.workspaceName") : group.name, group.hostId && hostLabels.get(group.hostId)),
 				pinned: pinned.has(artifactKey(row)),
 			})))
 			.sort((left, right) => Number(right.pinned) - Number(left.pinned)
 				|| (Date.parse(right.row.updatedAt) || 0) - (Date.parse(left.row.updatedAt) || 0));
-	}, [visibleGroups, pinnedArtifactIds, t]);
+	}, [visibleGroups, pinnedArtifactIds, hostLabels, t]);
+	// Only the cards on screen and near it are built; a long list would otherwise build every card at once.
+	const grid = useVirtualGridRows(cards.length, scrollElement);
 	// Only the first few pages and PDFs render live; the rest show their thumbnail.
 	const livePreviews = useMemo(() => {
 		const live = new Set<string>();
 		for (const { row } of cards) {
 			if (live.size >= MAX_LIVE_PREVIEWS) break;
-			const page = row.kind === "html" && (row.cloud || (row.inlineUrl && row.rawUrl));
+			const remote = row.hostId && row.hostId !== LOCAL_HOST;
+			const page = row.kind === "html" && (row.cloud || (row.rawUrl && (row.inlineUrl || remote)));
 			const pdf = /\.pdf$/i.test(row.path) && (row.cloud || row.rawUrl);
 			if (page || pdf) live.add(artifactKey(row));
 		}
@@ -148,10 +173,16 @@ export function ArtifactsView() {
 	const locationOptions: { value: ArtifactLocation | undefined; label: string }[] = [
 		{ value: undefined, label: t("artifacts.locationAll") },
 		{ value: "local", label: t("artifacts.locationLocal") },
+		// One per saved remote host, under the name the host is listed by.
+		...(remoteHosts ?? []).map((host) => ({ value: hostArtifactLocation(host.hostId), label: host.label })),
 		// Cloud artifacts show only where the control plane keeps them.
 		...(cloudArtifacts ? [{ value: "cloud" as const, label: t("artifacts.locationCloud") }] : []),
 	];
-	const projectName = (group: ArtifactGroup) => (group.isScratchpad ? scratchpadName : group.name);
+	// Machines whose list did not load, among those shown: said so, with a retry, instead of
+	// leaving their artifacts silently missing.
+	const failedHosts = (remoteHosts ?? []).filter((host) => remote.failedHostIds.includes(host.hostId)
+		&& (location === undefined || location === hostArtifactLocation(host.hostId)));
+	const projectName = (group: ArtifactGroup) => withHostLabel(group.isScratchpad ? scratchpadName : group.name, group.hostId && hostLabels.get(group.hostId));
 	const selectedProjects = groups.filter((group) => projectIds.includes(group.id));
 	const filtering = projectIds.length > 0 || types.length > 0 || sharings.length > 0;
 	const queryClient = useQueryClient();
@@ -206,14 +237,16 @@ export function ArtifactsView() {
 		mutationFn: async (rows: readonly ArtifactRow[]) => {
 			const results = await Promise.allSettled(rows.map((row) => row.cloud
 				? cloudClient.deleteSessionArtifact(row.cloud.orgId, row.sessionId, row.path).catch((error: unknown) => { throw artifactChangeError(error, t("artifacts.viewOnly")); })
-				: deleteSessionArtifactFile({ path: row.path, sessionId: row.sessionId })));
+				: deleteSessionArtifactFile({ path: row.path, sessionId: row.sessionId, hostId: row.hostId })));
 			const deleted = rows.filter((_, index) => results[index]?.status === "fulfilled").map(artifactKey);
 			const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
 			const { unpinArtifact } = useArtifactsViewStore.getState();
 			for (const id of deleted) unpinArtifact(id);
 			setSelectedIds((current) => new Set([...current].filter((id) => !deleted.includes(id))));
+			const hostIds = new Set(rows.flatMap((row) => row.hostId && !row.cloud ? [row.hostId] : []));
 			await Promise.all([
 				queryClient.invalidateQueries({ queryKey: workspaceQueryKeyForHost() }),
+				...[...hostIds].map((hostId) => queryClient.invalidateQueries({ queryKey: workspaceQueryKeyForHost(hostId) })),
 				...(rows.some((row) => row.cloud) ? [queryClient.invalidateQueries({ queryKey: cloudSessionsQueryKey })] : []),
 			]);
 			if (failures.length > 0) {
@@ -373,6 +406,12 @@ export function ArtifactsView() {
 						)}
 					</div>
 				</div>
+				{failedHosts.map((host) => (
+					<div key={host.hostId} role="alert" className="mt-2 flex items-center gap-2 text-xs text-destructive">
+						<span className="min-w-0 truncate">{t("artifacts.hostLoadFailed", { host: host.label })}</span>
+						<Button type="button" size="sm" variant="quiet" onClick={() => void remote.refetch()}>{t("artifacts.hostLoadRetry")}</Button>
+					</div>
+				))}
 				{hasArtifacts && filtering ? (
 					<div className="mt-2 flex flex-wrap items-center gap-1.5">
 						{([
@@ -404,7 +443,7 @@ export function ArtifactsView() {
 								<p role="alert" className="px-3 py-8 text-center text-sm text-destructive">{workspaceQuery.error.message}</p>
 							) : !hasArtifacts ? (
 								<EmptyArtifacts workspaces={workspaces ?? []} />
-							) : visibleGroups.length === 0 ? (
+							) : visibleGroups.length === 0 && location !== undefined && failedHosts.length > 0 ? null : visibleGroups.length === 0 ? (
 								<div className="flex flex-col items-center gap-1 py-16 text-center">
 									<p className="text-control font-medium text-foreground">{t("artifacts.noMatches")}</p>
 									<Button variant="quiet" size="sm" onClick={clearFilters}>
@@ -412,10 +451,12 @@ export function ArtifactsView() {
 									</Button>
 								</div>
 							) : (
-								<ul aria-label={t("artifacts.title")} className={view === "gallery" ? ARTIFACT_GRID_CLASS : "grid grid-cols-[minmax(0,1fr)] gap-1.5"}>
-									{cards.map(({ row, projectName, pinned }) => (
+								<ul ref={grid.listRef} aria-label={t("artifacts.title")} className={view === "gallery" ? ARTIFACT_GRID_CLASS : "grid grid-cols-[minmax(0,1fr)] gap-1.5"}>
+									<GridSpacer height={grid.before} />
+									{cards.slice(grid.start, grid.end).map(({ row, projectName, pinned }) => (
 										<ArtifactCard key={artifactKey(row)} row={row} projectName={projectName} pinned={pinned} view={view} previewLive={livePreviews.has(artifactKey(row))} onPreview={openPreview} selection={selectionFor(row, projectName)} />
 									))}
+									<GridSpacer height={grid.after} />
 								</ul>
 							)}
 						</div>
@@ -448,6 +489,11 @@ export function ArtifactsView() {
 	);
 }
 
+/** A remote host's project name with the host's, so equal names on two machines tell apart. */
+function withHostLabel(name: string, hostLabel: string | false | undefined): string {
+	return hostLabel ? `${name} · ${hostLabel}` : name;
+}
+
 /** `values` with `value` added, or removed when it is already there. */
 function toggled<T>(values: readonly T[], value: T): readonly T[] {
 	return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
@@ -470,7 +516,8 @@ function FilterOption({ checked, onToggle, children }: { checked: boolean; onTog
  * Published mark and last change, with Pin, Open in session and its menu.
  * Opening it previews the file on this page; while selecting it toggles.
  */
-function ArtifactCard({ row, projectName, pinned, view, previewLive = true, onPreview, selection }: { row: ArtifactRow; projectName: string; pinned: boolean; view: ArtifactViewMode; previewLive?: boolean; onPreview: (row: ArtifactRow, projectName: string) => void; selection?: ArtifactCardSelection }) {
+// Memoized: a row scrolling into view re-renders the list, and only the new cards need to render.
+const ArtifactCard = memo(function ArtifactCard({ row, projectName, pinned, view, previewLive = true, onPreview, selection }: { row: ArtifactRow; projectName: string; pinned: boolean; view: ArtifactViewMode; previewLive?: boolean; onPreview: (row: ArtifactRow, projectName: string) => void; selection?: ArtifactCardSelection }) {
 	const { t } = useTranslation();
 	const id = artifactKey(row);
 	const togglePinnedArtifact = useArtifactsViewStore((state) => state.togglePinnedArtifact);
@@ -485,8 +532,8 @@ function ArtifactCard({ row, projectName, pinned, view, previewLive = true, onPr
 		onPreview(row, projectName);
 	};
 	const openInSession = () => {
-		requestWorkspaceFileOpen(row.sessionId, row.path, undefined, "artifact");
-		navigateToSession(row.projectId, row.sessionId);
+		requestWorkspaceFileOpen(row.sessionId, row.path, row.hostId, "artifact");
+		navigateToSession(row.projectId, row.sessionId, row.hostId ?? LOCAL_HOST);
 	};
 
 	if (view === "list") {
@@ -542,17 +589,7 @@ function ArtifactCard({ row, projectName, pinned, view, previewLive = true, onPr
 					<div className="relative z-[2] flex shrink-0 items-center gap-3">
 						{/* Empty for an unshared artifact, so every row's time lines up. */}
 						<span className="inline-flex size-icon-sm items-center justify-center">
-							{row.shareUrl ? (
-								<Tooltip>
-									<TooltipTrigger asChild>
-										{/* Green, as the publish panel marks a public file. */}
-										<span aria-label={t("artifacts.published")} role="img" className="inline-flex text-success">
-											<Globe aria-hidden="true" className="size-icon-sm" />
-										</span>
-									</TooltipTrigger>
-									<TooltipContent side="bottom">{t("artifacts.published")}</TooltipContent>
-								</Tooltip>
-							) : null}
+							<ArtifactShareMark row={row} iconClassName="size-icon-sm" />
 						</span>
 						{/* "14h ago", and "Updated 14h ago" while the row is hovered or focused.
 						    A title, not a Tooltip: one per row costs too much to mount in a long list. */}
@@ -564,6 +601,7 @@ function ArtifactCard({ row, projectName, pinned, view, previewLive = true, onPr
 					{selection ? null : <div className="relative z-[2] flex shrink-0 items-center gap-1 @max-lg:[&>button]:hidden">
 						{row.bundle ? null : <DeferredArtifactActionsMenu
 							artifact={row}
+							hostId={row.hostId}
 							session={{ id: row.sessionId, cloud: row.cloud }}
 							iconOnly
 							share={share}
@@ -588,6 +626,7 @@ function ArtifactCard({ row, projectName, pinned, view, previewLive = true, onPr
 			actions={selection || row.bundle ? null : (
 				<DeferredArtifactActionsMenu
 					artifact={row}
+					hostId={row.hostId}
 					session={{ id: row.sessionId, cloud: row.cloud }}
 					iconOnly
 					share={share}
@@ -599,7 +638,7 @@ function ArtifactCard({ row, projectName, pinned, view, previewLive = true, onPr
 			)}
 		/>
 	);
-}
+});
 
 function EmptyArtifacts({ workspaces }: { workspaces: readonly WorkspaceSummary[] }) {
 	const { t } = useTranslation();
