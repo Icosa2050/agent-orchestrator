@@ -21,3 +21,10 @@ it("fails closed on malformed JSON", () => {
  mkdirSync(`${home}/.ao`); writeFileSync(`${home}/.ao/icosa-desktop.json`, "{", {mode:0o600});
  expect(()=>applyHostLaunchProfile({AO_DATA_DIR:"/override"},home)).toThrow();
 });
+it("does not pollute CLI stdout with host profile diagnostics", async () => {
+ const { vi } = await import("vitest");
+ const info = vi.spyOn(console, "info");
+ const error = vi.spyOn(console, "error").mockImplementation(() => {});
+ try { applyHostLaunchProfile({}, home); expect(info).not.toHaveBeenCalled(); expect(error).toHaveBeenCalledWith(expect.stringContaining("dataDir=")); }
+ finally { info.mockRestore(); error.mockRestore(); }
+});

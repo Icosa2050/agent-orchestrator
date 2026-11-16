@@ -30,5 +30,5 @@ export function applyHostLaunchProfile(env: NodeJS.ProcessEnv, home: string): vo
  env.AO_DATA_DIR ||= profile.dataDir;
  env.AO_RUN_FILE ||= profile.runFile;
  env.AO_PORT ||= String(profile.port);
- console.info(`[Icosa host profile] dataDir=${env.AO_DATA_DIR} runFile=${env.AO_RUN_FILE} port=${env.AO_PORT}`);
+ console.error(`[Icosa host profile] dataDir=${env.AO_DATA_DIR} runFile=${env.AO_RUN_FILE} port=${env.AO_PORT}`);
 }
