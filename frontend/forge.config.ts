@@ -145,19 +145,19 @@ const DICTATION_HELPER_PATHS = [
 ];
 const DICTATION_HELPER_ENTITLEMENTS = ["com.apple.security.device.audio-input"];
 
-export function macSignOptionsForFile(filePath: string): { entitlements?: string[] } {
-	if (DICTATION_HELPER_PATHS.some((helper) => filePath.endsWith(helper))) return { entitlements: DICTATION_HELPER_ENTITLEMENTS };
+export function macSignOptionsForFile(filePath: string): { hardenedRuntime: true; entitlements?: string[] } {
+	if (DICTATION_HELPER_PATHS.some((helper) => filePath.endsWith(helper))) return { hardenedRuntime: true, entitlements: DICTATION_HELPER_ENTITLEMENTS };
 	// Cheap gate first: optionsForFile is invoked for every Mach-O in the
 	// bundle, and only the nested Node path can need an override.
 	if (!filePath.endsWith(ACP_RUNTIME_NODE_PATH)) {
-		if (/\/Contents\/Resources\/(daemon\/ao|tmux\/bin\/tmux|cloudflared\/cloudflared|update-helper\/ao-update-progress|wake-helper\/ao-wake)$/.test(filePath)) return { entitlements: [] };
-		return {};
+		if (/\/Contents\/Resources\/(daemon\/ao|tmux\/bin\/tmux|cloudflared\/cloudflared|update-helper\/ao-update-progress|wake-helper\/ao-wake)$/.test(filePath)) return { hardenedRuntime: true, entitlements: [] };
+		return { hardenedRuntime: true };
 	}
 	// Fail closed: an unreadable or unparseable binary throws out of
 	// optionsForFile and aborts the signing pass. Never fall back to
 	// process.arch or to "no entitlements" — silently signing the Intel Node
 	// without allow-unsigned-executable-memory is exactly the #3879 crash.
-	return machoHasX86_64Slice(filePath) ? { entitlements: ACP_RUNTIME_NODE_ENTITLEMENTS } : { entitlements: ["com.apple.security.cs.allow-jit"] };
+	return machoHasX86_64Slice(filePath) ? { hardenedRuntime: true, entitlements: ACP_RUNTIME_NODE_ENTITLEMENTS } : { hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] };
 }
 
 // parseReleaseRepo turns an "owner/repo" string (from AO_RELEASE_REPO) into the
@@ -171,6 +171,11 @@ export function parseReleaseRepo(value: string | undefined): { owner: string; na
 	}
 	return { owner, name };
 }
+
+// Packager implements continueOnError, although its exported osx-sign type omits it.
+const macSigningOptions = process.env.APPLE_SIGNING_IDENTITY || process.env.CSC_LINK
+ ? { identity: process.env.APPLE_SIGNING_IDENTITY || undefined, continueOnError: false, optionsForFile: macSignOptionsForFile }
+ : undefined;
 
 const config: ForgeConfig = {
 	packagerConfig: {
@@ -226,15 +231,7 @@ const config: ForgeConfig = {
 		//  - Local: AO_NOTARY_PROFILE, a notarytool keychain profile created with
 		//    `notarytool store-credentials`. See ao-macos-signed-release runbook.
 		// Both are valid NotaryToolCredentials, so no cast is needed.
-		osxSign: process.env.APPLE_SIGNING_IDENTITY
-			? {
-					identity: process.env.APPLE_SIGNING_IDENTITY,
-					hardenedRuntime: true,
-					optionsForFile: macSignOptionsForFile,
-				}
-			: process.env.CSC_LINK
-				? { hardenedRuntime: true, optionsForFile: macSignOptionsForFile }
-				: undefined,
+		osxSign: macSigningOptions,
 		osxNotarize: process.env.AO_NOTARY_PROFILE
 			? { keychainProfile: process.env.AO_NOTARY_PROFILE }
 			: process.env.APPLE_API_KEY

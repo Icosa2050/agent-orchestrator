@@ -25,6 +25,10 @@ mkdir -p out/local
 zip="$PWD/out/local/Icosa Orchestrator-$version-arm64.zip"
 dmg="$PWD/out/local/Icosa Orchestrator-$version-arm64.dmg"
 codesign --verify --deep --strict --verbose=2 "$app"
+signature=$(codesign -dvvv "$app" 2>&1)
+printf '%s\n' "$signature" | grep -F "Identifier=com.icosa2050.orchestrator"
+printf '%s\n' "$signature" | grep -F "TeamIdentifier=L98MZWWR98"
+printf '%s\n' "$signature" | grep -E "flags=.*runtime"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 nice -n 10 node scripts/build-mac-dmg.mjs --app "$app" --arch arm64 --output "$dmg"
 codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg"
@@ -44,6 +48,7 @@ fi
   if file -b "$binary" | grep -q 'Mach-O'; then
    echo "--- $binary"
    codesign --verify --strict --verbose=2 "$binary"
+   codesign -dvvv "$binary" 2>&1 | grep -F "TeamIdentifier=L98MZWWR98"
    codesign -dvvv --entitlements :- "$binary" 2>&1
   fi
  done < <(find "$app/Contents" -type f -print0)
@@ -55,7 +60,7 @@ fi
  "$app/Contents/Resources/daemon/ao" version
 } > out/local/verification.log
 python3 - "$app" "$zip" "$dmg" "$(git rev-parse HEAD)" "$version" <<'PY'
-import hashlib,json,os,plistlib,sys
+import hashlib,json,os,plistlib,sys,subprocess
 app,archive,dmg,commit,version=sys.argv[1:]
 with open(app+'/Contents/Info.plist','rb') as f: p=plistlib.load(f)
 assert p['CFBundleIdentifier']=='com.icosa2050.orchestrator'
@@ -64,8 +69,14 @@ assert p['CFBundleName']=='Icosa Orchestrator'
 assert p['CFBundleDisplayName']=='Icosa Orchestrator'
 assert [s for item in p['CFBundleURLTypes'] for s in item['CFBundleURLSchemes']]==['icosa-orchestrator']
 assert p['CFBundleShortVersionString']==version
+for root,dirs,files in os.walk(app+'/Contents'):
+ if 'Info.plist' in files and root != app+'/Contents' and root.endswith('.app/Contents'):
+  with open(root+'/Info.plist','rb') as f: nested=plistlib.load(f)
+  assert nested['CFBundleIdentifier'].startswith('com.icosa2050.orchestrator.'),nested
+dr=subprocess.run(['codesign','-d','-r-',app],capture_output=True,text=True,check=True)
+requirement=dr.stdout+dr.stderr
 artifacts=[{'path':f,'bytes':os.path.getsize(f),'sha256':hashlib.file_digest(open(f,'rb'),'sha256').hexdigest()} for f in [archive,dmg]]
-with open('out/local/manifest.json','w') as f:json.dump(dict(commit=commit,version=version,arch='arm64',team='L98MZWWR98',identifier=p['CFBundleIdentifier'],profileVersion=1,notaryProfileConfigured=bool(os.environ.get('AO_NOTARY_PROFILE')),artifacts=artifacts),f,indent=2)
+with open('out/local/manifest.json','w') as f:json.dump(dict(commit=commit,version=version,arch='arm64',team='L98MZWWR98',identifier=p['CFBundleIdentifier'],profileVersion=1,designatedRequirement=requirement,notaryProfileConfigured=bool(os.environ.get('AO_NOTARY_PROFILE')),artifacts=artifacts),f,indent=2)
 PY
 destination="/Volumes/aofiles/ao-builds/icosa-orchestrator/$version"
 if mkdir -p "$destination" && cp "$zip" "$dmg" out/local/manifest.json out/local/verification.log "$destination/"; then

@@ -215,19 +215,19 @@ describe("macOS signing", () => {
 
 	it("allows the bundled Node runtime to execute V8 JIT code on Intel Macs", () => {
 		expect(macSignOptionsForFile(acpNodeWith(thinMachO(CPU_TYPE_X86_64)))).toEqual({
-			entitlements: NODE_ENTITLEMENTS,
+			hardenedRuntime: true, entitlements: NODE_ENTITLEMENTS,
 		});
 	});
 
 	it("keeps the override for a universal binary carrying an x86_64 slice", () => {
 		expect(macSignOptionsForFile(acpNodeWith(fatMachO([CPU_TYPE_X86_64, CPU_TYPE_ARM64])))).toEqual({
-			entitlements: NODE_ENTITLEMENTS,
+			hardenedRuntime: true, entitlements: NODE_ENTITLEMENTS,
 		});
 	});
 
 	it("lets the dictation helper bundle and its executable record audio", () => {
 		const helper = "/Applications/Orchestrator.app/Contents/Resources/dictation-helper/Icosa Orchestrator Dictation.app";
-		const audio = { entitlements: ["com.apple.security.device.audio-input"] };
+		const audio = { hardenedRuntime: true, entitlements: ["com.apple.security.device.audio-input"] };
 		expect(macSignOptionsForFile(helper)).toEqual(audio);
 		expect(macSignOptionsForFile(`${helper}/Contents/MacOS/icosa-dictation`)).toEqual(audio);
 	});
@@ -245,12 +245,12 @@ describe("macOS signing", () => {
 		const foreign = join(fixtureDir, "elsewhere", "agent-orchestrator");
 		mkdirSync(join(fixtureDir, "elsewhere"), { recursive: true });
 		writeFileSync(foreign, thinMachO(CPU_TYPE_X86_64));
-		expect(macSignOptionsForFile(foreign)).toEqual({});
+		expect(macSignOptionsForFile(foreign)).toEqual({ hardenedRuntime: true });
 	});
 
 	it("keeps the narrower default JIT entitlement when the binary has no x86_64 slice", () => {
-		expect(macSignOptionsForFile(acpNodeWith(thinMachO(CPU_TYPE_ARM64)))).toEqual({ entitlements: ["com.apple.security.cs.allow-jit"] });
-		expect(macSignOptionsForFile(acpNodeWith(fatMachO([CPU_TYPE_ARM64])))).toEqual({ entitlements: ["com.apple.security.cs.allow-jit"] });
+		expect(macSignOptionsForFile(acpNodeWith(thinMachO(CPU_TYPE_ARM64)))).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
+		expect(macSignOptionsForFile(acpNodeWith(fatMachO([CPU_TYPE_ARM64])))).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
 	});
 
 	it("fails the signing pass when the file cannot be parsed", () => {
@@ -267,9 +267,9 @@ describe("macOS signing", () => {
 		const fromX64Host = withHostArch("x64", () => macSignOptionsForFile(acpNode));
 		const fromArm64Host = withHostArch("arm64", () => macSignOptionsForFile(acpNode));
 		const fromAbsurdHost = withHostArch("ppc64", () => macSignOptionsForFile(acpNode));
-		expect(fromX64Host).toEqual({ entitlements: ["com.apple.security.cs.allow-jit"] });
-		expect(fromArm64Host).toEqual({ entitlements: ["com.apple.security.cs.allow-jit"] });
-		expect(fromAbsurdHost).toEqual({ entitlements: ["com.apple.security.cs.allow-jit"] });
+		expect(fromX64Host).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
+		expect(fromArm64Host).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
+		expect(fromAbsurdHost).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
 	});
 
 	it.each([
@@ -503,4 +503,10 @@ it("requires an explicit fork packaging target", () => {
  for (const repo of [undefined,"","malformed","Untrivial-ai/agent-orchestrator"]) expect(()=>parseReleaseRepo(repo)).toThrow("Local fork release target");
  expect(parseReleaseRepo("Icosa2050/agent-orchestrator")).toEqual({owner:"Icosa2050",name:"agent-orchestrator"});
  expect(config.packagerConfig?.helperBundleId).toBe("com.icosa2050.orchestrator.helper");
+});
+
+it("never swallows a Developer ID signing failure", async () => {
+ const sign = await loadMacSignOptions({APPLE_SIGNING_IDENTITY:"Developer ID Application: AO (TEAMID)"});
+ expect(sign).toMatchObject({continueOnError:false});
+ expect(sign?.optionsForFile?.("/app/Contents/MacOS/icosa-orchestrator")).toEqual({hardenedRuntime:true});
 });
