@@ -1,3 +1,4 @@
+vi.mock("../shared/fork-identity", async (importOriginal) => ({ ...await importOriginal<typeof import("../shared/fork-identity")>(), LOCAL_DISTRIBUTION: false }));
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -527,7 +528,7 @@ describe("startAutoUpdates", () => {
       updaterEvents.get("update-downloaded")?.({ version: "2.1.0" });
       await flushMicrotasks();
       const failure = new Error(
-        "ditto: Could not lstat /Users/test/Library/Caches/dev.agent-orchestrator.desktop.ShipIt/update.abc/Agent Orchestrator.app/Contents/Resources/acp-runtime/node_modules/.bin/node-which: No such file or directory",
+        "ditto: Could not lstat /Users/test/Library/Caches/com.icosa2050.orchestrator.ShipIt/update.abc/Icosa Orchestrator.app/Contents/Resources/acp-runtime/node_modules/.bin/node-which: No such file or directory",
       );
       updaterEvents.get("error")?.(failure);
       nativeAutoUpdater.emit("error", failure);
@@ -3623,7 +3624,7 @@ function stubProcess(platform: NodeJS.Platform, execPath: string): () => void {
 
 // Builds a real bundle-shaped tree so the writability checks run against the
 // filesystem rather than a stub. Returns the exec path inside it.
-function makeBundle(name = "Agent Orchestrator.app"): { root: string; bundle: string; execPath: string } {
+function makeBundle(name = "Icosa Orchestrator.app"): { root: string; bundle: string; execPath: string } {
   const root = mkdtempSync(nodePath.join(os.tmpdir(), "ao-updater-perm-"));
   const bundle = nodePath.join(root, name);
   mkdirSync(nodePath.join(bundle, "Contents", "MacOS"), { recursive: true });
@@ -3635,7 +3636,7 @@ function makeBundle(name = "Agent Orchestrator.app"): { root: string; bundle: st
 }
 
 const TRANSLOCATED_EXEC_PATH =
-  "/private/var/folders/hg/vkmz93d1T/T/AppTranslocation/0AC4-11EE/d/Agent Orchestrator.app/Contents/MacOS/agent-orchestrator";
+  "/private/var/folders/hg/vkmz93d1T/T/AppTranslocation/0AC4-11EE/d/Icosa Orchestrator.app/Contents/MacOS/agent-orchestrator";
 
 describe("quitAndInstallUpdate", () => {
   afterEach(() => {
@@ -3710,8 +3711,8 @@ describe("quitAndInstallUpdate", () => {
     const restore = stubProcess("darwin", bundle.execPath);
     vi.spyOn(os, "homedir").mockReturnValue(bundle.root);
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
-    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "dev.agent-orchestrator.desktop.ShipIt");
-    const extracted = nodePath.join(shipIt, "update.fixture", "Agent Orchestrator.app", "Contents");
+    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "com.icosa2050.orchestrator.ShipIt");
+    const extracted = nodePath.join(shipIt, "update.fixture", "Icosa Orchestrator.app", "Contents");
     mkdirSync(extracted, { recursive: true });
     writeFileSync(nodePath.join(shipIt, "ShipItState.plist"), "fixture");
     writeFileSync(nodePath.join(extracted, "Info.plist"), "fixture");
@@ -3741,8 +3742,8 @@ describe("quitAndInstallUpdate", () => {
     const bundle = makeBundle();
     const restore = stubProcess("darwin", bundle.execPath);
     vi.spyOn(os, "homedir").mockReturnValue(bundle.root);
-    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "dev.agent-orchestrator.desktop.ShipIt");
-    const extracted = nodePath.join(shipIt, "update.fixture", "Agent Orchestrator.app", "Contents");
+    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "com.icosa2050.orchestrator.ShipIt");
+    const extracted = nodePath.join(shipIt, "update.fixture", "Icosa Orchestrator.app", "Contents");
     try {
       const { module, autoUpdater, updaterEvents } = await importAutoUpdater();
       await module.startAutoUpdates(stateDir);
@@ -3777,8 +3778,8 @@ describe("quitAndInstallUpdate", () => {
     const bundle = makeBundle();
     const restore = stubProcess("darwin", bundle.execPath);
     vi.spyOn(os, "homedir").mockReturnValue(bundle.root);
-    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "dev.agent-orchestrator.desktop.ShipIt");
-    const extracted = nodePath.join(shipIt, "update.fixture", "Agent Orchestrator.app", "Contents");
+    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "com.icosa2050.orchestrator.ShipIt");
+    const extracted = nodePath.join(shipIt, "update.fixture", "Icosa Orchestrator.app", "Contents");
     mkdirSync(extracted, { recursive: true });
     writeFileSync(nodePath.join(shipIt, "ShipItState.plist"), "fixture");
     writeFileSync(nodePath.join(extracted, "Info.plist"), "fixture");
@@ -3817,8 +3818,8 @@ describe("quitAndInstallUpdate", () => {
     const restore = stubProcess("darwin", bundle.execPath);
     vi.spyOn(os, "homedir").mockReturnValue(bundle.root);
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
-    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "dev.agent-orchestrator.desktop.ShipIt");
-    const extracted = nodePath.join(shipIt, "update.fixture", "Agent Orchestrator.app", "Contents");
+    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "com.icosa2050.orchestrator.ShipIt");
+    const extracted = nodePath.join(shipIt, "update.fixture", "Icosa Orchestrator.app", "Contents");
     mkdirSync(extracted, { recursive: true });
     writeFileSync(nodePath.join(shipIt, "ShipItState.plist"), "fixture");
     writeFileSync(nodePath.join(extracted, "Info.plist"), "fixture");
@@ -3857,8 +3858,8 @@ describe("quitAndInstallUpdate", () => {
     const bundle = makeBundle();
     const restore = stubProcess("darwin", bundle.execPath);
     vi.spyOn(os, "homedir").mockReturnValue(bundle.root);
-    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "dev.agent-orchestrator.desktop.ShipIt");
-    const extracted = nodePath.join(shipIt, "update.fixture", "Agent Orchestrator.app", "Contents");
+    const shipIt = nodePath.join(bundle.root, "Library", "Caches", "com.icosa2050.orchestrator.ShipIt");
+    const extracted = nodePath.join(shipIt, "update.fixture", "Icosa Orchestrator.app", "Contents");
     mkdirSync(extracted, { recursive: true });
     writeFileSync(nodePath.join(shipIt, "ShipItState.plist"), "fixture");
     writeFileSync(nodePath.join(extracted, "Info.plist"), "fixture");
@@ -4647,7 +4648,7 @@ describe("channel downgrade safety", () => {
 // so the retry never re-downloads and never re-verifies.
 describe("staged install rejection", () => {
   const rejection = new Error(
-    "Code signature at URL file:///Users/x/Library/Caches/dev.agent-orchestrator.desktop.ShipIt/" +
+    "Code signature at URL file:///Users/x/Library/Caches/com.icosa2050.orchestrator.ShipIt/" +
       "update.M9ZvE0X/Agent%20Orchestrator.app/ did not pass validation: " +
       "code failed to satisfy specified code requirement(s)",
   );
@@ -4916,7 +4917,7 @@ describe("staged install rejection", () => {
     updaterEvents.get("error")?.(
       new Error(
         "Code signature at URL file:///Users/graycup/Library/Caches/" +
-          "dev.agent-orchestrator.desktop.ShipIt/update.lmaIGgc/Agent%20Orchestrator.app/ " +
+          "com.icosa2050.orchestrator.ShipIt/update.lmaIGgc/Agent%20Orchestrator.app/ " +
           "did not pass validation: code object is not signed at all",
       ),
     );
@@ -4940,7 +4941,7 @@ describe("staged install rejection", () => {
     updaterEvents.get("error")?.(
       new Error(
         "Failed to get static code for bundle file:///Users/x/Library/Caches/" +
-          "dev.agent-orchestrator.desktop.ShipIt/update.M9ZvE0X/Agent%20Orchestrator.app/",
+          "com.icosa2050.orchestrator.ShipIt/update.M9ZvE0X/Agent%20Orchestrator.app/",
       ),
     );
 
@@ -4963,7 +4964,7 @@ describe("staged install rejection", () => {
     updaterEvents.get("error")?.(
       new Error(
         "EACCES: permission denied, open '/Users/x/Library/Caches/" +
-          "dev.agent-orchestrator.desktop.ShipIt/ShipItState.plist'",
+          "com.icosa2050.orchestrator.ShipIt/ShipItState.plist'",
       ),
     );
 
@@ -5584,4 +5585,25 @@ it("keeps expected update outages out of handled captures and reports genuine fa
     module.reportUpdateFailure(new Error("unexpected staging failure"), "install");
     expect(sink).toHaveBeenCalledTimes(2);
   } finally { resetMainErrorCaptureForTests(); }
+});
+
+it("fork local policy blocks every acquisition/install entry point before updater I/O", async () => {
+  vi.doMock("../shared/fork-identity", async (importOriginal) => ({ ...await importOriginal<typeof import("../shared/fork-identity")>(), LOCAL_DISTRIBUTION: true }));
+  try {
+    const { module, autoUpdater } = await importAutoUpdater();
+    const settings = { enabled: true, channel: "latest" as const, nightlyAck: false, feature: null };
+    await module.startAutoUpdates("/unused");
+    await module.setUpdateSettings("/unused", settings);
+    await module.checkForUpdatesNow("/unused");
+    await module.returnToHome("/unused");
+    await module.downloadUpdateNow();
+    await module.setMacDifferentialUpdates("/unused", true);
+    await module.quitAndInstallUpdate();
+    await module.ensureUpdatePrefs("/unused");
+    expect(module.getUpdateStatus()).toEqual({state:"unsupported",message:"Updates managed locally"});
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+    expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled();
+    expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(autoUpdater.setFeedURL).not.toHaveBeenCalled();
+  } finally { vi.doUnmock("../shared/fork-identity"); }
 });

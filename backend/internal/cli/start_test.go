@@ -229,7 +229,7 @@ func TestIsUsableBundle_RegularFileVsDir(t *testing.T) {
 	if err := os.WriteFile(file, []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	subdir := filepath.Join(dir, "Agent Orchestrator.app")
+	subdir := filepath.Join(dir, "Icosa Orchestrator.app")
 	if err := os.MkdirAll(subdir, 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -299,12 +299,12 @@ func TestRegisterLinuxProtocolHandler(t *testing.T) {
 	if !strings.Contains(content, `Exec="/tmp/Agent Orchestrator 100%%.AppImage" %u`) {
 		t.Fatalf("desktop entry does not safely target AppImage:\n%s", content)
 	}
-	if !strings.Contains(content, "MimeType=x-scheme-handler/ao-app;") {
-		t.Fatalf("desktop entry does not register ao-app:\n%s", content)
+	if !strings.Contains(content, "MimeType=x-scheme-handler/icosa-orchestrator;") {
+		t.Fatalf("desktop entry does not register icosa-orchestrator:\n%s", content)
 	}
 	wantCommands := [][]string{
-		{"xdg-mime", "default", linuxDesktopEntryName, "x-scheme-handler/ao-app"},
-		{"xdg-mime", "query", "default", "x-scheme-handler/ao-app"},
+		{"xdg-mime", "default", linuxDesktopEntryName, "x-scheme-handler/icosa-orchestrator"},
+		{"xdg-mime", "query", "default", "x-scheme-handler/icosa-orchestrator"},
 	}
 	if !reflect.DeepEqual(commands, wantCommands) {
 		t.Fatalf("commands = %#v, want %#v", commands, wantCommands)
@@ -325,7 +325,7 @@ func TestOpenApp_ArgConstruction(t *testing.T) {
 		},
 	}.withDefaults()}
 
-	opened, err := c.openApp(context.Background(), "/Applications/Agent Orchestrator.app")
+	opened, err := c.openApp(context.Background(), "/Applications/Icosa Orchestrator.app")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestOpenApp_ArgConstruction(t *testing.T) {
 	if gotName != "open" {
 		t.Fatalf("command = %q, want open", gotName)
 	}
-	wantArgs := []string{"/Applications/Agent Orchestrator.app", "--args", "--installed-via=npm-bootstrap"}
+	wantArgs := []string{"/Applications/Icosa Orchestrator.app", "--args", "--installed-via=npm-bootstrap"}
 	if !reflect.DeepEqual(gotArgs, wantArgs) {
 		t.Fatalf("args = %v, want %v", gotArgs, wantArgs)
 	}

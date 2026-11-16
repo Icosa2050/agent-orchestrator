@@ -1,3 +1,4 @@
+import { LOCAL_DISTRIBUTION } from "../../shared/fork-identity";
 /**
  * Daemon-resolved offering gates.
  *
@@ -23,8 +24,8 @@ export interface CloudGate {
 export function useCloudGate(enabled = true): CloudGate {
 	const { settings, isLoading } = useSettings(undefined, enabled);
 	return {
-		cloudEnabled: settings?.cloudEnabled ?? false,
-		localEnabled: settings?.localEnabled ?? true,
+		cloudEnabled: !LOCAL_DISTRIBUTION && (settings?.cloudEnabled ?? false),
+		localEnabled: LOCAL_DISTRIBUTION || (settings?.localEnabled ?? true),
 		client: settings?.client ?? "",
 		loading: isLoading,
 	};

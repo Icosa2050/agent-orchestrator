@@ -159,7 +159,7 @@ describe("userFacingUpdateError", () => {
 	});
 
 	it("keeps a clean first line of a dump it does not recognize", () => {
-		const err = new Error("Error: Something odd\n    at Object.<anonymous> (/Applications/Agent Orchestrator.app/Contents/Resources/app.asar/main.js:1:1)");
+		const err = new Error("Error: Something odd\n    at Object.<anonymous> (/Applications/Icosa Orchestrator.app/Contents/Resources/app.asar/main.js:1:1)");
 
 		expect(userFacingUpdateError(err, "download")).toBe("Download failed — Something odd");
 	});

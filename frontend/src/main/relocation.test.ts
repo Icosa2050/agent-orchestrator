@@ -85,11 +85,11 @@ describe("decideRelocation", () => {
 describe("installedBundlePath", () => {
 	it("maps any running bundle to the same name under /Applications", () => {
 		expect(
-			installedBundlePath("/Users/x/Downloads/Agent Orchestrator.app"),
-		).toBe("/Applications/Agent Orchestrator.app");
+			installedBundlePath("/Users/x/Downloads/Icosa Orchestrator.app"),
+		).toBe("/Applications/Icosa Orchestrator.app");
 		expect(
-			installedBundlePath("/Volumes/Agent Orchestrator/Agent Orchestrator.app"),
-		).toBe("/Applications/Agent Orchestrator.app");
+			installedBundlePath("/Volumes/Agent Orchestrator/Icosa Orchestrator.app"),
+		).toBe("/Applications/Icosa Orchestrator.app");
 	});
 });
 
@@ -99,7 +99,7 @@ describe("readBundleVersion", () => {
 
 	beforeEach(async () => {
 		dir = await mkdtemp(path.join(os.tmpdir(), "ao-relocation-"));
-		bundle = path.join(dir, "Agent Orchestrator.app");
+		bundle = path.join(dir, "Icosa Orchestrator.app");
 		await mkdir(path.join(bundle, "Contents"), { recursive: true });
 	});
 

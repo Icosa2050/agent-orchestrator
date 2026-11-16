@@ -1,4 +1,4 @@
-// ao-app:// session deep links: ao-app://sessions/{projectId}/{sessionId},
+// icosa-orchestrator:// session deep links: icosa-orchestrator://sessions/{projectId}/{sessionId},
 // optionally followed by /artifacts/{path}. External tools (e.g. the ao-bridge
 // dashboard) render these so a click opens the desktop app directly on that
 // session.
@@ -10,7 +10,7 @@
 // without crossing bundle boundaries.
 export const OPEN_SESSION_DEEP_LINK_CHANNEL = "app:open-session-deep-link";
 
-// Routing predicate only: true for any ao-app://sessions/... URL with a
+// Routing predicate only: true for any icosa-orchestrator://sessions/... URL with a
 // well-formed target path, including artifact routes. Parsing and validation
 // against the workspace lists are the shell's job (session-links.ts), which
 // keeps the two link schemes in agreement (e.g. ids containing an encoded
@@ -23,7 +23,7 @@ export function isSessionDeepLink(raw: string): boolean {
 	} catch {
 		return false;
 	}
-	if (url.protocol !== "ao-app:" || url.hostname !== "sessions") return false;
+	if (url.protocol !== "icosa-orchestrator:" || url.hostname !== "sessions") return false;
 	return url.pathname.split("/").filter((segment) => segment.length > 0).length >= 2;
 }
 

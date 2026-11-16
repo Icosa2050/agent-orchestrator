@@ -32,12 +32,12 @@ beforeEach(async () => {
 		ok: true,
 		status: {
 			linkPath: "/tmp/bin/ao",
-			proposedTarget: "/Apps/Agent Orchestrator.app/Contents/Resources/daemon/ao",
+			proposedTarget: "/Apps/Icosa Orchestrator.app/Contents/Resources/daemon/ao",
 			proposedVersion: "9.1.0",
 			current: { kind: "stale", target: "/Apps/Old.app/Contents/Resources/daemon/ao" },
 		},
 	});
-	link.mockResolvedValue({ ok: true, changed: true, linkPath: "/tmp/bin/ao", targetPath: "/Apps/Agent Orchestrator.app/Contents/Resources/daemon/ao", version: "9.1.0" });
+	link.mockResolvedValue({ ok: true, changed: true, linkPath: "/tmp/bin/ao", targetPath: "/Apps/Icosa Orchestrator.app/Contents/Resources/daemon/ao", version: "9.1.0" });
 	unlink.mockResolvedValue({ ok: true, changed: true, linkPath: "/tmp/bin/ao", targetPath: "", version: "" });
 });
 
@@ -52,7 +52,7 @@ describe("CliLinkSettings", () => {
 		const user = userEvent.setup();
 		render(<CliLinkSettings enabled={true} />);
 		expect(await screen.findByText(/Current target: \/Apps\/Old.app/)).toBeInTheDocument();
-		expect(screen.getByText(/Proposed target: \/Apps\/Agent Orchestrator.app/)).toBeInTheDocument();
+		expect(screen.getByText(/Proposed target: \/Apps\/Icosa Orchestrator.app/)).toBeInTheDocument();
 		expect(screen.getByText(/9.1.0/)).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: "Relink" }));
 		expect(link).not.toHaveBeenCalled();
@@ -92,7 +92,7 @@ describe("CliLinkSettings", () => {
 			ok: true,
 			status: {
 				linkPath: "/tmp/bin/ao",
-				proposedTarget: "/Apps/Agent Orchestrator.app/Contents/Resources/daemon/ao",
+				proposedTarget: "/Apps/Icosa Orchestrator.app/Contents/Resources/daemon/ao",
 				proposedVersion: "9.1.0",
 				current: { kind: "foreign", target: null },
 			},

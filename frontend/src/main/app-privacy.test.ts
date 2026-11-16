@@ -31,7 +31,7 @@ describe("requestAppPrivacy", () => {
 
 describe("appBundlePath", () => {
 	it("finds the .app an executable runs from", () => {
-		expect(appBundlePath("/Applications/Agent Orchestrator.app/Contents/MacOS/agent-orchestrator")).toBe("/Applications/Agent Orchestrator.app");
+		expect(appBundlePath("/Applications/Icosa Orchestrator.app/Contents/MacOS/agent-orchestrator")).toBe("/Applications/Icosa Orchestrator.app");
 		expect(appBundlePath("/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")).toBe("/repo/node_modules/electron/dist/Electron.app");
 		expect(appBundlePath("/usr/bin/node")).toBeUndefined();
 	});

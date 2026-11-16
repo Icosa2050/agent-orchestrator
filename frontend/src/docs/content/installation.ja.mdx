@@ -146,8 +146,8 @@ Orchestrator のアプリケーションの状態は、既定ですべて `~/.ao
 		Finder で Orchestrator を右クリックして「開く」を選び、確認ダイアログでもう一度「開く」を選びます。それでも macOS がアプリをブロックする場合は、次の診断コマンドを実行し、Issue を作成するときに出力を添えてください。
 		```bash
 		sw_vers
-		codesign -dvvv "/Applications/Agent Orchestrator.app"
-		spctl -a -t exec -vvv --ignore-cache --no-cache "/Applications/Agent Orchestrator.app"
+		codesign -dvvv "/Applications/Icosa Orchestrator.app"
+		spctl -a -t exec -vvv --ignore-cache --no-cache "/Applications/Icosa Orchestrator.app"
 		log show --last 10m --predicate 'subsystem == "com.apple.syspolicy"'
 		```
 	</Accordion>

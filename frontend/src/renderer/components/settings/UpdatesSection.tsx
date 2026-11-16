@@ -1,3 +1,4 @@
+import { LOCAL_DISTRIBUTION } from "../../../shared/fork-identity";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Download, Info, Loader2, RefreshCw } from "@/components/app-icons";
@@ -39,7 +40,11 @@ function nextUpdateRequestId(prefix = "feature-update"): string {
 	return `${prefix}-${updateRequestSequence}`;
 }
 
-export function UpdatesSection({ titleHidden }: { titleHidden?: boolean } = {}) {
+export function UpdatesSection(props: { titleHidden?: boolean } = {}) {
+ if (LOCAL_DISTRIBUTION) return <SettingsSection title="Updates" sectionId="updates" titleHidden={props.titleHidden}><p>Updates managed locally</p></SettingsSection>;
+ return <HostedUpdatesSection {...props} />;
+}
+function HostedUpdatesSection({ titleHidden }: { titleHidden?: boolean } = {}) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
 	const query = useQuery({

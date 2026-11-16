@@ -75,7 +75,7 @@ describe("cli link", () => {
 		};
 		const result = await inspectCliLink(io, request({
 			developerMode: false,
-			appCliPath: "/Applications/Agent Orchestrator.app/Contents/Resources/daemon/ao",
+			appCliPath: "/Applications/Icosa Orchestrator.app/Contents/Resources/daemon/ao",
 			linkDirectory: CLI_LINK_DIRECTORY,
 			dataDir: "/tmp/does-not-matter",
 		}));

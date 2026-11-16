@@ -32,11 +32,11 @@ var releaseRepo = "Untrivial-ai/agent-orchestrator"
 
 // appBundleName is the macOS bundle directory name produced by electron-forge
 // (spaced, per frontend/forge.config.ts).
-const appBundleName = "Agent Orchestrator.app"
+const appBundleName = "Icosa Orchestrator.app"
 
 // appStateFileName is the marker the desktop app writes under ~/.ao on every
 // launch (spec §5). `ao start` is a read-only consumer of it.
-const appStateFileName = "app-state.json"
+const appStateFileName = "icosa-app-state.json"
 
 // appState mirrors the app-written ~/.ao/app-state.json marker (spec §5). Only
 // the desktop app writes it; `ao start` reads it as a fast-path hint and never
@@ -91,15 +91,8 @@ func (c *commandContext) runStart(ctx context.Context, cmd *cobra.Command, opts 
 	appPath := c.resolveApp()
 	res.Resolved = appPath != ""
 
-	var err error
 	if appPath == "" {
-		// Progress for the fetch path goes to stderr so stdout stays pure JSON
-		// under --json. The resolve-and-launch fast path above stays quiet.
-		appPath, err = c.fetchApp(ctx, cmd.ErrOrStderr())
-		if err != nil {
-			return err
-		}
-		res.Fetched = true
+		return fmt.Errorf("Icosa Orchestrator is not installed; automatic acquisition is disabled for this local build")
 	}
 	res.AppPath = appPath
 
@@ -189,6 +182,9 @@ func (c *commandContext) markerAppPath() string {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return ""
 	}
+	if runtime.GOOS == "darwin" && filepath.Base(st.AppPath) != appBundleName {
+		return ""
+	}
 	return st.AppPath
 }
 
@@ -254,7 +250,7 @@ func linuxAppImagePath() string {
 	return filepath.Join(dir, "agent-orchestrator.AppImage")
 }
 
-const linuxDesktopEntryName = "agent-orchestrator-ao-app.desktop"
+const linuxDesktopEntryName = "icosa-orchestrator.desktop"
 
 func linuxApplicationsDir() (string, error) {
 	// A URL-scheme handler is OS integration metadata, not AO runtime state.
@@ -298,7 +294,7 @@ Name=Orchestrator
 Exec=%s %%u
 Terminal=false
 NoDisplay=true
-MimeType=x-scheme-handler/ao-app;
+MimeType=x-scheme-handler/icosa-orchestrator;
 `, desktopExecPath(appPath))
 	target := filepath.Join(applicationsDir, linuxDesktopEntryName)
 	temporary := target + ".tmp"
@@ -318,10 +314,10 @@ MimeType=x-scheme-handler/ao-app;
 		"xdg-mime",
 		"default",
 		linuxDesktopEntryName,
-		"x-scheme-handler/ao-app",
+		"x-scheme-handler/icosa-orchestrator",
 	); err != nil {
 		return fmt.Errorf(
-			"register ao-app URL handler with xdg-mime (install xdg-utils or use the .deb/.rpm package): %w: %s",
+			"register icosa-orchestrator URL handler with xdg-mime (install xdg-utils or use the .deb/.rpm package): %w: %s",
 			err,
 			out,
 		)
@@ -331,14 +327,14 @@ MimeType=x-scheme-handler/ao-app;
 		"xdg-mime",
 		"query",
 		"default",
-		"x-scheme-handler/ao-app",
+		"x-scheme-handler/icosa-orchestrator",
 	)
 	if err != nil {
-		return fmt.Errorf("verify ao-app URL handler: %w: %s", err, out)
+		return fmt.Errorf("verify icosa-orchestrator URL handler: %w: %s", err, out)
 	}
 	if strings.TrimSpace(string(out)) != linuxDesktopEntryName {
 		return fmt.Errorf(
-			"verify ao-app URL handler: xdg-mime selected %q instead of %q",
+			"verify icosa-orchestrator URL handler: xdg-mime selected %q instead of %q",
 			strings.TrimSpace(string(out)),
 			linuxDesktopEntryName,
 		)

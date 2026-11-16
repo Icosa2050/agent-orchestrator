@@ -1,5 +1,8 @@
+import { LOCAL_DISTRIBUTION } from "../shared/fork-identity";
+import { localDistributionIpc } from "./local-distribution-ipc";
 import { createWorkOS, type User } from "@workos-inc/node";
-import { app, dialog, ipcMain, safeStorage, shell } from "electron";
+import { app, dialog, ipcMain as electronIpcMain, safeStorage, shell } from "electron";
+const ipcMain = localDistributionIpc(electronIpcMain);
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -41,7 +44,7 @@ const CLIENT_ID =
   (process.env.VITEST ? "client_test" : DEFAULT_WORKOS_CLIENT_ID);
 // A loopback redirect is one we service with a local HTTP server: a dev build's
 // http://127.0.0.1 default, or an explicit 127.0.0.1/localhost override. An
-// HTTPS bounce page is NOT a loopback — it returns to the app via the ao-app://
+// HTTPS bounce page is NOT a loopback — it returns to the app via the icosa-orchestrator://
 // deep link, so no local server is armed for it.
 function isLoopbackRedirect(redirectUri: string): boolean {
   try {
@@ -56,8 +59,8 @@ function isLoopbackRedirect(redirectUri: string): boolean {
 }
 
 // The packaged app returns from WorkOS via an HTTPS bounce page on our own domain,
-// which re-emits the result to the ao-app:// deep link the installed app handles.
-// Routing through that page (rather than setting ao-app:// as the WorkOS
+// which re-emits the result to the icosa-orchestrator:// deep link the installed app handles.
+// Routing through that page (rather than setting icosa-orchestrator:// as the WorkOS
 // redirect_uri directly) matters for two reasons: the browser lands on a real
 // HTTPS page instead of hanging forever on an unloadable custom-scheme navigation
 // (no stuck "loading" tab), and the OS "open Agent Orchestrator?" prompt is
@@ -69,7 +72,7 @@ function isLoopbackRedirect(redirectUri: string): boolean {
 // that page, so any other client, such as the baked default, which belongs to
 // the staging environment, keeps the control plane's page at api.aoagents.dev.
 //
-// A development build doesn't claim ao-app:// by default (see
+// A development build doesn't claim icosa-orchestrator:// by default (see
 // registerCloudProtocol): owning it would take the scheme away from the
 // installed app. It signs in through a loopback callback server instead, the
 // standard desktop-OAuth pattern, with zero setup. AO_CLOUD_AUTH_REDIRECT
@@ -342,6 +345,7 @@ function isTerminalRefreshFailure(error: unknown): boolean {
 export async function getCloudSession(
   dataDir: string,
 ): Promise<CloudAccount | null> {
+  if (LOCAL_DISTRIBUTION) return null;
   const store = await readAuthStore(dataDir);
   // Local (opaque-token) sessions never refresh and do not require WorkOS to be
   // configured; return the stored identity directly.
@@ -383,6 +387,7 @@ export async function getCloudSession(
 export async function getCloudSessionCached(
   dataDir: string,
 ): Promise<CloudAccount | null> {
+  if (LOCAL_DISTRIBUTION) return null;
   const store = await readAuthStore(dataDir);
   // Local sessions carry no rotating token — return the stored identity as-is.
   if (isLocalSession(store.session)) return publicAccount(store.session);
@@ -406,6 +411,7 @@ export async function getCloudSessionCached(
 export async function getCloudAccessToken(
   dataDir: string,
 ): Promise<string | null> {
+  if (LOCAL_DISTRIBUTION) return null;
   const store = await readAuthStore(dataDir);
   // The local opaque token is returned verbatim (no JWT refresh path).
   if (isLocalSession(store.session)) return store.session.accessToken;
@@ -475,6 +481,7 @@ async function refreshCloudSession(
 }
 
 export async function beginCloudSignIn(dataDir: string): Promise<void> {
+  if (LOCAL_DISTRIBUTION) throw new Error("Cloud sign-in unavailable in this local build");
   if (!workos) {
     throw new Error("WorkOS is not configured.");
   }
@@ -578,7 +585,7 @@ export async function handleCloudDeepLink(
 ): Promise<CloudDeepLinkSignIn | null> {
   if (!workos) throw new Error("WorkOS is not configured.");
   const url = new URL(rawURL);
-  if (url.protocol !== "ao-app:" || url.hostname !== "callback") return null;
+  if (url.protocol !== "icosa-orchestrator:" || url.hostname !== "callback") return null;
   const error = url.searchParams.get("error");
   if (error) {
     throw new Error(
@@ -704,12 +711,12 @@ export async function showCloudSignInFailure(error: unknown): Promise<void> {
   });
 }
 
-// registerCloudProtocol makes this build the ao-app:// handler, or gives the
+// registerCloudProtocol makes this build the icosa-orchestrator:// handler, or gives the
 // scheme up when it shouldn't hold it. Call it once this process is the app's
 // single instance, before app.whenReady().
 //
 // A development build signing in through the loopback redirect never needs
-// ao-app://, and claiming it takes the scheme from the installed app: macOS
+// icosa-orchestrator://, and claiming it takes the scheme from the installed app: macOS
 // ignores the path/args below and binds it to the stock node_modules
 // Electron.app, Windows points it at a worktree script, and the installed app's
 // sign-in callbacks and billing return links then land in the wrong process. So
@@ -720,7 +727,7 @@ export async function showCloudSignInFailure(error: unknown): Promise<void> {
 // a Linux dev build registers the installed app's own .desktop entry anyway.
 //
 // A development build pointed at a deep-link redirect (AO_CLOUD_AUTH_REDIRECT
-// set to a bounce page or ao-app://callback) does need the scheme. It claims it
+// set to a bounce page or icosa-orchestrator://callback) does need the scheme. It claims it
 // for as long as it runs and gives it back when it quits.
 export function registerCloudProtocol(): void {
   // A dev build is launched as `electron <app dir>`; Windows ties the scheme to
@@ -731,15 +738,15 @@ export function registerCloudProtocol(): void {
       : [];
   const canRelease = process.platform !== "linux";
   if (!app.isPackaged && useLoopbackRedirect) {
-    if (canRelease && app.isDefaultProtocolClient("ao-app", ...devApp)) {
-      app.removeAsDefaultProtocolClient("ao-app", ...devApp);
+    if (canRelease && app.isDefaultProtocolClient("icosa-orchestrator", ...devApp)) {
+      app.removeAsDefaultProtocolClient("icosa-orchestrator", ...devApp);
     }
     return;
   }
-  app.setAsDefaultProtocolClient("ao-app", ...devApp);
+  app.setAsDefaultProtocolClient("icosa-orchestrator", ...devApp);
   if (!app.isPackaged && canRelease) {
     app.once("will-quit", () => {
-      app.removeAsDefaultProtocolClient("ao-app", ...devApp);
+      app.removeAsDefaultProtocolClient("icosa-orchestrator", ...devApp);
     });
   }
 }

@@ -12,7 +12,7 @@ import {
 const probe = (over: Partial<InstallProbe>): InstallProbe => ({
 	platform: "darwin",
 	isPackaged: true,
-	execPath: "/Applications/Agent Orchestrator.app/Contents/MacOS/agent-orchestrator",
+	execPath: "/Applications/Icosa Orchestrator.app/Contents/MacOS/agent-orchestrator",
 	env: {},
 	exists: () => false,
 	...over,

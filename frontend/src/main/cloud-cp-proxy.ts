@@ -1,3 +1,4 @@
+import { localDistributionIpc } from "./local-distribution-ipc";
 // Electron-main transport bridge for cloud control-plane (CP) calls.
 //
 // The CP (cloud/internal/httpapi) has no CORS, and the WorkOS access token
@@ -12,7 +13,8 @@
 // cloud-control-plane-url.ts): a request whose baseUrl names any other server
 // is refused before the token is read.
 
-import { ipcMain } from "electron";
+import { ipcMain as electronIpcMain } from "electron";
+const ipcMain = localDistributionIpc(electronIpcMain);
 import { randomUUID } from "node:crypto";
 import { getCloudAccessToken } from "./cloud-auth";
 import { sameControlPlaneUrl, type ControlPlaneUrlResolver } from "./cloud-control-plane-url";
