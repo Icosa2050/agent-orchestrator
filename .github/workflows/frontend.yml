@@ -442,7 +442,9 @@ jobs:
         working-directory: packages/product-ui
 
       - name: Run renderer smoke suite
-        run: CI=true npm run test:e2e:renderer -- --shard=${{ matrix.shard }}/2
+        # The held-session regression applies 4x CPU throttling. Keep it
+        # isolated from other browser workers sharing this dev server.
+        run: CI=true npm run test:e2e:renderer -- --workers=1 --shard=${{ matrix.shard }}/2
 
       # Screenshots and attachments from failed specs, so a flaky pixel check
       # can be inspected instead of only re-run.
