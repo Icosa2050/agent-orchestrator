@@ -161,10 +161,9 @@ export function macSignOptionsForFile(filePath: string): { entitlements?: string
 }
 
 // parseReleaseRepo turns an "owner/repo" string (from AO_RELEASE_REPO) into the
-// publisher-github { owner, name } shape, falling back to the production default
-// when unset or malformed.
-function parseReleaseRepo(value: string | undefined): { owner: string; name: string } {
-	if (value !== undefined && value !== DEFAULT_RELEASE_REPO) throw new Error("Local fork release target must be Icosa2050/agent-orchestrator");
+// { owner, name } shape. Local builds require the explicit fork target.
+export function parseReleaseRepo(value: string | undefined): { owner: string; name: string } {
+	if (value !== DEFAULT_RELEASE_REPO) throw new Error("Local fork release target must be Icosa2050/agent-orchestrator");
 	const [owner, name] = (value || DEFAULT_RELEASE_REPO).split("/");
 	if (!owner || !name) {
 		const [defOwner, defName] = DEFAULT_RELEASE_REPO.split("/");
@@ -230,10 +229,11 @@ const config: ForgeConfig = {
 		osxSign: process.env.APPLE_SIGNING_IDENTITY
 			? {
 					identity: process.env.APPLE_SIGNING_IDENTITY,
+					hardenedRuntime: true,
 					optionsForFile: macSignOptionsForFile,
 				}
 			: process.env.CSC_LINK
-				? { optionsForFile: macSignOptionsForFile }
+				? { hardenedRuntime: true, optionsForFile: macSignOptionsForFile }
 				: undefined,
 		osxNotarize: process.env.AO_NOTARY_PROFILE
 			? { keychainProfile: process.env.AO_NOTARY_PROFILE }
@@ -391,8 +391,7 @@ const config: ForgeConfig = {
 				// The name shown in the installer, the updater, the shortcuts, and
 				// Windows Apps. It matches the app's display name in main.ts.
 				productName: WINDOWS_DISPLAY_NAME,
-				// Match the packaged binary name so the Start menu shortcut targets
-				// the real "agent-orchestrator.exe" (not "Agent Orchestrator.exe").
+				// Match the packaged binary name so the Start menu targets the fork executable.
 				executableName: EXECUTABLE_NAME,
 				icon: "assets/icon.ico",
 				// Keep the installer filename unchanged. electron-builder names it

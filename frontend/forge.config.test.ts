@@ -31,7 +31,7 @@ vi.mock("./scripts/build-mac-dmg.mjs", async (importOriginal) => {
 	return { ...actual, checkMacDmgLayout };
 });
 
-import config, { extraResourcesForPlatform, labelMacBundle, macSignOptionsForFile, WINDOWS_DISPLAY_NAME } from "./forge.config";
+import config, { extraResourcesForPlatform, labelMacBundle, macSignOptionsForFile, parseReleaseRepo, WINDOWS_DISPLAY_NAME } from "./forge.config";
 
 // Minimal synthetic Mach-O headers (thin little-endian + fat big-endian), the
 // two on-disk layouts the signing selector must tell apart. Full parser
@@ -497,4 +497,10 @@ it("registers only the fork OS scheme and forbids publishing", () => {
  expect(config.packagerConfig?.protocols).toEqual([{name:"Icosa Orchestrator authentication callback",schemes:["icosa-orchestrator"]}]);
  expect(config.packagerConfig?.appBundleId).toBe("com.icosa2050.orchestrator");
  expect(config.publishers).toEqual([]);
+});
+
+it("requires an explicit fork packaging target", () => {
+ for (const repo of [undefined,"","malformed","Untrivial-ai/agent-orchestrator"]) expect(()=>parseReleaseRepo(repo)).toThrow("Local fork release target");
+ expect(parseReleaseRepo("Icosa2050/agent-orchestrator")).toEqual({owner:"Icosa2050",name:"agent-orchestrator"});
+ expect(config.packagerConfig?.helperBundleId).toBe("com.icosa2050.orchestrator.helper");
 });

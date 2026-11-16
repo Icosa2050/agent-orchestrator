@@ -67,12 +67,9 @@ func newStartCommand(ctx *commandContext) *cobra.Command {
 	opts := startOptions{}
 	cmd := &cobra.Command{
 		Use:   "start",
-		Short: "Fetch (if needed) and open the Agent Orchestrator desktop app",
-		Long: "Fetch (if needed) and open the Agent Orchestrator desktop app.\n\n" +
-			"The desktop app now owns the daemon, state, and updates. `ao start` no\n" +
-			"longer runs a daemon: it resolves the installed app (or downloads the\n" +
-			"latest release), opens it, and exits.",
-		Args: noArgs,
+		Short: "Open the installed Icosa Orchestrator desktop app",
+		Long:  "Open the installed Icosa Orchestrator desktop app. Automatic acquisition is disabled for this local build.",
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return ctx.runStart(cmd.Context(), cmd, opts)
 		},

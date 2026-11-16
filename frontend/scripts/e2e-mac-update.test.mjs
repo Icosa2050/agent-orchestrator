@@ -16,7 +16,7 @@ describe("e2e-mac-update parseArgs", () => {
 		const opts = parseArgs(required);
 		expect(opts.app).toBe("/Applications/Icosa Orchestrator.app");
 		expect(opts.expectVersion).toBe("0.10.4");
-		expect(opts.appName).toBe("Agent Orchestrator");
+		expect(opts.appName).toBe("Icosa Orchestrator");
 		// All app state lives under ~/.ao only (see AGENTS.md hard rules).
 		expect(opts.stateDir).toBe(join(homedir(), ".ao"));
 		expect(opts.runFile).toBe(join(homedir(), ".ao", "running.json"));
