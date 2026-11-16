@@ -131,3 +131,22 @@ What to check in each flagged section of the report:
 4. If upstream removes a capability outright (code moved to the private
    control plane), keep the fork's implementation and record it as a fork-only
    change in the table above.
+
+## Sync 2026-11-16 additions
+
+- `ao triage`, the bundled bug-triage skill, duplicate search, posting URL
+  validation and Report a problem links target `Icosa2050/agent-orchestrator`.
+  Terminal posting retains the default-no `[y/N]` confirmation; in-app agents
+  must preview the full payload and obtain an explicit yes. `TestForkTriageTargetsFork`
+  protects the destination and rejects upstream issue URLs.
+- Agent-account routes at `/api/v1/agents/accounts` (including nested paths)
+  require a paired per-device token or the account token on the authenticated
+  LAN listener. The shared pairing password is always refused for this area,
+  independently of `require-device-credentials`. The primary loopback listener
+  remains unchanged. `TestForkAgentAccounts*` covers password refusal, paired
+  device acceptance, revocation, account tokens, loopback and strict origins.
+- Session deep-link readiness follows manual host-list completion even while
+  signed out; signing out must not imply that hand-paired hosts cannot exist.
+- Upstream #8492's rotated Sentry DSNs remain behind the existing explicit
+  consent and legacy opt-out veto. Daemon tests use the rotated production DSN
+  with an injected recording transport; Electron tests use the current default.

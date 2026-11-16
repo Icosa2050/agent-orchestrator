@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_DAEMON_SENTRY_DSN, daemonSentryDsn, isPublishedSentryBuild } from "./sentry-config";
+import { DEFAULT_ELECTRON_SENTRY_DSN, DEFAULT_DAEMON_SENTRY_DSN, daemonSentryDsn, isPublishedSentryBuild } from "./sentry-config";
 
 beforeEach(() => { vi.stubEnv("AO_PUBLISHED_BUILD", "1"); });
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -40,4 +40,11 @@ describe("published Sentry builds", () => {
 		vi.stubEnv("AO_PUBLISHED_BUILD", "");
 		expect(isPublishedSentryBuild("0.13.0", false)).toBe(false);
 	});
+});
+
+// Upstream #8492 rotated both projects. Consent tests use these defaults.
+it("tracks the rotated production DSNs while explicit empty values disable them", () => {
+ expect(DEFAULT_DAEMON_SENTRY_DSN).toContain("ce2598577c6ee3d087bb5a163a39129b@");
+ expect(DEFAULT_ELECTRON_SENTRY_DSN).toContain("6d68b5ece8d8d1fd9985ff87186966d1@");
+ expect(daemonSentryDsn("", "0.15.2", false)).toBe("");
 });

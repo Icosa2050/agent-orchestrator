@@ -376,6 +376,16 @@ func authMiddleware(state *authState, lock *lockout, connected *mobileConnectRep
 				}
 				conn.owner.mu.Unlock()
 			}
+			// Agent accounts expose local provider credentials and login controls.
+			// Shared pairing passwords never authorize them, even when allowed
+			// for ordinary app routes. This listener boundary cannot be spoofed
+			// with a loopback Host header.
+			if authenticated && credential.Kind == requestscope.CredentialPassword &&
+				(r.URL.Path == "/api/v1/agents/accounts" || strings.HasPrefix(r.URL.Path, "/api/v1/agents/accounts/")) {
+				envelope.WriteAPIError(w, r, http.StatusUnauthorized, "unauthorized", "DEVICE_CREDENTIAL_REQUIRED",
+					"agent accounts require a paired device or account token", nil)
+				return
+			}
 			if authenticated {
 				lock.reset(src)
 				connected.report(remoteSrc)

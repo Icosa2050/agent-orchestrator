@@ -427,3 +427,67 @@ func TestAFailedRegenerateKeepsEveryDevice(t *testing.T) {
 		}
 	}
 }
+
+// The LAN listener remains credentialed even when reached through a loopback
+// proxy; the primary loopback router retains its existing local behavior.
+func TestForkAgentAccountsRequireDeviceCredentials(t *testing.T) {
+	h := newPairingHost(t)
+	h.router.HandleFunc("/api/v1/agents/accounts", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	h.router.HandleFunc("/api/v1/agents/accounts/*", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	id, token := h.pair(h.code(), "fork desktop")
+	h.lan.SetAccountTokenHash(mobilebridge.HashPassword("account-secret"))
+	for _, path := range []string{"/api/v1/agents/accounts", "/api/v1/agents/accounts/", "/api/v1/agents/accounts/login", "/api/v1/agents/accounts/sessions/ao-1"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
+			for _, tc := range []struct {
+				name, credential string
+				want             int
+			}{
+				{"shared password", "secret12", http.StatusUnauthorized},
+				{"paired device", token, http.StatusOK},
+				{"account", "account-secret", http.StatusOK},
+			} {
+				if got, _ := h.remote(method, path, tc.credential, nil); got != tc.want {
+					t.Fatalf("%s %s %s: got %d want %d", method, path, tc.name, got, tc.want)
+				}
+			}
+			if got, _ := h.local(method, path, nil); got != http.StatusOK {
+				t.Fatalf("loopback %s %s: %d", method, path, got)
+			}
+		}
+	}
+	if status, _ := h.local(http.MethodDelete, "/api/v1/mobile/devices/"+id, nil); status != http.StatusNoContent {
+		t.Fatalf("revoke: %d", status)
+	}
+	if got, _ := h.remote(http.MethodGet, "/api/v1/agents/accounts", token, nil); got != http.StatusUnauthorized {
+		t.Fatalf("revoked device: %d", got)
+	}
+	if got := h.sessions("secret12"); got != http.StatusOK {
+		t.Fatalf("shared password on ordinary route: %d", got)
+	}
+}
+
+func TestForkAgentAccountsOriginBoundary(t *testing.T) {
+	h := newPairingHost(t)
+	_, token := h.pair(h.code(), "fork phone")
+	handler := authMiddleware(h.lan.state, newLockout(time.Now), newMobileConnectReporter(nil, time.Now))(
+		rendererOriginMiddleware([]string{"app://renderer"})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })))
+	for _, tc := range []struct {
+		origin, credential string
+		want               int
+	}{
+		{"http://localhost", token, http.StatusNoContent},
+		{"app://renderer", token, http.StatusNoContent},
+		{"http://localhost", "secret12", http.StatusUnauthorized},
+		{"https://evil.example", token, http.StatusForbidden},
+		{"http://ao-preview.hostile.localhost:5181", token, http.StatusForbidden},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/accounts/login", nil)
+		req.Header.Set("Origin", tc.origin)
+		req.Header.Set("Authorization", "Bearer "+tc.credential)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Fatalf("origin %s: got %d want %d", tc.origin, rec.Code, tc.want)
+		}
+	}
+}

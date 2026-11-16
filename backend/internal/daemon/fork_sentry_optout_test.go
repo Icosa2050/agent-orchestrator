@@ -76,7 +76,7 @@ func (t *optOutRecordingTransport) SendEvent(event *sentry.Event)       { t.even
 func TestOptOutMarkerStopsEveryDaemonSentryPath(t *testing.T) {
 	dir := t.TempDir()
 	transport := &optOutRecordingTransport{events: make(chan *sentry.Event, 8)}
-	if err := sentryobs.Init(sentryobs.Config{DSN: "https://public@example.com/1", InstallID: "ins_sampled_5", Release: "1.0.0", Environment: "stable", Transport: transport}); err != nil {
+	if err := sentryobs.Init(sentryobs.Config{DSN: "https://ce2598577c6ee3d087bb5a163a39129b@o4511955966361600.ingest.us.sentry.io/4512334276329472", InstallID: "ins_sampled_5", Release: "1.0.0", Environment: "stable", Transport: transport}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -129,7 +129,7 @@ func TestForkDefaultPolicyStopsEveryDaemonSentryPath(t *testing.T) {
 				}
 			}
 			transport := &optOutRecordingTransport{events: make(chan *sentry.Event, 8)}
-			if err := sentryobs.Init(sentryobs.Config{DSN: "https://public@example.com/1", InstallID: "ins_sampled_5", Release: "1.0.0", Environment: "stable", Transport: transport}); err != nil {
+			if err := sentryobs.Init(sentryobs.Config{DSN: "https://ce2598577c6ee3d087bb5a163a39129b@o4511955966361600.ingest.us.sentry.io/4512334276329472", InstallID: "ins_sampled_5", Release: "1.0.0", Environment: "stable", Transport: transport}); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { sentryobs.SetPolicyCheck(nil); _ = sentryobs.Init(sentryobs.Config{}) })

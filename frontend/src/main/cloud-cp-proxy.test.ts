@@ -173,3 +173,31 @@ describe("the account's machine directory", () => {
 		expect(fetchImpl).not.toHaveBeenCalled();
 	});
 });
+
+// Fork: newly introduced Cloud surfaces still stop at main's token boundary.
+describe("fork signed-out Cloud surfaces", () => {
+ it.each([
+  ["GET", "/api/cloud/v1/me/agent-accounts"],
+  ["POST", "/api/cloud/v1/me/agent-accounts"],
+  ["PUT", "/api/cloud/v1/orgs/o/sessions/s/agent-account"],
+  ["POST", "/api/cloud/v1/orgs/o/sessions/s/interface-transition"],
+  ["POST", "/api/cloud/v1/orgs/o/standalone-agents"],
+  ["PATCH", "/api/cloud/v1/orgs/o/projects/p"],
+  ["GET", "/api/cloud/v1/me/artifact-shares"],
+  ["POST", "/api/cloud/v1/me/artifact-shares/uploads"],
+  ["POST", "/api/cloud/v1/me/artifact-shares/share/grants"],
+ ])("refuses %s %s without transport", async (method, path) => {
+  const fetchImpl = vi.fn();
+  const proxy = createCloudCpProxy(() => "/data", { controlPlaneUrl, fetchImpl: fetchImpl as unknown as typeof fetch });
+  for (const token of [null, ""]) {
+   tokenMock.mockResolvedValue(token);
+   if (path.includes("/artifact-shares/") && method !== "GET") {
+    await expect(proxy.request({ baseUrl: base.baseUrl, method, path })).rejects.toThrow(/only be changed from the desktop/);
+   } else {
+    const response = await proxy.request({ baseUrl: base.baseUrl, method, path });
+    expect(response.status).toBe(401);
+   }
+  }
+  expect(fetchImpl).not.toHaveBeenCalled();
+ });
+});
