@@ -8,7 +8,8 @@ export function localDistributionIpc(ipc: IpcMain): IpcMain {
  wrapper.handle = (channel, listener) => {
   if (channel === "featureBuilds:list") return ipc.handle(channel, () => []);
   if (channel === "featureBuilds:getActive") return ipc.handle(channel, () => null);
-  if (channel === "cloud:getSession") return ipc.handle(channel, () => null);
+  if (["cloud:getSession", "cloud:takePendingSignIn", "cloud:takePendingShareLink"].includes(channel)) return ipc.handle(channel, () => null);
+  if (channel === "cloudShare:available") return ipc.handle(channel, () => false);
   if (channel.startsWith("cloud:") || channel.startsWith("cloudCp:") || channel.startsWith("cloudShare:")) {
    return ipc.handle(channel, () => { throw new Error(LOCAL_DISTRIBUTION_MESSAGE); });
   }
