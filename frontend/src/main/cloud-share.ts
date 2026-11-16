@@ -466,14 +466,16 @@ async function callApi<T>(
 /**
  * Whether the control plane serves share links: the routes exist only while
  * its share flag is on, so a 404 means it does not. Signed-out installs never
- * probe the control plane. Null when an authenticated probe cannot reach it.
+ * probe the control plane. Null when authentication is unavailable or a probe
+ * cannot reach it, so availability can be checked after signing in again.
  */
 export async function shareLinksAvailable(api: CloudShareApi, baseUrl: string): Promise<boolean | null> {
 	// The token read (which may refresh it) and the request share one limit.
 	const limited = AbortSignal.timeout(SHARE_TIMEOUTS.probe);
 	try {
 		const token = await untilAborted(api.getToken(), limited);
-		if (!token) return false;
+		// Missing credentials say nothing about the server's share feature.
+		if (!token) return null;
 		const response = await api.fetch(apiUrl(baseUrl, "/me/artifact-shares"), {
 			method: "GET",
 			headers: token ? { Authorization: `Bearer ${token}` } : {},

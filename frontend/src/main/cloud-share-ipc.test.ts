@@ -525,7 +525,7 @@ describe("cloudShare IPC", () => {
 		await expect(off.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBe(false);
 		// Fork: a signed-out desktop must not contact Cloud, even to probe it.
 		const signedOut = setup({ token: null, listStatus: 401 });
-		await expect(signedOut.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBe(false);
+		await expect(signedOut.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBeNull();
 		expect(signedOut.requests).toEqual([]);
 		const unreachable = setup({ unreachable: true });
 		await expect(unreachable.invoke("cloudShare:available", { baseUrl: "https://cp.test" })).resolves.toBeNull();

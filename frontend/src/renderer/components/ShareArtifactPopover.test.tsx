@@ -892,6 +892,33 @@ describe("fork signed-out share availability", () => {
   expect(hook.result.current).toBe(false);
   expect(available).not.toHaveBeenCalled();
  });
+	it.each([false, true])("offers Publish after sign-in following a tokenless probe (sign out while pending: %s)", async (signOutWhilePending) => {
+		mocks.baseUrl = `https://fork-tokenless-${signOutWhilePending}.test`;
+		stub(inspection, links);
+		let finishProbe!: (value: boolean | null) => void;
+		const pending = new Promise<boolean | null>((resolve) => { finishProbe = resolve; });
+		const available = vi.spyOn(aoBridge.cloudShare, "available").mockResolvedValue(true).mockImplementationOnce(() => pending);
+		const client = new QueryClient();
+		const button = () => <QueryClientProvider client={client}><TooltipProvider><ShareArtifactButton file={localFile} name="report.html" /></TooltipProvider></QueryClientProvider>;
+		const view = render(button());
+		await waitFor(() => expect(available).toHaveBeenCalledTimes(1));
+		if (signOutWhilePending) {
+			mocks.status = "unauthenticated";
+			view.rerender(button());
+		}
+		// Main returns unknown when refresh finds no token, without a Cloud fetch.
+		await act(async () => { finishProbe(null); await pending; });
+		if (!signOutWhilePending) {
+			mocks.status = "unauthenticated";
+			view.rerender(button());
+		}
+		expect(screen.queryByRole("button", { name: "Publish: report.html" })).toBeNull();
+		expect(available).toHaveBeenCalledTimes(1);
+		mocks.status = "authenticated";
+		view.rerender(button());
+		expect(await screen.findByRole("button", { name: "Publish: report.html" })).toBeTruthy();
+		expect(available).toHaveBeenCalledTimes(2);
+	});
  it("withdraws cached availability on sign-out without a new probe", async () => {
   mocks.baseUrl = "https://fork-signout-cache.test";
   const available = vi.spyOn(aoBridge.cloudShare, "available").mockResolvedValue(true);

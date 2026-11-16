@@ -21,7 +21,7 @@ mode=${1:-all}
 # path (relative to frontend/) and minimum passing tests.
 frontend_tests='
 forge.config.test.ts 35
-src/renderer/components/ShareArtifactPopover.test.tsx 66
+src/renderer/components/ShareArtifactPopover.test.tsx 68
 src/main/remotes-main.test.ts 41
 src/main/remotes-ipc.test.ts 8
 src/main/remotes-store.test.ts 22
@@ -39,6 +39,7 @@ src/main/telemetry-policy-file.test.ts 12
 src/shared/telemetry-policy.test.ts 18
 src/main/desktop-telemetry-controller.test.ts 20
 src/renderer/lib/telemetry.init.test.ts 53
+src/main/cloud-share.test.ts 20
 src/main/cloud-share-ipc.test.ts 20
 src/main/cloud-cp-proxy.test.ts 22
 src/main/cloud-folder-push.test.ts 84

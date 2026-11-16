@@ -273,6 +273,14 @@ describe("share request time limits", () => {
 	});
 });
 
+describe("shareLinksAvailable without a token", () => {
+	it.each([null, ""])("leaves availability unknown without fetching for token %j", async (value) => {
+		const fetch = vi.fn();
+		await expect(shareLinksAvailable({ getToken: async () => value, fetch }, "https://cp.test")).resolves.toBeNull();
+		expect(fetch).not.toHaveBeenCalled();
+	});
+});
+
 describe("uploadShare", () => {
 	it("uploads the snapshot in signed parts and finalizes it", async () => {
 		const snapshot = await snapshotOf("0123456789");
