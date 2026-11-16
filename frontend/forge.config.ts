@@ -1,3 +1,4 @@
+import { FORK_IDENTITY } from "./src/shared/fork-identity";
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { VitePlugin } from "@electron-forge/plugin-vite";
@@ -23,19 +24,19 @@ import { checkMacDmgLayout } from "./scripts/build-mac-dmg.mjs";
 // workflows set AO_RELEASE_REPO to the repo they run in, and build-artifacts.yml
 // asserts the baked app-update.yml matches it, so a future org/repo rename
 // fails the build instead of stranding the fleet on a redirect (#3523).
-const DEFAULT_RELEASE_REPO = "Untrivial-ai/agent-orchestrator";
+const DEFAULT_RELEASE_REPO = "Icosa2050/agent-orchestrator";
 
 // The packaged binary name (no extension). Single source of truth: the packager
 // names the exe/ELF from this, and the NSIS + deb makers must point their
 // shortcut/launcher at the SAME name. Drift here means a broken Start menu
 // shortcut on Windows (#2414) or "could not find the Electron app binary" on deb.
-const EXECUTABLE_NAME = "agent-orchestrator";
-export const WINDOWS_DISPLAY_NAME = "Orchestrator.inc";
+const EXECUTABLE_NAME = FORK_IDENTITY.executable;
+export const WINDOWS_DISPLAY_NAME = "Icosa Orchestrator";
 const AUTH_PROTOCOL = {
-	name: "Orchestrator authentication callback",
-	schemes: ["ao-app"],
+	name: "Icosa Orchestrator authentication callback",
+	schemes: ["icosa-orchestrator"],
 };
-const AUTH_PROTOCOL_MIME_TYPE = "x-scheme-handler/ao-app";
+const AUTH_PROTOCOL_MIME_TYPE = "x-scheme-handler/icosa-orchestrator";
 const PACKAGED_EXTERNAL_DEPENDENCIES = [
 	"/node_modules/better-sqlite3",
 	"/node_modules/bindings",
@@ -69,7 +70,7 @@ async function prepareNativeDependencies(platform: NodeJS.Platform, arch: string
 // Packager app name. It sets the bundle filename ("<name>.app"), which the
 // installed path, updater, and `ao start` keep using, so it is not the label
 // people see in Finder.
-const PACKAGER_NAME = "Agent Orchestrator";
+const PACKAGER_NAME = FORK_IDENTITY.name;
 
 // Finder uses the localized label only when the base display name matches the
 // bundle filename, but the packager defaults it to the executable name. Set it,
@@ -139,8 +140,8 @@ const ACP_RUNTIME_NODE_ENTITLEMENTS = [
 // terminal launches: signed and nested here, macOS checks the app's usage
 // strings instead (see extendInfo). osx-sign signs its executable, then its bundle.
 const DICTATION_HELPER_PATHS = [
-	"/Contents/Resources/dictation-helper/Orchestrator.app",
-	"/Contents/Resources/dictation-helper/Orchestrator.app/Contents/MacOS/Orchestrator",
+	"/Contents/Resources/dictation-helper/Icosa Orchestrator Dictation.app",
+	"/Contents/Resources/dictation-helper/Icosa Orchestrator Dictation.app/Contents/MacOS/icosa-dictation",
 ];
 const DICTATION_HELPER_ENTITLEMENTS = ["com.apple.security.device.audio-input"];
 
@@ -148,18 +149,22 @@ export function macSignOptionsForFile(filePath: string): { entitlements?: string
 	if (DICTATION_HELPER_PATHS.some((helper) => filePath.endsWith(helper))) return { entitlements: DICTATION_HELPER_ENTITLEMENTS };
 	// Cheap gate first: optionsForFile is invoked for every Mach-O in the
 	// bundle, and only the nested Node path can need an override.
-	if (!filePath.endsWith(ACP_RUNTIME_NODE_PATH)) return {};
+	if (!filePath.endsWith(ACP_RUNTIME_NODE_PATH)) {
+		if (/\/Contents\/Resources\/(daemon\/ao|tmux\/bin\/tmux|cloudflared\/cloudflared|update-helper\/ao-update-progress|wake-helper\/ao-wake)$/.test(filePath)) return { entitlements: [] };
+		return {};
+	}
 	// Fail closed: an unreadable or unparseable binary throws out of
 	// optionsForFile and aborts the signing pass. Never fall back to
 	// process.arch or to "no entitlements" — silently signing the Intel Node
 	// without allow-unsigned-executable-memory is exactly the #3879 crash.
-	return machoHasX86_64Slice(filePath) ? { entitlements: ACP_RUNTIME_NODE_ENTITLEMENTS } : {};
+	return machoHasX86_64Slice(filePath) ? { entitlements: ACP_RUNTIME_NODE_ENTITLEMENTS } : { entitlements: ["com.apple.security.cs.allow-jit"] };
 }
 
 // parseReleaseRepo turns an "owner/repo" string (from AO_RELEASE_REPO) into the
 // publisher-github { owner, name } shape, falling back to the production default
 // when unset or malformed.
 function parseReleaseRepo(value: string | undefined): { owner: string; name: string } {
+	if (value !== undefined && value !== DEFAULT_RELEASE_REPO) throw new Error("Local fork release target must be Icosa2050/agent-orchestrator");
 	const [owner, name] = (value || DEFAULT_RELEASE_REPO).split("/");
 	if (!owner || !name) {
 		const [defOwner, defName] = DEFAULT_RELEASE_REPO.split("/");
@@ -176,7 +181,8 @@ const config: ForgeConfig = {
 		// runtime dependency tree explicitly; AutoUnpackNativesPlugin then places
 		// the .node binary outside app.asar.
 		ignore: ignoreFromVitePackage,
-		appBundleId: "dev.agent-orchestrator.desktop",
+		appBundleId: FORK_IDENTITY.bundleId,
+		helperBundleId: "com.icosa2050.orchestrator.helper",
 		name: PACKAGER_NAME,
 		executableName: EXECUTABLE_NAME,
 		// Match the Windows installer without changing the executable name.
@@ -193,8 +199,8 @@ const config: ForgeConfig = {
 			// helper's own usage strings and its disclaim. Without the speech key
 			// it kills the helper. The microphone string also covers terminals and
 			// agents, which macOS attributes to this app.
-			NSSpeechRecognitionUsageDescription: "Orchestrator turns your speech into message text.",
-			NSMicrophoneUsageDescription: "Orchestrator uses the microphone for dictation and for tools you run in it.",
+			NSSpeechRecognitionUsageDescription: "Icosa Orchestrator turns your speech into message text.",
+			NSMicrophoneUsageDescription: "Icosa Orchestrator uses the microphone for dictation and for tools you run in it.",
 		},
 		protocols: [AUTH_PROTOCOL],
 		appCategoryType: "public.app-category.developer-tools",
@@ -266,7 +272,7 @@ const config: ForgeConfig = {
 				"provider: github",
 				`owner: ${owner}`,
 				`repo: ${name}`,
-				"updaterCacheDirName: agent-orchestrator-updater",
+				"updaterCacheDirName: icosa-orchestrator-updater",
 				"",
 			].join("\n");
 			writeFileSync("app-update.yml", yml);
@@ -298,7 +304,7 @@ const config: ForgeConfig = {
 					const helper = path.join(resourcesPath, "update-helper", "ao-update-progress");
 					if (!existsSync(helper)) throw new Error(`packaged macOS update helper missing from ${helper}`);
 					if (!existsSync(path.join(resourcesPath, "wake-helper", "ao-wake"))) throw new Error(`packaged macOS wake helper missing from ${resourcesPath}`);
-					if (!existsSync(path.join(resourcesPath, "dictation-helper", "Orchestrator.app", "Contents", "MacOS", "Orchestrator"))) throw new Error(`packaged macOS dictation helper missing from ${resourcesPath}`);
+					if (!existsSync(path.join(resourcesPath, "dictation-helper", "Icosa Orchestrator Dictation.app", "Contents", "MacOS", "icosa-dictation"))) throw new Error(`packaged macOS dictation helper missing from ${resourcesPath}`);
 					// Run it: remote access depends on this signed copy starting, not just existing.
 					const cloudflared = path.join(resourcesPath, "cloudflared", "cloudflared");
 					if (!existsSync(cloudflared)) throw new Error(`packaged cloudflared missing from ${cloudflared}`);
@@ -381,7 +387,7 @@ const config: ForgeConfig = {
 		// custom install dir or proper uninstaller (issue #401).
 		new MakerNSIS(
 			{
-				appId: "dev.agent-orchestrator.desktop",
+				appId: "com.icosa2050.orchestrator",
 				// The name shown in the installer, the updater, the shortcuts, and
 				// Windows Apps. It matches the app's display name in main.ts.
 				productName: WINDOWS_DISPLAY_NAME,
@@ -391,7 +397,7 @@ const config: ForgeConfig = {
 				icon: "assets/icon.ico",
 				// Keep the installer filename unchanged. electron-builder names it
 				// after productName by default.
-				nsis: { artifactName: "Agent Orchestrator Setup ${version}.${ext}" },
+				nsis: { artifactName: "Icosa Orchestrator Setup ${version}.${ext}" },
 			},
 			["win32"],
 		),
@@ -405,8 +411,8 @@ const config: ForgeConfig = {
 		// break the signature seal on the way in (see makers/maker-dmg.ts, #3267).
 		new MakerDMG(
 			{
-				appId: "dev.agent-orchestrator.desktop",
-				productName: "Agent Orchestrator",
+				appId: "com.icosa2050.orchestrator",
+				productName: "Icosa Orchestrator",
 			},
 			["darwin"],
 		),
@@ -416,9 +422,9 @@ const config: ForgeConfig = {
 		// prefer a system package.
 		new MakerAppImage(
 			{
-				appId: "dev.agent-orchestrator.desktop",
-				productName: "Orchestrator",
-				appImage: { artifactName: "Agent Orchestrator-${version}.${ext}" },
+				appId: "com.icosa2050.orchestrator",
+				productName: FORK_IDENTITY.name,
+				appImage: { artifactName: "Icosa Orchestrator-${version}.${ext}" },
 				icon: "assets/icon.png",
 				protocols: [AUTH_PROTOCOL],
 			},
@@ -452,29 +458,8 @@ const config: ForgeConfig = {
 			},
 		},
 	],
-	publishers: [
-		{
-			name: "@electron-forge/publisher-github",
-			// Release target is build-time overridable so a fork run publishes to the
-			// fork without a source edit. AO_RELEASE_REPO is "owner/repo"; it defaults
-			// to the production target. The dev/test loop sets
-			// AO_RELEASE_REPO=harshitsinghbhandari/agent-orchestrator (spec §1.1, §8).
-			// Note: aoagents/agent-orchestrator and AgentWrapper/agent-orchestrator
-			// are prior homes and intentionally NOT the default; releases land on
-			// Untrivial-ai.
-			config: {
-				repository: parseReleaseRepo(process.env.AO_RELEASE_REPO),
-				prerelease: process.env.AO_RELEASE_PRERELEASE === "true",
-				draft: false,
-				// Ask GitHub to compose the body from the PRs merged since the last
-				// release. Without it the publisher creates the release with an empty
-				// body, and the app's new "what's new" section has nothing to show:
-				// electron-updater reads release notes from the release body, so an
-				// empty body means users get told nothing about what changed.
-				generateReleaseNotes: true,
-			},
-		},
-	],
+	publishers: [], // Local distribution only: no publisher configured.
+
 	plugins: [
 		new AutoUnpackNativesPlugin({}),
 		new VitePlugin({

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Where the built helper's executable lives, inside its app bundle. */
-export const DICTATION_HELPER_EXECUTABLE = path.join("dictation-helper", "Orchestrator.app", "Contents", "MacOS", "Orchestrator");
+export const DICTATION_HELPER_EXECUTABLE = path.join("dictation-helper", "Icosa Orchestrator Dictation.app", "Contents", "MacOS", "icosa-dictation");
 
 // An app bundle, not a bare binary, so macOS names it Orchestrator and shows
 // the app icon when it asks for microphone and speech recognition access.
@@ -17,7 +17,7 @@ export function buildDictationHelper({ arch = process.arch } = {}) {
   if (!cpu) throw new Error(`Unsupported macOS dictation helper architecture: ${arch}`);
   const source = path.join(frontend, "native/dictation-helper");
   const output = path.join(frontend, "dictation-helper");
-  const bundle = path.join(output, "Orchestrator.app");
+  const bundle = path.join(output, "Icosa Orchestrator Dictation.app");
   const cache = path.join(homedir(), ".ao/build-cache/dictation-helper", arch);
   rmSync(output, { recursive: true, force: true });
   mkdirSync(path.join(bundle, "Contents", "MacOS"), { recursive: true });

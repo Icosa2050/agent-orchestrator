@@ -13,10 +13,10 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const verifier = path.join(here, 'verify-mac-artifact.sh');
-const appName = 'Agent Orchestrator.app';
-const bundleID = 'dev.agent-orchestrator.desktop';
+const appName = 'Icosa Orchestrator.app';
+const bundleID = 'com.icosa2050.orchestrator';
 const packageID = `${bundleID}.repair`;
-const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-nightly\.(\d{12}))?$/;
+const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-nightly\.(\d{12})|-icosa\.([1-9]\d*))?$/;
 const xml = (value) => String(value).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
 function run(command, args) {
   const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
@@ -89,7 +89,7 @@ export async function buildRepairInstaller(options, execute = run) {
     await execute('/bin/bash', [verifier, path.join(root, appName)]);
     await writeFile(path.join(scripts, 'preinstall'), await renderGuard(metadata, true), { mode: 0o755 });
     await writeFile(path.join(resources, 'guard.sh'), await renderGuard(metadata), { mode: 0o755 });
-    const intro = `<h1>Repair Orchestrator ${xml(version)}</h1><p>Quit Orchestrator. If its updater is still running, restart your Mac and run this installer before opening Orchestrator.</p><p>This replaces the entire application at /Applications/Agent Orchestrator.app. Your Orchestrator data and caches are preserved. The same version can be repaired; downgrades are refused. Installer will request permission to check the destination and running processes.</p>`;
+    const intro = `<h1>Repair Orchestrator ${xml(version)}</h1><p>Quit Orchestrator. If its updater is still running, restart your Mac and run this installer before opening Orchestrator.</p><p>This replaces the entire application at /Applications/Icosa Orchestrator.app. Your Orchestrator data and caches are preserved. The same version can be repaired; downgrades are refused. Installer will request permission to check the destination and running processes.</p>`;
     await writeFile(path.join(resources, 'welcome.html'), intro);
     await writeFile(path.join(resources, 'conclusion.html'), '<h1>Repair complete</h1><p>Open Orchestrator from Applications when you are ready.</p>');
     const component = path.join(work, 'component.plist');
