@@ -44,18 +44,18 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserHomeDir: %v", err)
 	}
-	wantRunFilePath := filepath.Join(homeDir, ".ao", "running.json")
+	wantRunFilePath := filepath.Join(homeDir, ".ao", "dev", "running.json")
 	if cfg.RunFilePath != wantRunFilePath {
 		t.Errorf("RunFilePath = %q, want %q", cfg.RunFilePath, wantRunFilePath)
 	}
 	if cfg.DataDir == "" {
 		t.Error("DataDir is empty, want a resolved default path")
 	}
-	wantDataDir := filepath.Join(homeDir, ".ao", "data")
+	wantDataDir := filepath.Join(homeDir, ".ao", "dev", "data")
 	if cfg.DataDir != wantDataDir {
 		t.Errorf("DataDir = %q, want %q", cfg.DataDir, wantDataDir)
 	}
-	if wantStateDir := filepath.Join(homeDir, ".ao"); cfg.StateDir != wantStateDir {
+	if wantStateDir := wantDataDir; cfg.StateDir != wantStateDir {
 		t.Errorf("StateDir = %q, want %q", cfg.StateDir, wantStateDir)
 	}
 	if cfg.Telemetry.Remote != TelemetryRemoteOff || cfg.Telemetry.PostHogHost != DefaultTelemetryPostHogHost {

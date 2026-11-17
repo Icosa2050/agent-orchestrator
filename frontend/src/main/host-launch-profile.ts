@@ -8,7 +8,7 @@ export function parseHostLaunchProfile(value: unknown, home: string): HostLaunch
  const aoHome = path.join(home, ".ao");
  for (const key of ["dataDir", "runFile"] as const) {
   const v = p[key];
-  if (typeof v !== "string" || !path.isAbsolute(v) || path.normalize(v) !== v || !v.startsWith(`${aoHome}${path.sep}`)) throw new Error(`Icosa profile ${key} must be an absolute path under ~/.ao`);
+  if (typeof v !== "string" || !path.isAbsolute(v) || path.normalize(v) !== v || v.endsWith(path.sep) || !v.startsWith(`${aoHome}${path.sep}`)) throw new Error(`Icosa profile ${key} must be an absolute path under ~/.ao`);
  }
  if (p.version !== 1 || !Number.isInteger(p.port) || Number(p.port) < 1024 || Number(p.port) > 65535) throw new Error("Invalid Icosa profile version or port");
  if (Object.keys(p).some(k => !["version", "dataDir", "runFile", "port"].includes(k))) throw new Error("Unknown Icosa profile field");

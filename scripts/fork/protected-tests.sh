@@ -21,7 +21,7 @@ mode=${1:-all}
 # path (relative to frontend/) and minimum passing tests.
 frontend_tests='
 forge.config.test.ts 35
-src/main/host-launch-profile.test.ts 7
+src/main/host-launch-profile.test.ts 34
 src/main/local-distribution-ipc.test.ts 1
 src/main/fork-local-distribution.test.ts 1
 src/renderer/components/settings/ForkLocalSettings.test.tsx 2
@@ -55,6 +55,8 @@ backend_tests='
 ./internal/httpd ^TestForkAgentAccounts 2
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
+./internal/config ^TestForkHostLaunchProfile 4
+./internal/cli ^TestForkCLIUsesHostLaunchProfileWithoutEnvironment 1
 ./internal/cli ^(TestForkTriage|TestForkPackagedIdentity|TestForkStartMissingInstallDoesNotAcquire|TestForkContainerInstallCheckMatchesMissingInstallError|TestForkLinuxAppImagePath|TestForkNonDarwinScanLocations|TestForkMarkerIdentityOnEveryPlatform|TestForkStartLocalDistributionNotice) 8
 ./internal/daemon ^TestPublishRemoteHost 1
 ./internal/daemon ^(TestOptOut|TestForkDefaultPolicy) 5

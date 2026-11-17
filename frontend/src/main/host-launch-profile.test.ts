@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -27,4 +27,26 @@ it("does not pollute CLI stdout with host profile diagnostics", async () => {
  const error = vi.spyOn(console, "error").mockImplementation(() => {});
  try { applyHostLaunchProfile({}, home); expect(info).not.toHaveBeenCalled(); expect(error).toHaveBeenCalledWith(expect.stringContaining("dataDir=")); }
  finally { info.mockRestore(); error.mockRestore(); }
+});
+
+interface ProfileVector { name: string; absent?: boolean; valid: boolean; profile?: unknown; raw?: string; env?: Record<string,string> }
+const vectors = JSON.parse(readFileSync(new URL("../../../test/fixtures/icosa-host-profile.json", import.meta.url), "utf8")) as ProfileVector[];
+it.each(vectors)("shared Go/desktop profile vector: $name", vector => {
+ const expand = (s: string) => s.replaceAll("/", path.sep).replaceAll("__HOME__", home);
+ const profile = vector.profile && !Array.isArray(vector.profile) && typeof vector.profile === "object"
+  ? Object.fromEntries(Object.entries(vector.profile).map(([key,value]) => [key, typeof value === "string" ? expand(value) : value]))
+  : vector.profile;
+ const env = Object.fromEntries(Object.entries(vector.env ?? {}).map(([key,value]) => [key,expand(value)])) as NodeJS.ProcessEnv;
+ if (!vector.absent) {
+  mkdirSync(path.join(home,".ao"));
+  writeFileSync(path.join(home,".ao","icosa-desktop.json"), vector.raw ?? JSON.stringify(profile), {mode:0o600});
+ }
+ if (!vector.valid) { expect(() => applyHostLaunchProfile(env,home)).toThrow(); return; }
+ applyHostLaunchProfile(env,home);
+ const p = profile as {dataDir:string;runFile:string;port:number};
+ expect(env).toMatchObject({
+  AO_DATA_DIR: vector.env?.AO_DATA_DIR ? expand(vector.env.AO_DATA_DIR) : vector.absent ? path.join(home,".ao/dev/data") : p.dataDir,
+  AO_RUN_FILE: vector.env?.AO_RUN_FILE ? expand(vector.env.AO_RUN_FILE) : vector.absent ? path.join(home,".ao/dev/running.json") : p.runFile,
+  AO_PORT: vector.env?.AO_PORT || (vector.absent ? "3002" : String(p.port)),
+ });
 });
