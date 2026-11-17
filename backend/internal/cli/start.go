@@ -151,6 +151,10 @@ var appScanLocations = knownAppLocations
 // markerAppPath reads ~/.ao/app-state.json and returns its recorded appPath, or
 // "" if the marker is missing/unreadable. It does not stat the path; callers do.
 func (c *commandContext) markerAppPath() string {
+	return c.markerAppPathForOS(runtime.GOOS)
+}
+
+func (c *commandContext) markerAppPathForOS(platform string) string {
 	dir, err := aoStateDir()
 	if err != nil {
 		return ""
@@ -163,7 +167,7 @@ func (c *commandContext) markerAppPath() string {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return ""
 	}
-	if runtime.GOOS == "darwin" && filepath.Base(st.AppPath) != appBundleName {
+	if name := forkAppFilename(platform); name == "" || filepath.Base(st.AppPath) != name {
 		return ""
 	}
 	return st.AppPath
@@ -183,7 +187,11 @@ func aoStateDir() (string, error) {
 // knownAppLocations lists the platform's standard install paths to scan when the
 // marker misses (covers website installs and stale markers, spec §6.2).
 func knownAppLocations() []string {
-	switch runtime.GOOS {
+	return knownAppLocationsForOS(runtime.GOOS)
+}
+
+func knownAppLocationsForOS(platform string) []string {
+	switch platform {
 	case "darwin":
 		paths := []string{"/Applications/" + appBundleName}
 		if home, err := os.UserHomeDir(); err == nil {
@@ -198,13 +206,13 @@ func knownAppLocations() []string {
 		}
 		// Per-machine fallback (if a user chose an all-users install).
 		if pf := os.Getenv("ProgramFiles"); pf != "" {
-			paths = append(paths, filepath.Join(pf, "Agent Orchestrator", "agent-orchestrator.exe"))
+			paths = append(paths, filepath.Join(pf, "Icosa Orchestrator", forkAppFilename("windows")))
 		}
 		return paths
 	case "linux":
 		paths := []string{linuxAppImagePath()}
 		if home, err := os.UserHomeDir(); err == nil {
-			paths = append(paths, filepath.Join(home, "Applications", "agent-orchestrator.AppImage"))
+			paths = append(paths, filepath.Join(home, "Applications", forkAppFilename("linux")))
 		}
 		return paths
 	default:
@@ -215,20 +223,30 @@ func knownAppLocations() []string {
 // windowsInstalledExe is the default per-user electron-builder NSIS install
 // target for the app exe under %LOCALAPPDATA%.
 func windowsInstalledExe(localAppData string) string {
-	return filepath.Join(localAppData, "Programs", "Agent Orchestrator", "agent-orchestrator.exe")
+	return filepath.Join(localAppData, "Programs", "Icosa Orchestrator", forkAppFilename("windows"))
 }
 
-// linuxAppImagePath is the stable location `ao start` downloads the AppImage to
-// and scans for. Keeping it out of the cleared staging dir lets re-runs resolve
-// the existing download instead of re-fetching (spec §6.2/§6.3).
+// forkAppFilename is the identity shared by marker validation and install scans.
+func forkAppFilename(platform string) string {
+	switch platform {
+	case "darwin":
+		return appBundleName
+	case "windows":
+		return "icosa-orchestrator.exe"
+	case "linux":
+		return "icosa-orchestrator.AppImage"
+	default:
+		return ""
+	}
+}
+
+// linuxAppImagePath is the local-distribution AppImage location beside running.json.
 func linuxAppImagePath() string {
 	dir, err := aoStateDir()
 	if err != nil {
-		// Fall back to a bare filename so a misconfigured state dir surfaces as a
-		// clear "not found" rather than a panic; fetch will re-error on download.
-		return "agent-orchestrator.AppImage"
+		return forkAppFilename("linux")
 	}
-	return filepath.Join(dir, "agent-orchestrator.AppImage")
+	return filepath.Join(dir, forkAppFilename("linux"))
 }
 
 const linuxDesktopEntryName = "icosa-orchestrator.desktop"

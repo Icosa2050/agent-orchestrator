@@ -55,7 +55,7 @@ func makeBundle(t *testing.T, name string) string {
 
 func TestResolveApp_MarkerHit(t *testing.T) {
 	cfg := setConfigEnv(t)
-	bundle := makeBundle(t, appBundleName)
+	bundle := makeBundle(t, forkAppFilename(runtime.GOOS))
 	writeMarker(t, cfg, bundle)
 	// No scan locations: a hit must come from the marker.
 	t.Cleanup(swapScanLocations(func() []string { return nil }))
@@ -75,9 +75,9 @@ func TestResolveApp_MarkerHit(t *testing.T) {
 // that copy forever instead of the install the updater maintains.
 func TestResolveApp_PreferredOutranksMarker(t *testing.T) {
 	cfg := setConfigEnv(t)
-	stale := makeBundle(t, appBundleName)
+	stale := makeBundle(t, forkAppFilename(runtime.GOOS))
 	writeMarker(t, cfg, stale)
-	installed := makeBundle(t, appBundleName)
+	installed := makeBundle(t, forkAppFilename(runtime.GOOS))
 	t.Cleanup(swapPreferredAppPath(func() string { return installed }))
 	t.Cleanup(swapScanLocations(func() []string { return nil }))
 
@@ -91,7 +91,7 @@ func TestResolveApp_PreferredOutranksMarker(t *testing.T) {
 // An absent preferred location must not shadow a good marker.
 func TestResolveApp_PreferredMissingFallsBackToMarker(t *testing.T) {
 	cfg := setConfigEnv(t)
-	bundle := makeBundle(t, appBundleName)
+	bundle := makeBundle(t, forkAppFilename(runtime.GOOS))
 	writeMarker(t, cfg, bundle)
 	t.Cleanup(swapPreferredAppPath(func() string {
 		return filepath.Join(t.TempDir(), "gone", appBundleName)
@@ -109,7 +109,7 @@ func TestResolveApp_MarkerMissThenScanHit(t *testing.T) {
 	cfg := setConfigEnv(t)
 	// Marker points at a path that does not exist -> must fall through to scan.
 	writeMarker(t, cfg, filepath.Join(t.TempDir(), "gone", appBundleName))
-	scanBundle := makeBundle(t, appBundleName)
+	scanBundle := makeBundle(t, forkAppFilename(runtime.GOOS))
 	t.Cleanup(swapScanLocations(func() []string { return []string{scanBundle} }))
 	t.Cleanup(swapPreferredAppPath(func() string { return "" }))
 
@@ -203,7 +203,7 @@ func TestRequireAMD64(t *testing.T) {
 
 func TestWindowsInstalledExe(t *testing.T) {
 	got := windowsInstalledExe("C:\\Users\\me\\AppData\\Local")
-	want := filepath.Join("C:\\Users\\me\\AppData\\Local", "Programs", "Agent Orchestrator", "agent-orchestrator.exe")
+	want := filepath.Join("C:\\Users\\me\\AppData\\Local", "Programs", "Icosa Orchestrator", "icosa-orchestrator.exe")
 	if got != want {
 		t.Fatalf("windowsInstalledExe = %q, want %q", got, want)
 	}
@@ -558,5 +558,65 @@ func TestForkContainerInstallCheckMatchesMissingInstallError(t *testing.T) {
 	const message = "local Icosa Orchestrator app is not installed; automatic acquisition is disabled for this local build"
 	if !strings.Contains(string(script), `grep -qF "`+message+`"`) {
 		t.Fatal("container smoke check must accept the fork missing-install error")
+	}
+}
+
+func TestForkLinuxAppImagePath(t *testing.T) {
+	cfg := setConfigEnv(t)
+	want := filepath.Join(filepath.Dir(cfg.runFile), "icosa-orchestrator.AppImage")
+	if got := linuxAppImagePath(); got != want {
+		t.Fatalf("linuxAppImagePath = %q, want %q", got, want)
+	}
+}
+
+func TestForkNonDarwinScanLocations(t *testing.T) {
+	cfg := setConfigEnv(t)
+	local, programFiles := t.TempDir(), t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
+	t.Setenv("ProgramFiles", programFiles)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		platform string
+		want     []string
+	}{
+		{"windows", []string{filepath.Join(local, "Programs", "Icosa Orchestrator", "icosa-orchestrator.exe"), filepath.Join(programFiles, "Icosa Orchestrator", "icosa-orchestrator.exe")}},
+		{"linux", []string{filepath.Join(filepath.Dir(cfg.runFile), "icosa-orchestrator.AppImage"), filepath.Join(home, "Applications", "icosa-orchestrator.AppImage")}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.platform, func(t *testing.T) {
+			if got := knownAppLocationsForOS(tc.platform); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("scan = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestForkMarkerIdentityOnEveryPlatform(t *testing.T) {
+	cfg := setConfigEnv(t)
+	c := &commandContext{deps: Deps{}.withDefaults()}
+	tests := []struct {
+		platform, name string
+		accepted       bool
+	}{
+		{"darwin", "Icosa Orchestrator.app", true}, {"darwin", "Agent Orchestrator.app", false},
+		{"windows", "icosa-orchestrator.exe", true}, {"windows", "agent-orchestrator.exe", false},
+		{"linux", "icosa-orchestrator.AppImage", true}, {"linux", "agent-orchestrator.AppImage", false},
+		{"windows", "Icosa Orchestrator.app", false}, {"unsupported", "icosa-orchestrator.exe", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.platform+"/"+tc.name, func(t *testing.T) {
+			appPath := filepath.Join(t.TempDir(), tc.name)
+			writeMarker(t, cfg, appPath)
+			want := ""
+			if tc.accepted {
+				want = appPath
+			}
+			if got := c.markerAppPathForOS(tc.platform); got != want {
+				t.Fatalf("marker = %q, want %q", got, want)
+			}
+		})
 	}
 }

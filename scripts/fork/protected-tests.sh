@@ -55,7 +55,7 @@ backend_tests='
 ./internal/httpd ^TestForkAgentAccounts 2
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
-./internal/cli ^(TestForkTriage|TestForkPackagedIdentity|TestForkStartMissingInstallDoesNotAcquire|TestForkContainerInstallCheckMatchesMissingInstallError) 4
+./internal/cli ^(TestForkTriage|TestForkPackagedIdentity|TestForkStartMissingInstallDoesNotAcquire|TestForkContainerInstallCheckMatchesMissingInstallError|TestForkLinuxAppImagePath|TestForkNonDarwinScanLocations|TestForkMarkerIdentityOnEveryPlatform) 7
 ./internal/daemon ^TestPublishRemoteHost 1
 ./internal/daemon ^(TestOptOut|TestForkDefaultPolicy) 5
 ./internal/storage/sqlite/store ^TestForkSessionRetention 1
