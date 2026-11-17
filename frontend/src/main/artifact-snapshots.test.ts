@@ -120,14 +120,13 @@ describe("artifact snapshot store", () => {
 		const store = createArtifactSnapshotStore({ directory, render, gapMs: 0 });
 		const first = store.request(job({ path: "first.html" }));
 		await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
-		// Each request reads the disk cache before it joins the queue: let both
-		// reads settle and both requests join before the first render ends, so
-		// the queue holds both when it picks the next one.
-		const reads = vi.spyOn(fs, "readFile");
+		// Test queue order independently of filesystem completion order: real
+		// concurrent cache misses can finish in either order and enqueue the
+		// older call last. Immediate misses enqueue in the order requested.
+		const reads = vi.spyOn(fs, "readFile").mockRejectedValue(new Error("cache miss"));
 		const older = store.request(job({ path: "older.html" }));
 		const newest = store.request(job({ path: "newest.html" }));
 		await Promise.allSettled(reads.mock.results.map((result) => result.value));
-		await new Promise((resolve) => setTimeout(resolve, 0));
 		reads.mockRestore();
 		gates.shift()?.();
 		await first;
