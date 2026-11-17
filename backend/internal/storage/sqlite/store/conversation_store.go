@@ -2143,14 +2143,34 @@ func (s *Store) RecordRateLimits(
 	if err := q.UpdateConversationRateLimits(ctx, gen.UpdateConversationRateLimitsParams{
 		RateLimitPrimaryPercent:    nullablePercent(limits.PrimaryUsedPercent),
 		RateLimitSecondaryPercent:  nullablePercent(limits.SecondaryUsedPercent),
-		RateLimitPrimaryResetsIn:   nullablePositive(limits.PrimaryResetsInSeconds),
-		RateLimitSecondaryResetsIn: nullablePositive(limits.SecondaryResetsInSeconds),
+		RateLimitPrimaryResetsAt:   nullableInstant(limits.PrimaryResetsAt),
+		RateLimitSecondaryResetsAt: nullableInstant(limits.SecondaryResetsAt),
 		RateLimitPlan:              nullableString(limits.PlanLabel),
 		ID:                         conversationID,
 	}); err != nil {
 		return fmt.Errorf("record rate limits for %s: %w", conversationID, err)
 	}
 	return nil
+}
+
+// nullableInstant stores an absolute instant as RFC 3339 UTC, zero as NULL.
+func nullableInstant(value time.Time) sql.NullString {
+	if value.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: value.UTC().Format(time.RFC3339Nano), Valid: true}
+}
+
+// instantFromColumn reads nullableInstant back; anything unparsable is unknown.
+func instantFromColumn(value sql.NullString) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	at, err := time.Parse(time.RFC3339Nano, value.String)
+	if err != nil {
+		return time.Time{}
+	}
+	return at.UTC()
 }
 
 // nullablePositive stores zero as NULL. For every column that uses it, zero and
@@ -4865,11 +4885,13 @@ func rateLimitsFromRow(row gen.Conversation) *domain.ConversationRateLimits {
 		return nil
 	}
 	limits := &domain.ConversationRateLimits{
-		PrimaryUsedPercent:       -1,
-		SecondaryUsedPercent:     -1,
-		PrimaryResetsInSeconds:   row.RateLimitPrimaryResetsIn.Int64,
-		SecondaryResetsInSeconds: row.RateLimitSecondaryResetsIn.Int64,
-		PlanLabel:                row.RateLimitPlan.String,
+		PrimaryUsedPercent:   -1,
+		SecondaryUsedPercent: -1,
+		// Rows from before the resets_at columns hold only seconds remaining at
+		// some unknown earlier write, which cannot be turned into an instant.
+		PrimaryResetsAt:   instantFromColumn(row.RateLimitPrimaryResetsAt),
+		SecondaryResetsAt: instantFromColumn(row.RateLimitSecondaryResetsAt),
+		PlanLabel:         row.RateLimitPlan.String,
 	}
 	if row.RateLimitPrimaryPercent.Valid {
 		limits.PrimaryUsedPercent = row.RateLimitPrimaryPercent.Float64

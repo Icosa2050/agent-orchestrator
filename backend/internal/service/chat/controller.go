@@ -1570,14 +1570,26 @@ func (c *Controller) readRateLimits() {
 	// are percentages of a multi-day window that barely move between two reads
 	// seconds apart.
 	if err := c.store.RecordRateLimits(ctx, c.conversation.ID, domain.ConversationRateLimits{
-		PrimaryUsedPercent:       limits.PrimaryUsedPercent,
-		SecondaryUsedPercent:     limits.SecondaryUsedPercent,
-		PrimaryResetsInSeconds:   limits.PrimaryResetsInSeconds,
-		SecondaryResetsInSeconds: limits.SecondaryResetsInSeconds,
-		PlanLabel:                limits.PlanLabel,
+		PrimaryUsedPercent:   limits.PrimaryUsedPercent,
+		SecondaryUsedPercent: limits.SecondaryUsedPercent,
+		PrimaryResetsAt:      resetInstant(limits.PrimaryResetsAt, limits.PrimaryResetsInSeconds, c.now()),
+		SecondaryResetsAt:    resetInstant(limits.SecondaryResetsAt, limits.SecondaryResetsInSeconds, c.now()),
+		PlanLabel:            limits.PlanLabel,
 	}); err != nil {
 		c.log.Debug("failed to record chat rate limits", "session", c.sessionID, "error", err)
 	}
+}
+
+// resetInstant is when a quota window refills: the provider's absolute instant
+// when it sent one, otherwise the remaining seconds counted from now.
+func resetInstant(at time.Time, inSeconds int64, now time.Time) time.Time {
+	if !at.IsZero() {
+		return at.UTC()
+	}
+	if inSeconds <= 0 {
+		return time.Time{}
+	}
+	return now.Add(time.Duration(inSeconds) * time.Second).UTC()
 }
 
 // ProviderConversationID is the handle to persist for resume.
@@ -3801,11 +3813,11 @@ func (c *Controller) apply(ctx context.Context, event ports.ChatEvent) error {
 			return nil
 		}
 		return c.store.RecordRateLimits(ctx, c.conversation.ID, domain.ConversationRateLimits{
-			PrimaryUsedPercent:       event.RateLimits.PrimaryUsedPercent,
-			SecondaryUsedPercent:     event.RateLimits.SecondaryUsedPercent,
-			PrimaryResetsInSeconds:   event.RateLimits.PrimaryResetsInSeconds,
-			SecondaryResetsInSeconds: event.RateLimits.SecondaryResetsInSeconds,
-			PlanLabel:                event.RateLimits.PlanLabel,
+			PrimaryUsedPercent:   event.RateLimits.PrimaryUsedPercent,
+			SecondaryUsedPercent: event.RateLimits.SecondaryUsedPercent,
+			PrimaryResetsAt:      resetInstant(event.RateLimits.PrimaryResetsAt, event.RateLimits.PrimaryResetsInSeconds, now),
+			SecondaryResetsAt:    resetInstant(event.RateLimits.SecondaryResetsAt, event.RateLimits.SecondaryResetsInSeconds, now),
+			PlanLabel:            event.RateLimits.PlanLabel,
 		})
 
 	case ports.ChatEventControllerState:

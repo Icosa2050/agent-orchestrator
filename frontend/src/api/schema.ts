@@ -6757,10 +6757,12 @@ export interface components {
         };
         ConversationRateLimitsPayload: {
             planLabel?: string;
+            primaryResetsAt?: string;
             /** Format: int64 */
             primaryResetsInSeconds?: number;
             /** Format: double */
             primaryUsedPercent: number;
+            secondaryResetsAt?: string;
             /** Format: int64 */
             secondaryResetsInSeconds?: number;
             /** Format: double */

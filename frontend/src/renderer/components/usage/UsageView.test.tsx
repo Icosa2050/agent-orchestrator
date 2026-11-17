@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
 	report: vi.fn(),
 	reportRefetch: vi.fn(),
 	workspaces: [] as Array<{ id: string; name: string; kind?: string }>,
+	remoteHosts: [] as Array<{ hostId: string; label: string; status: "connecting" | "connected" | "offline"; failureReason?: "unauthorized" | "incompatible" }>,
+	scope: "",
 }));
 
 vi.mock("../../hooks/useWorkspaceQuery", () => ({ useWorkspaceQuery: () => ({ data: mocks.workspaces }) }));
@@ -22,11 +24,15 @@ vi.mock("../../hooks/useUsageReport", () => ({
 	},
 	useUsageLimitWindows: () => ({ data: undefined, isLoading: false, isFetching: false, error: null, refetch: vi.fn() }),
 }));
-vi.mock("../../hooks/useAgentAccounts", () => ({
-	useAgentAccounts: () => ({ data: [], isLoading: false, isFetching: false, error: null }),
-	useAgentAccountActions: () => ({ refresh: vi.fn() }),
+vi.mock("../../hooks/useFleetLimits", () => ({
+	ALL_HOSTS: "all",
+	useFleetLimits: (_enabled: boolean, scope: string) => {
+		mocks.scope = scope;
+		return { rows: [], hosts: [], isLoading: false, isFetching: false, refresh: vi.fn() };
+	},
+	useFleetRemoteHosts: () => mocks.remoteHosts,
 }));
-vi.mock("./UsageLimits", () => ({ UsageLimits: () => <p>Limits content</p> }));
+vi.mock("./UsageFleetLimits", () => ({ UsageFleetLimits: () => <p>Limits content</p> }));
 vi.mock("./UsageWindows", () => ({ UsageWindows: () => <p>Windows content</p> }));
 
 function renderView() {
@@ -39,6 +45,7 @@ describe("UsageView", () => {
 		mocks.report.mockReset();
 		mocks.reportRefetch.mockReset();
 		mocks.workspaces = [{ id: "demo", name: "Demo" }, { id: "web", name: "Web app" }];
+		mocks.remoteHosts = [];
 		useUiStore.setState({ developerMode: false });
 	});
 
@@ -88,6 +95,34 @@ describe("UsageView", () => {
 		expect(mocks.report).toHaveBeenLastCalledWith(7, 1, undefined);
 		await user.click(next);
 		expect(mocks.report).toHaveBeenLastCalledWith(7, 0, undefined);
+	});
+
+	it("reads only this computer's limits and hides the Hosts menu without a saved remote", async () => {
+		const user = userEvent.setup();
+		renderView();
+		await user.click(screen.getByRole("button", { name: "Limits" }));
+		expect(mocks.scope).toBe("local");
+		expect(screen.queryByRole("button", { name: "Hosts" })).not.toBeInTheDocument();
+	});
+
+	it("defaults to all hosts once a remote is saved and lists each host with its state", async () => {
+		const user = userEvent.setup();
+		mocks.remoteHosts = [
+			{ hostId: "h1", label: "MacStudio", status: "connected" },
+			{ hostId: "h2", label: "P50", status: "offline" },
+			{ hostId: "h3", label: "MB (2)", status: "offline", failureReason: "unauthorized" },
+		];
+		renderView();
+		// Spend stays this computer's in this release: no Hosts menu there.
+		expect(screen.queryByRole("button", { name: "Hosts" })).not.toBeInTheDocument();
+		await user.click(screen.getByRole("button", { name: "Limits" }));
+		expect(mocks.scope).toBe("all");
+		await user.click(screen.getByRole("button", { name: "Hosts" }));
+		const items = await screen.findAllByRole("menuitem");
+		expect(items.map((item) => item.textContent)).toEqual(["All hosts", "This computer", "MacStudio", "P50: offline", "MB (2): needs re-pair"]);
+		await user.click(items[1]);
+		expect(mocks.scope).toBe("local");
+		expect(screen.getByRole("button", { name: "Remove filter Host: This computer" })).toBeInTheDocument();
 	});
 
 	it("hides the project filter when there is no project to choose", () => {

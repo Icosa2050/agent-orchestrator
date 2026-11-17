@@ -1,45 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentAccount } from "../hooks/useAgentAccounts";
-import { formatCountdown, groupAccounts, limitWindowPace, spanPace, usedPercent, type UsageLimitSpan } from "./usage-limits";
-
-function account(overrides: Partial<AgentAccount>): AgentAccount {
-	return { id: "a", provider: "codex", default: false, device: false, signedIn: true, loggedIn: true, ...overrides };
-}
-
-describe("groupAccounts", () => {
-	it("lists every account under its provider, default first", () => {
-		const grouped = groupAccounts([
-			account({ id: "claude-b", provider: "claude", limits: { fetchedAt: "2026-10-25T10:07:00Z", windows: [] } }),
-			account({ id: "claude-a", provider: "claude", default: true, limits: { fetchedAt: "2026-10-25T10:00:00Z", windows: [{ id: "five_hour", label: "Session (5h)", usedPercent: 20, resetsAt: "2026-10-25T13:00:00Z" }] } }),
-			account({ id: "codex-a", default: true, signedIn: false }),
-		]);
-		expect(grouped.map((entry) => entry.provider)).toEqual(["codex", "claude"]);
-		expect(grouped[0]).toEqual({ provider: "codex", accounts: [expect.objectContaining({ id: "codex-a" })], checkedAt: null });
-		expect(grouped[1].accounts.map((entry) => entry.id)).toEqual(["claude-a", "claude-b"]);
-		expect(grouped[1].checkedAt).toBe("2026-10-25T10:07:00Z");
-	});
-
-	it("skips providers without accounts", () => {
-		expect(groupAccounts([])).toEqual([]);
-	});
-
-	it("lists the CLI's login once when a saved account is signed in as the same login", () => {
-		const grouped = groupAccounts([
-			account({ id: "device-claude", provider: "claude", device: true, email: "a@example.com", sameLoginAs: "claude-a" }),
-			account({ id: "claude-a", provider: "claude", default: true, email: "a@example.com" }),
-			account({ id: "claude-b", provider: "claude", email: "b@example.com" }),
-		]);
-		expect(grouped[0].accounts.map((entry) => entry.id)).toEqual(["claude-a", "claude-b"]);
-	});
-
-	it("keeps the CLI's login and its saved twin while the CLI's login is the default", () => {
-		const grouped = groupAccounts([
-			account({ id: "device-claude", provider: "claude", device: true, default: true, email: "a@example.com", sameLoginAs: "claude-a" }),
-			account({ id: "claude-a", provider: "claude", email: "a@example.com" }),
-		]);
-		expect(grouped[0].accounts.map((entry) => entry.id)).toEqual(["device-claude", "claude-a"]);
-	});
-});
+import { formatCountdown, spanPace, usedPercent, type UsageLimitSpan } from "./usage-limits";
 
 describe("usedPercent", () => {
 	it("is how much of the window is consumed, clamped to 0-100", () => {
@@ -81,25 +41,5 @@ describe("spanPace", () => {
 	it("says nothing in the first hour or without a start", () => {
 		expect(spanPace(span({ lastReadAt: "2026-10-28T07:00:00Z" }))).toBeNull();
 		expect(spanPace(span({ startsAt: null }))).toBeNull();
-	});
-});
-
-describe("limitWindowPace", () => {
-	const window = { id: "five_hour", label: "Session (5h)", durationMinutes: 300, resetsAt: "2026-10-30T12:00:00Z", usedPercent: 30 };
-
-	it("projects a live reading from when its window opened", () => {
-		const pace = limitWindowPace(window, "2026-10-30T09:00:00Z");
-		expect(pace?.atReset).toBeCloseTo(75);
-		expect(pace?.runsOutAt).toBeNull();
-		const runsOut = limitWindowPace({ ...window, usedPercent: 50 }, "2026-10-30T09:00:00Z")?.runsOutAt?.getTime() ?? 0;
-		expect(Math.abs(runsOut - Date.parse("2026-10-30T11:00:00Z"))).toBeLessThan(1000);
-	});
-
-	it("says nothing without a length, a reset, any use, at the limit, or before half an hour", () => {
-		expect(limitWindowPace({ ...window, durationMinutes: undefined }, "2026-10-30T09:00:00Z")).toBeNull();
-		expect(limitWindowPace({ ...window, resetsAt: null }, "2026-10-30T09:00:00Z")).toBeNull();
-		expect(limitWindowPace({ ...window, usedPercent: 0 }, "2026-10-30T09:00:00Z")).toBeNull();
-		expect(limitWindowPace({ ...window, usedPercent: 100 }, "2026-10-30T09:00:00Z")).toBeNull();
-		expect(limitWindowPace(window, "2026-10-30T07:20:00Z")).toBeNull();
 	});
 });

@@ -859,9 +859,13 @@ export interface ConversationRateLimits {
 	 *  window, which is not the same as reporting it empty. */
 	primaryUsedPercent: number;
 	secondaryUsedPercent: number;
-	/** Seconds remaining, not an absolute instant. */
+	/** Seconds remaining, counted by the daemon from the absolute instant below
+	 *  when it built the response. */
 	primaryResetsInSeconds?: number;
 	secondaryResetsInSeconds?: number;
+	/** The absolute reset instants (RFC 3339). */
+	primaryResetsAt?: string;
+	secondaryResetsAt?: string;
 	planLabel?: string;
 }
 
