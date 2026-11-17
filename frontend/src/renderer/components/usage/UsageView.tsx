@@ -3,6 +3,7 @@ import { Filter } from "@/components/app-icons";
 import { ScrollArea } from "radix-ui";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { LOCAL_DISTRIBUTION } from "../../../shared/fork-identity";
 import { useAgentAccountActions, useAgentAccounts } from "../../hooks/useAgentAccounts";
 import { useUsageLimitWindows, useUsageReport } from "../../hooks/useUsageReport";
 import { useWorkspaceQuery } from "../../hooks/useWorkspaceQuery";
@@ -54,7 +55,8 @@ export function UsageView() {
 	const developerMode = useUiStore((state) => state.developerMode);
 	const showGlobalToast = useUiStore((state) => state.showGlobalToast);
 	const tab = chosenTab === "windows" && !developerMode ? "spend" : chosenTab;
-	const [unit, setUnit] = useState<UsageUnit>("cost");
+	// Fork (Icosa2050): the local build leads with raw token counts, not cost estimates.
+	const [unit, setUnit] = useState<UsageUnit>(LOCAL_DISTRIBUTION ? "tokens" : "cost");
 	const [days, setDays] = useState(7);
 	const [offset, setOffset] = useState(0);
 	const [projectFilter, setProjectFilter] = useState(ALL_PROJECTS);

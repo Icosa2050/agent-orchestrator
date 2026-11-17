@@ -13,11 +13,16 @@ describe("isNightlyBuild", () => {
 
 describe("isCommandPaletteEnabled", () => {
 	it("is on in dev or nightly, off otherwise", () => {
-		expect(isCommandPaletteEnabled("0.10.3", true)).toBe(true);
-		expect(isCommandPaletteEnabled(undefined, true)).toBe(true);
-		expect(isCommandPaletteEnabled("0.10.4-nightly.202607071200+abc123", false)).toBe(true);
-		expect(isCommandPaletteEnabled("0.10.3", false)).toBe(false);
-		expect(isCommandPaletteEnabled(undefined, false)).toBe(false);
+		expect(isCommandPaletteEnabled("0.10.3", true, false)).toBe(true);
+		expect(isCommandPaletteEnabled(undefined, true, false)).toBe(true);
+		expect(isCommandPaletteEnabled("0.10.4-nightly.202607071200+abc123", false, false)).toBe(true);
+		expect(isCommandPaletteEnabled("0.10.3", false, false)).toBe(false);
+		expect(isCommandPaletteEnabled(undefined, false, false)).toBe(false);
+	});
+
+	it("is on in the local-distribution build whatever the version", () => {
+		expect(isCommandPaletteEnabled("0.14.8-icosa.2", false, true)).toBe(true);
+		expect(isCommandPaletteEnabled(undefined, false, true)).toBe(true);
 	});
 });
 

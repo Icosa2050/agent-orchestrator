@@ -1,9 +1,19 @@
+import { LOCAL_DISTRIBUTION } from "../../shared/fork-identity";
+
 export function isNightlyBuild(version?: string): boolean {
 	return version?.includes("-nightly.") ?? false;
 }
 
-export function isCommandPaletteEnabled(version?: string, isDev: boolean = import.meta.env.DEV): boolean {
-	return isDev || isNightlyBuild(version);
+/**
+ * Fork (Icosa2050): the local-distribution build gets the palette like a
+ * nightly. Teams keeps its own rule below and stays off there.
+ */
+export function isCommandPaletteEnabled(
+	version?: string,
+	isDev: boolean = import.meta.env.DEV,
+	localDistribution: boolean = LOCAL_DISTRIBUTION,
+): boolean {
+	return isDev || isNightlyBuild(version) || localDistribution;
 }
 
 /**

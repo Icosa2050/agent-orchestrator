@@ -818,6 +818,15 @@ describe("Sidebar", () => {
 		expect(artifacts.textContent).toBe("Artifacts");
 	});
 
+	it("shows the Usage row without Developer Mode and navigates to it", async () => {
+		const user = userEvent.setup();
+		useUiStore.setState({ developerMode: false });
+		renderSidebar();
+
+		await user.click(screen.getByRole("button", { name: "Usage" }));
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/usage" });
+	});
+
 	it("navigates home from the brand row", async () => {
 		const user = userEvent.setup();
 		mockParams.projectId = "proj-1";
