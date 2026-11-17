@@ -150,3 +150,14 @@ What to check in each flagged section of the report:
 - Upstream #8492's rotated Sentry DSNs remain behind the existing explicit
   consent and legacy opt-out veto. Daemon tests use the rotated production DSN
   with an injected recording transport; Electron tests use the current default.
+
+## Desktop host-profile platforms
+
+`~/.ao/icosa-desktop.json` is supported on macOS and Linux. Electron and the Go
+CLI validate its owner, owner-only POSIX permissions, schema and paths before
+using it; malformed or unsafe profiles fail closed even with environment overrides.
+Windows ignores this file entirely, including malformed or unreadable files:
+POSIX mode/uid checks cannot establish Windows ACL safety. No Windows profile
+support is claimed until an ACL-based contract is implemented in both readers.
+On Windows, explicit `AO_DATA_DIR`, `AO_RUN_FILE` and `AO_PORT` still win over the
+approved defaults (`~/.ao/dev/data`, `~/.ao/dev/running.json`, port 3002).

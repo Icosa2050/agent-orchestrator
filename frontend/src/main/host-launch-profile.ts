@@ -14,18 +14,20 @@ export function parseHostLaunchProfile(value: unknown, home: string): HostLaunch
  if (Object.keys(p).some(k => !["version", "dataDir", "runFile", "port"].includes(k))) throw new Error("Unknown Icosa profile field");
  return p as unknown as HostLaunchProfile;
 }
-/** Finder/deep-link launches use this durable profile; explicit environment wins. */
+/** macOS/Linux launches use this durable profile; explicit environment wins.
+ * Windows ignores the profile (no POSIX mode/uid contract), using env/defaults. */
 export function applyHostLaunchProfile(env: NodeJS.ProcessEnv, home: string): void {
  const file = path.join(home, ".ao", "icosa-desktop.json");
- let profile: HostLaunchProfile;
- try {
-  const st = statSync(file);
-  if ((st.mode & 0o077) !== 0 || (process.getuid && st.uid !== process.getuid())) throw new Error("Icosa host launch profile must be owner-only (chmod 600)");
-  profile = parseHostLaunchProfile(JSON.parse(readFileSync(file, "utf8")), home);
- } catch (error) {
-  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  // Approved first-stage host policy; no data/profile migration or file creation.
-  profile = { version: 1, dataDir: path.join(home, ".ao/dev/data"), runFile: path.join(home, ".ao/dev/running.json"), port: 3002 };
+ let profile: HostLaunchProfile = { version: 1, dataDir: path.join(home, ".ao/dev/data"), runFile: path.join(home, ".ao/dev/running.json"), port: 3002 };
+ if (process.platform !== "win32") {
+  try {
+   const st = statSync(file);
+   if ((st.mode & 0o077) !== 0 || (process.getuid && st.uid !== process.getuid())) throw new Error("Icosa host launch profile must be owner-only (chmod 600)");
+   profile = parseHostLaunchProfile(JSON.parse(readFileSync(file, "utf8")), home);
+  } catch (error) {
+   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+   // An absent profile retains the defaults without creating any files.
+  }
  }
  env.AO_DATA_DIR ||= profile.dataDir;
  env.AO_RUN_FILE ||= profile.runFile;

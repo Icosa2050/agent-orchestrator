@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -552,6 +553,10 @@ func TestForkCLIUsesHostLaunchProfileWithoutEnvironment(t *testing.T) {
 	var status daemonStatus
 	if err := json.Unmarshal([]byte(out), &status); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		dataDir = filepath.Join(dir, "dev", "data")
+		runFile = filepath.Join(dir, "dev", "running.json")
 	}
 	if status.RunFile != runFile || status.DataDir != dataDir || status.State != stateStopped {
 		t.Fatalf("profile not used: %s", out)
