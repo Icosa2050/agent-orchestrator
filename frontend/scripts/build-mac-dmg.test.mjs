@@ -281,3 +281,13 @@ describe("buildMacDmg", () => {
 		await expect(buildMacDmg({ app, arch: "arm64", output }, { buildForge })).rejects.toThrow(/already exists/);
 	});
 });
+
+describe("CI fixture identity", () => {
+	it("uses the builder bundle/executable identity in the real DMG layout job", () => {
+		const workflow = readFileSync(path.resolve(path.dirname(BACKGROUND_IMAGE), "../../../.github/workflows/frontend.yml"), "utf8");
+		const job = workflow.split("  mac-dmg-layout:")[1].split("\n  typecheck:")[0];
+		expect(job).toContain(`app="$work/${APP_BUNDLE_NAME}"`);
+		expect(job).toContain('CFBundleExecutable -string icosa-orchestrator');
+		expect(job).not.toContain('Agent Orchestrator.app');
+	});
+});

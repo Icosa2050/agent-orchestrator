@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -528,4 +529,22 @@ func swapScanLocations(fn func() []string) func() {
 	orig := appScanLocations
 	appScanLocations = fn
 	return func() { appScanLocations = orig }
+}
+
+func TestForkStartMissingInstallDoesNotAcquire(t *testing.T) {
+	setConfigEnv(t)
+	t.Cleanup(swapPreferredAppPath(func() string { return "" }))
+	t.Cleanup(swapScanLocations(func() []string { return nil }))
+	calls := 0
+	deps := Deps{HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		return nil, errors.New("unexpected network request")
+	})}}
+	out, _, err := executeCLI(t, deps, "start", "--json")
+	if err == nil || !strings.Contains(err.Error(), "automatic acquisition is disabled") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out != "" || calls != 0 {
+		t.Fatalf("missing install emitted output %q or made %d requests", out, calls)
+	}
 }

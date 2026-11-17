@@ -96,25 +96,25 @@ jobs:
         run: |
           set -euo pipefail
           work="$RUNNER_TEMP/dmg-layout"
-          app="$work/Agent Orchestrator.app"
+          app="$work/Icosa Orchestrator.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp assets/icon.icns "$app/Contents/Resources/icon.icns"
-          printf '#!/bin/sh\n' > "$app/Contents/MacOS/agent-orchestrator"
-          chmod +x "$app/Contents/MacOS/agent-orchestrator"
+          printf '#!/bin/sh\n' > "$app/Contents/MacOS/icosa-orchestrator"
+          chmod +x "$app/Contents/MacOS/icosa-orchestrator"
           plutil -create xml1 "$app/Contents/Info.plist"
-          plutil -insert CFBundleExecutable -string agent-orchestrator "$app/Contents/Info.plist"
+          plutil -insert CFBundleExecutable -string icosa-orchestrator "$app/Contents/Info.plist"
           plutil -insert CFBundleIconFile -string icon.icns "$app/Contents/Info.plist"
           plutil -insert CFBundlePackageType -string APPL "$app/Contents/Info.plist"
           # Builds, then runs --check itself and exits non-zero on any problem.
-          node scripts/build-mac-dmg.mjs --app "$app" --arch arm64 --output "$work/Orchestrator-darwin-arm64.dmg"
-          test ! -e "$work/Orchestrator-darwin-arm64.dmg.blockmap"
-          node scripts/build-mac-dmg.mjs --check "$work/Orchestrator-darwin-arm64.dmg"
+          node scripts/build-mac-dmg.mjs --app "$app" --arch arm64 --output "$work/Icosa Orchestrator-0.14.8-icosa.1-arm64.dmg"
+          test ! -e "$work/Icosa Orchestrator-0.14.8-icosa.1-arm64.dmg.blockmap"
+          node scripts/build-mac-dmg.mjs --check "$work/Icosa Orchestrator-0.14.8-icosa.1-arm64.dmg"
 
           stage="$work/bare"
           mkdir -p "$stage"
-          ditto "$app" "$stage/Agent Orchestrator.app"
+          ditto "$app" "$stage/Icosa Orchestrator.app"
           ln -s /Applications "$stage/Applications"
-          hdiutil create -volname "Agent Orchestrator" -srcfolder "$stage" -ov -format UDZO "$work/bare.dmg"
+          hdiutil create -volname "Icosa Orchestrator" -srcfolder "$stage" -ov -format UDZO "$work/bare.dmg"
           if node scripts/build-mac-dmg.mjs --check "$work/bare.dmg"; then
             echo "::error::the layout check accepted a dmg with no layout"
             exit 1
