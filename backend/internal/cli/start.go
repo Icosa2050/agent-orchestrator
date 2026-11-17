@@ -394,12 +394,10 @@ func (c *commandContext) openApp(ctx context.Context, appPath string) (bool, err
 	}
 }
 
-// printDeprecationNotice explains the new role of the npm `ao` binary. Keep it
-// honest: Track B (live auto-update) is not done, so it does not promise it.
+// printDeprecationNotice describes the local-distribution launch policy.
 func (c *commandContext) printDeprecationNotice(w io.Writer) {
-	_, _ = fmt.Fprint(w, "Agent Orchestrator is now a desktop app, and the npm `ao` is just its launcher.\n"+
-		"The app is distributed from the website and GitHub Releases; it owns the daemon and updates itself.\n"+
-		"You can keep running `ao start` to fetch (if needed) and open it.\n")
+	_, _ = fmt.Fprint(w, "`ao start` opens an existing local Icosa Orchestrator install only.\n"+
+		"Updates are managed locally. Automatic acquisition and updates are disabled.\n")
 }
 
 // printManualOpen tells the user how to open the bundle when `ao start` could

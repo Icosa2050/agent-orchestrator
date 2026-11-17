@@ -51,7 +51,7 @@ jobs:
           xcrun swiftc -module-cache-path "$HOME/.ao/build-cache/wake-helper/tests" native/wake-helper/WakePolicy.swift native/wake-helper/WakeLowPower.swift native/wake-helper/LowPowerTests.swift -o "$HOME/.ao/build-cache/wake-helper/low-power-tests"
           "$HOME/.ao/build-cache/wake-helper/low-power-tests"
       - name: Test dictation helper build configuration
-        run: node --test scripts/build-dictation-helper.node-test.mjs
+        run: node --test scripts/build-dictation-helper.node-test.mjs scripts/build-icosa-local.node-test.mjs
       - name: Compile dictation helper for both macOS architectures
         run: |
           node scripts/build-dictation-helper.mjs --arch x64

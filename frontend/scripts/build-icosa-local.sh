@@ -12,7 +12,8 @@ unset AO_NOTARY_PROFILE
 if xcrun notarytool history --keychain-profile "$profile" > notary-profile-check.log 2>&1; then
  export AO_NOTARY_PROFILE="$profile"
 else
- echo 'Notary profile unavailable; attempting signed-only build. See notary-profile-check.log.'
+ echo 'Notarization is required; notary profile unavailable. See notary-profile-check.log.' >&2
+ exit 1
 fi
 (cd packages/product-ui && nice -n 10 npm ci --no-audit --no-fund)
 cd frontend
@@ -32,13 +33,11 @@ printf '%s\n' "$signature" | grep -E "flags=.*runtime"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 nice -n 10 node scripts/build-mac-dmg.mjs --app "$app" --arch arm64 --output "$dmg"
 codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg"
-if [ -n "${AO_NOTARY_PROFILE:-}" ]; then
- xcrun notarytool submit "$dmg" --keychain-profile "$AO_NOTARY_PROFILE" --wait
- xcrun stapler staple "$dmg"
- bash scripts/verify-mac-artifact.sh "$zip"
- bash scripts/verify-mac-artifact.sh "$dmg"
-fi
-# Verification is read-only. Gatekeeper/stapler may reject a signed-only pilot.
+xcrun notarytool submit "$dmg" --keychain-profile "$AO_NOTARY_PROFILE" --wait
+xcrun stapler staple "$dmg"
+bash scripts/verify-mac-artifact.sh "$zip"
+bash scripts/verify-mac-artifact.sh "$dmg"
+# Verification is read-only; canonical artifacts must be notarized.
 {
  codesign -dvvv "$app" 2>&1
  codesign -d -r- "$app" 2>&1

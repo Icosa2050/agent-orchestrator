@@ -620,3 +620,20 @@ func TestForkMarkerIdentityOnEveryPlatform(t *testing.T) {
 		})
 	}
 }
+
+func TestForkStartLocalDistributionNotice(t *testing.T) {
+	var out bytes.Buffer
+	c := &commandContext{}
+	c.printDeprecationNotice(&out)
+	notice := out.String()
+	for _, want := range []string{"existing local Icosa Orchestrator install", "Updates are managed locally", "Automatic acquisition and updates are disabled"} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("notice missing %q: %s", want, notice)
+		}
+	}
+	for _, forbidden := range []string{"GitHub Releases", "website", "fetch (if needed)", "updates itself"} {
+		if strings.Contains(notice, forbidden) {
+			t.Errorf("notice contains %q", forbidden)
+		}
+	}
+}
