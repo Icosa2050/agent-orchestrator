@@ -22,7 +22,7 @@ const native = (command, args) => {
 };
 test('accepts supported stable/nightly versions and both executable architectures', () => {
   assert.deepEqual(validateMetadata(metadata).architectures, ['arm64']);
-  assert.equal(validateMetadata({...metadata,version:'0.14.8-icosa.1',build:'0.14.8-icosa.1'}).version,'0.14.8-icosa.1');
+  assert.equal(validateMetadata({...metadata,version:'0.14.8-icosa.2',build:'0.14.8-icosa.2'}).version,'0.14.8-icosa.2');
   assert.deepEqual(validateMetadata({ ...metadata, version: '1.2.3', build: '1.2.3', archs: 'x86_64 arm64' }).architectures, ['x86_64', 'arm64']);
   for (const bad of [{ id: 'unrelated.app' }, { version: '1.2.3-beta.1' }, { build: '123' }, { executable: '../evil' }, { archs: '' }, { archs: 'arm64 arm64' }, { archs: 'i386' }]) assert.throws(() => validateMetadata({ ...metadata, ...bad }));
 });

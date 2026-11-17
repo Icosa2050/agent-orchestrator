@@ -374,6 +374,6 @@ describe("retireStaleMacAppCopies", () => {
 });
 
 it("never discovers upstream identities even under a fork filename", async () => {
- const copies = await findStaleAppCopies({runningVersion:"0.14.8-icosa.1", homeDir:"/Users/user"}, {fileIdentity: async () => ({device:1,inode:1}),readMetadata: async () => ({bundleId:"dev.agent-orchestrator.desktop",version:"0.1.0"})});
+ const copies = await findStaleAppCopies({runningVersion:"0.14.8-icosa.2", homeDir:"/Users/user"}, {fileIdentity: async () => ({device:1,inode:1}),readMetadata: async () => ({bundleId:"dev.agent-orchestrator.desktop",version:"0.1.0"})});
  expect(copies).toEqual([]);
 });

@@ -2,8 +2,23 @@
 # Run in a clean scratch checkout on the Studio. Never launches/installs the GUI.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+version=$(node -p 'require("./frontend/package.json").version')
+destination="/Volumes/aofiles/ao-builds/icosa-orchestrator/$version"
+refuse() { echo "Version $version already built or reserved: $1. Bump the version; never overwrite artifacts." >&2; exit 1; }
+[ ! -e "$destination" ] && [ ! -L "$destination" ] || refuse "$destination"
+for artifact in frontend/out/local/*"$version"*; do
+ [ ! -e "$artifact" ] && [ ! -L "$artifact" ] || refuse "$artifact"
+done
+# A manifest records a completed build even if its archives were moved away.
+if [ -e frontend/out/local/manifest.json ] || [ -L frontend/out/local/manifest.json ]; then
+ node -e 'const m=require("./frontend/out/local/manifest.json"); if (m.version === process.argv[1]) process.exit(1)' "$version" || refuse frontend/out/local/manifest.json
+fi
 [ "$(uname -m)" = arm64 ] || { echo 'arm64 Studio required' >&2; exit 1; }
 [ -z "$(git status --porcelain --untracked-files=no)" ] || { echo 'Tracked source must be clean' >&2; exit 1; }
+mkdir -p frontend/out/local
+lock="$PWD/frontend/out/local/.build-$version.lock"
+mkdir "$lock" || refuse "$lock"
+trap 'rmdir "$lock"' EXIT
 export APPLE_SIGNING_IDENTITY='Developer ID Application: Markus Frommherz (L98MZWWR98)'
 export AO_RELEASE_REPO='Icosa2050/agent-orchestrator'
 unset CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER AO_PUBLISHED_BUILD SENTRY_AUTH_TOKEN
@@ -19,7 +34,6 @@ fi
 cd frontend
 nice -n 10 npm ci --no-audit --no-fund
 nice -n 10 npm run package -- --platform=darwin --arch=arm64
-version=$(node -p 'require("./package.json").version')
 app="$PWD/out/Icosa Orchestrator-darwin-arm64/Icosa Orchestrator.app"
 [ -d "$app" ] || { echo "Missing $app" >&2; exit 1; }
 mkdir -p out/local
@@ -68,6 +82,9 @@ assert p['CFBundleName']=='Icosa Orchestrator'
 assert p['CFBundleDisplayName']=='Icosa Orchestrator'
 assert [s for item in p['CFBundleURLTypes'] for s in item['CFBundleURLSchemes']]==['icosa-orchestrator']
 assert p['CFBundleShortVersionString']==version
+assert p['CFBundleVersion']==version
+cli=subprocess.check_output([app+'/Contents/Resources/daemon/ao','version'],text=True).strip()
+assert cli.split()[0]==version,cli
 for root,dirs,files in os.walk(app+'/Contents'):
  if 'Info.plist' in files and root != app+'/Contents' and root.endswith('.app/Contents'):
   with open(root+'/Info.plist','rb') as f: nested=plistlib.load(f)
@@ -77,9 +94,15 @@ requirement=dr.stdout+dr.stderr
 artifacts=[{'path':f,'bytes':os.path.getsize(f),'sha256':hashlib.file_digest(open(f,'rb'),'sha256').hexdigest()} for f in [archive,dmg]]
 with open('out/local/manifest.json','w') as f:json.dump(dict(commit=commit,version=version,arch='arm64',team='L98MZWWR98',identifier=p['CFBundleIdentifier'],profileVersion=1,designatedRequirement=requirement,notaryProfileConfigured=bool(os.environ.get('AO_NOTARY_PROFILE')),artifacts=artifacts),f,indent=2)
 PY
-destination="/Volumes/aofiles/ao-builds/icosa-orchestrator/$version"
-if mkdir -p "$destination" && cp "$zip" "$dmg" out/local/manifest.json out/local/verification.log "$destination/"; then
- echo "Copied to $destination"
+# Reserve atomically before copying: another build may have finished meanwhile.
+if mkdir -p "$(dirname "$destination")" 2>/dev/null && mkdir "$destination" 2>/dev/null; then
+ if cp "$zip" "$dmg" out/local/manifest.json out/local/verification.log "$destination/"; then
+  echo "Copied to $destination"
+ else
+  echo "Manual Terminal-context copy required: $destination" >&2
+ fi
+elif [ -e "$destination" ] || [ -L "$destination" ]; then
+ refuse "$destination"
 else
  echo "Manual Terminal-context copy required: $destination" >&2
 fi
