@@ -95,10 +95,14 @@ artifacts=[{'path':f,'bytes':os.path.getsize(f),'sha256':hashlib.file_digest(ope
 with open('out/local/manifest.json','w') as f:json.dump(dict(commit=commit,version=version,arch='arm64',team='L98MZWWR98',identifier=p['CFBundleIdentifier'],profileVersion=1,designatedRequirement=requirement,notaryProfileConfigured=bool(os.environ.get('AO_NOTARY_PROFILE')),artifacts=artifacts),f,indent=2)
 PY
 # Reserve atomically before copying: another build may have finished meanwhile.
-mkdir -p "$(dirname "$destination")"
-mkdir "$destination" || refuse "$destination"
-if cp "$zip" "$dmg" out/local/manifest.json out/local/verification.log "$destination/"; then
- echo "Copied to $destination"
+if mkdir -p "$(dirname "$destination")" 2>/dev/null && mkdir "$destination" 2>/dev/null; then
+ if cp "$zip" "$dmg" out/local/manifest.json out/local/verification.log "$destination/"; then
+  echo "Copied to $destination"
+ else
+  echo "Manual Terminal-context copy required: $destination" >&2
+ fi
+elif [ -e "$destination" ] || [ -L "$destination" ]; then
+ refuse "$destination"
 else
  echo "Manual Terminal-context copy required: $destination" >&2
 fi

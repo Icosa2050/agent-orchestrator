@@ -47,3 +47,41 @@ test('unavailable notary profile still fails before npm', async t => {
  assert.match(result.stderr, /Notarization is required/);
  assert.doesNotMatch(result.stdout, /PACKAGING_REACHED/);
 });
+
+for (const scenario of ['existing destination', 'uncreatable parent', 'copy succeeds']) {
+ test(`publication tail handles ${scenario}`, async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'icosa-publish-'));
+  t.after(() => rm(root, {recursive:true, force:true}));
+  await mkdir(path.join(root, 'out/local'), {recursive:true});
+  for (const file of ['archive.zip', 'archive.dmg', 'out/local/manifest.json', 'out/local/verification.log']) {
+   await writeFile(path.join(root, file), 'verified build');
+  }
+  const destination = path.join(root, scenario === 'uncreatable parent' ? 'blocked/version' : 'published/version');
+  if (scenario === 'existing destination') {
+   await mkdir(destination, {recursive:true});
+   await writeFile(path.join(destination, 'archive.zip'), 'pilot');
+  } else if (scenario === 'uncreatable parent') {
+   // A file as parent fails reliably, even under root (unlike chmod-based tests).
+   await writeFile(path.join(root, 'blocked'), 'not a directory');
+  }
+  const source = await readFile(new URL('./build-icosa-local.sh', import.meta.url), 'utf8');
+  const refuse = source.match(/^refuse\(\).*$/m)[0];
+  const tail = source.slice(source.indexOf('# Reserve atomically before copying:'));
+  const script = `set -euo pipefail\ncd "$BUILD_TEST_ROOT"\nversion=0.14.8-icosa.2\nzip="$PWD/archive.zip"\ndmg="$PWD/archive.dmg"\n${refuse}\n${tail}`;
+  const result = spawnSync('bash', ['-c', script], {encoding:'utf8', env:{...process.env, BUILD_TEST_ROOT:root, destination}});
+  if (scenario === 'existing destination') {
+   assert.equal(result.status, 1, result.stderr);
+   assert.match(result.stderr, /Bump the version/);
+   assert.equal(await readFile(path.join(destination, 'archive.zip'), 'utf8'), 'pilot');
+  } else {
+   assert.equal(result.status, 0, result.stderr);
+   assert.match(result.stdout, /Artifacts remain in/);
+   assert.doesNotMatch(result.stderr, /Bump the version/);
+   if (scenario === 'uncreatable parent') assert.match(result.stderr, /Manual Terminal-context copy required/);
+   else {
+    assert.match(result.stdout, /Copied to/);
+    assert.equal(await readFile(path.join(destination, 'archive.zip'), 'utf8'), 'verified build');
+   }
+  }
+ });
+}
