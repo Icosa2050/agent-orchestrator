@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>dev.agent-orchestrator.desktop.dictation</string>
+	<string>com.icosa2050.orchestrator.dictation</string>
 	<key>CFBundleName</key>
-	<string>Orchestrator</string>
+	<string>Icosa Orchestrator Dictation</string>
 	<key>CFBundleDisplayName</key>
-	<string>Orchestrator</string>
+	<string>Icosa Orchestrator Dictation</string>
 	<key>CFBundleExecutable</key>
-	<string>Orchestrator</string>
+	<string>icosa-dictation</string>
 	<key>CFBundleIconFile</key>
 	<string>icon</string>
 	<key>CFBundlePackageType</key>
@@ -22,8 +22,8 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Orchestrator uses the microphone to dictate messages.</string>
+	<string>Icosa Orchestrator uses the microphone to dictate messages.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Orchestrator turns your speech into message text.</string>
+	<string>Icosa Orchestrator turns your speech into message text.</string>
 </dict>
 </plist>

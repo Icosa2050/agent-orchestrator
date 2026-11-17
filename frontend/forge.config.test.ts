@@ -31,7 +31,7 @@ vi.mock("./scripts/build-mac-dmg.mjs", async (importOriginal) => {
 	return { ...actual, checkMacDmgLayout };
 });
 
-import config, { extraResourcesForPlatform, labelMacBundle, macSignOptionsForFile, WINDOWS_DISPLAY_NAME } from "./forge.config";
+import config, { extraResourcesForPlatform, labelMacBundle, macSignOptionsForFile, parseReleaseRepo, WINDOWS_DISPLAY_NAME } from "./forge.config";
 
 // Minimal synthetic Mach-O headers (thin little-endian + fat big-endian), the
 // two on-disk layouts the signing selector must tell apart. Full parser
@@ -74,7 +74,7 @@ let fixtureDir: string;
 function acpNodeWith(contents: Buffer): string {
 	const binDir = join(
 		fixtureDir,
-		"Agent Orchestrator.app",
+		"Icosa Orchestrator.app",
 		"Contents",
 		"Resources",
 		"acp-runtime",
@@ -164,9 +164,9 @@ describe("native runtime resources", () => {
 		writeFileSync(join(resources, "update-helper", "ao-update-progress"), "");
 		writeFileSync(join(resources, "wake-helper", "ao-wake"), "");
 		writeFileSync(join(resources, "Assets.car"), "");
-		const dictationHelper = join(resources, "dictation-helper", "Orchestrator.app", "Contents", "MacOS");
+		const dictationHelper = join(resources, "dictation-helper", "Icosa Orchestrator Dictation.app", "Contents", "MacOS");
 		mkdirSync(dictationHelper, { recursive: true });
-		writeFileSync(join(dictationHelper, "Orchestrator"), "");
+		writeFileSync(join(dictationHelper, "icosa-dictation"), "");
 		const hook = config.hooks?.postPackage;
 		if (typeof hook !== "function") throw new Error("postPackage hook missing");
 		await expect(hook(config, { platform: "darwin", arch: "arm64", outputPaths: [fixtureDir] })).rejects.toThrow("packaged cloudflared missing");
@@ -215,21 +215,21 @@ describe("macOS signing", () => {
 
 	it("allows the bundled Node runtime to execute V8 JIT code on Intel Macs", () => {
 		expect(macSignOptionsForFile(acpNodeWith(thinMachO(CPU_TYPE_X86_64)))).toEqual({
-			entitlements: NODE_ENTITLEMENTS,
+			hardenedRuntime: true, entitlements: NODE_ENTITLEMENTS,
 		});
 	});
 
 	it("keeps the override for a universal binary carrying an x86_64 slice", () => {
 		expect(macSignOptionsForFile(acpNodeWith(fatMachO([CPU_TYPE_X86_64, CPU_TYPE_ARM64])))).toEqual({
-			entitlements: NODE_ENTITLEMENTS,
+			hardenedRuntime: true, entitlements: NODE_ENTITLEMENTS,
 		});
 	});
 
 	it("lets the dictation helper bundle and its executable record audio", () => {
-		const helper = "/Applications/Orchestrator.app/Contents/Resources/dictation-helper/Orchestrator.app";
-		const audio = { entitlements: ["com.apple.security.device.audio-input"] };
+		const helper = "/Applications/Orchestrator.app/Contents/Resources/dictation-helper/Icosa Orchestrator Dictation.app";
+		const audio = { hardenedRuntime: true, entitlements: ["com.apple.security.device.audio-input"] };
 		expect(macSignOptionsForFile(helper)).toEqual(audio);
-		expect(macSignOptionsForFile(`${helper}/Contents/MacOS/Orchestrator`)).toEqual(audio);
+		expect(macSignOptionsForFile(`${helper}/Contents/MacOS/icosa-dictation`)).toEqual(audio);
 	});
 
 	it("gives the app the dictation helper's usage strings", () => {
@@ -245,12 +245,12 @@ describe("macOS signing", () => {
 		const foreign = join(fixtureDir, "elsewhere", "agent-orchestrator");
 		mkdirSync(join(fixtureDir, "elsewhere"), { recursive: true });
 		writeFileSync(foreign, thinMachO(CPU_TYPE_X86_64));
-		expect(macSignOptionsForFile(foreign)).toEqual({});
+		expect(macSignOptionsForFile(foreign)).toEqual({ hardenedRuntime: true });
 	});
 
 	it("keeps the narrower default JIT entitlement when the binary has no x86_64 slice", () => {
-		expect(macSignOptionsForFile(acpNodeWith(thinMachO(CPU_TYPE_ARM64)))).toEqual({});
-		expect(macSignOptionsForFile(acpNodeWith(fatMachO([CPU_TYPE_ARM64])))).toEqual({});
+		expect(macSignOptionsForFile(acpNodeWith(thinMachO(CPU_TYPE_ARM64)))).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
+		expect(macSignOptionsForFile(acpNodeWith(fatMachO([CPU_TYPE_ARM64])))).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
 	});
 
 	it("fails the signing pass when the file cannot be parsed", () => {
@@ -267,9 +267,9 @@ describe("macOS signing", () => {
 		const fromX64Host = withHostArch("x64", () => macSignOptionsForFile(acpNode));
 		const fromArm64Host = withHostArch("arm64", () => macSignOptionsForFile(acpNode));
 		const fromAbsurdHost = withHostArch("ppc64", () => macSignOptionsForFile(acpNode));
-		expect(fromX64Host).toEqual({});
-		expect(fromArm64Host).toEqual({});
-		expect(fromAbsurdHost).toEqual({});
+		expect(fromX64Host).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
+		expect(fromArm64Host).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
+		expect(fromAbsurdHost).toEqual({ hardenedRuntime: true, entitlements: ["com.apple.security.cs.allow-jit"] });
 	});
 
 	it.each([
@@ -383,8 +383,8 @@ describe("postMake artifact verification", () => {
 
 describe("Windows app labels", () => {
 	it("matches the installer display name without renaming the executable or bundle", async () => {
-		expect(WINDOWS_DISPLAY_NAME).toBe("Orchestrator.inc");
-		expect(appPackage.author).toBe(WINDOWS_DISPLAY_NAME);
+		expect(WINDOWS_DISPLAY_NAME).toBe("Icosa Orchestrator");
+		expect(appPackage.author).toBe("Orchestrator.inc");
 		expect(config.packagerConfig?.win32metadata).toEqual({
 			FileDescription: WINDOWS_DISPLAY_NAME,
 			InternalName: WINDOWS_DISPLAY_NAME,
@@ -393,12 +393,12 @@ describe("Windows app labels", () => {
 		const windowsInstaller = config.makers?.find((maker) => maker instanceof MakerNSIS);
 		await windowsInstaller?.prepareConfig("x64");
 		expect(windowsInstaller?.config.productName).toBe(WINDOWS_DISPLAY_NAME);
-		expect(windowsInstaller?.config.appId).toBe("dev.agent-orchestrator.desktop");
-		expect(appPackage.name).toBe("agent-orchestrator");
-		expect(appPackage.productName).toBe("Orchestrator");
-		expect(config.packagerConfig?.executableName).toBe("agent-orchestrator");
-		expect(config.packagerConfig?.name).toBe("Agent Orchestrator");
-		expect(config.packagerConfig?.appBundleId).toBe("dev.agent-orchestrator.desktop");
+		expect(windowsInstaller?.config.appId).toBe("com.icosa2050.orchestrator");
+		expect(appPackage.name).toBe("icosa-orchestrator");
+		expect(appPackage.productName).toBe("Icosa Orchestrator");
+		expect(config.packagerConfig?.executableName).toBe("icosa-orchestrator");
+		expect(config.packagerConfig?.name).toBe("Icosa Orchestrator");
+		expect(config.packagerConfig?.appBundleId).toBe("com.icosa2050.orchestrator");
 	});
 });
 
@@ -417,8 +417,8 @@ describe("packaged authentication callback registration", () => {
 	it("declares ao-app in the macOS bundle and Linux package metadata", () => {
 		expect(config.packagerConfig?.protocols).toEqual([
 			{
-				name: "Orchestrator authentication callback",
-				schemes: ["ao-app"],
+				name: "Icosa Orchestrator authentication callback",
+				schemes: ["icosa-orchestrator"],
 			},
 		]);
 
@@ -432,7 +432,7 @@ describe("packaged authentication callback registration", () => {
 		]) {
 			const maker = makers.find((candidate) => candidate.name === name);
 			expect(maker?.config?.options?.mimeType).toEqual([
-				"x-scheme-handler/ao-app",
+				"x-scheme-handler/icosa-orchestrator",
 			]);
 		}
 	});
@@ -491,4 +491,22 @@ describe("macOS bundle display label", () => {
 	it("fails when the packaged bundle is missing instead of silently skipping the label", () => {
 		expect(() => labelMacBundle(buildPath, vi.fn())).toThrow();
 	});
+});
+
+it("registers only the fork OS scheme and forbids publishing", () => {
+ expect(config.packagerConfig?.protocols).toEqual([{name:"Icosa Orchestrator authentication callback",schemes:["icosa-orchestrator"]}]);
+ expect(config.packagerConfig?.appBundleId).toBe("com.icosa2050.orchestrator");
+ expect(config.publishers).toEqual([]);
+});
+
+it("requires an explicit fork packaging target", () => {
+ for (const repo of [undefined,"","malformed","Untrivial-ai/agent-orchestrator"]) expect(()=>parseReleaseRepo(repo)).toThrow("Local fork release target");
+ expect(parseReleaseRepo("Icosa2050/agent-orchestrator")).toEqual({owner:"Icosa2050",name:"agent-orchestrator"});
+ expect(config.packagerConfig?.helperBundleId).toBe("com.icosa2050.orchestrator.helper");
+});
+
+it("never swallows a Developer ID signing failure", async () => {
+ const sign = await loadMacSignOptions({APPLE_SIGNING_IDENTITY:"Developer ID Application: AO (TEAMID)"});
+ expect(sign).toMatchObject({continueOnError:false});
+ expect(sign?.optionsForFile?.("/app/Contents/MacOS/icosa-orchestrator")).toEqual({hardenedRuntime:true});
 });

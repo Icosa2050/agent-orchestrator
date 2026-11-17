@@ -1404,7 +1404,7 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 		setActiveShellTerminal,
 	]);
 
-	// ao-app://billing (Stripe's return page) opens Upgrade only for a
+	// icosa-orchestrator://billing (Stripe's return page) opens Upgrade only for a
 	// self-serve org; any other org has no plans and lands on general settings.
 	useEffect(
 		() => aoBridge.app.onOpenSettingsShortcut((section) =>
@@ -1414,7 +1414,7 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 		[queryClient],
 	);
 
-	// ao-app://sessions/… deep links from external tools. The raw URL is
+	// icosa-orchestrator://sessions/… deep links from external tools. The raw URL is
 	// re-read as its in-app ao:// form and resolved through the same
 	// session-links path as ao:// links, so both schemes behave alike:
 	// artifact routes open the file in the destination session, a terminated
@@ -1443,7 +1443,7 @@ const replacementErrorCount = Object.keys(orchestratorReplacementErrors).length;
 	const pendingSessionDeepLinkRef = useRef<string | null>(null);
 	const handleSessionDeepLink = useCallback(
 		(rawUrl: string) => {
-			const link = `ao://${rawUrl.slice("ao-app://".length)}`;
+			const link = `ao://${rawUrl.slice("icosa-orchestrator://".length)}`;
 			const artifact = parseArtifactLink(link);
 			const target = parseSessionLink(link) ?? artifact;
 			const workspaces = workspacesRef.current;

@@ -69,7 +69,7 @@ function guide() {
 		createWindow: vi.fn(() => window),
 		openExternal: vi.fn().mockResolvedValue(undefined),
 		appFor: vi.fn((target: PrivacyGuideTarget): PrivacyGuideApp | undefined => (target === "orchestrator"
-			? { name: "Orchestrator", path: "/Applications/Agent Orchestrator.app" }
+			? { name: "Orchestrator", path: "/Applications/Icosa Orchestrator.app" }
 			: { name: "CuaDriver", path: "/Applications/CuaDriver.app" })),
 		readIcon: vi.fn().mockResolvedValue("data:image/png;base64,AAAA"),
 		watchSettings: vi.fn((onSnapshot: typeof emit, onError: () => void) => {
@@ -312,8 +312,8 @@ describe("PrivacyGuide", () => {
 		const { guide: subject, deps, window } = guide();
 		expect(subject.currentApp()).toBeUndefined();
 		await subject.show({ ...request, target: "orchestrator" });
-		expect(deps.readIcon).toHaveBeenCalledWith("/Applications/Agent Orchestrator.app");
-		expect(subject.currentApp()).toEqual({ name: "Orchestrator", path: "/Applications/Agent Orchestrator.app" });
+		expect(deps.readIcon).toHaveBeenCalledWith("/Applications/Icosa Orchestrator.app");
+		expect(subject.currentApp()).toEqual({ name: "Orchestrator", path: "/Applications/Icosa Orchestrator.app" });
 		await vi.waitFor(() => expect(window.html()).toContain("<span>Orchestrator</span>"));
 
 		await subject.show(request);

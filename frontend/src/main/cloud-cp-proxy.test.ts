@@ -1,3 +1,4 @@
+vi.mock("./local-distribution-ipc", () => ({ localDistributionIpc: (ipc: unknown) => ipc }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ ipcMain: { handle: vi.fn(), on: vi.fn() } }));

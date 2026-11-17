@@ -1,9 +1,9 @@
 // Share links for cloud sessions. The control plane mints a short code per
 // link and keeps only its hash, so the link is the only copy. A shared link is
 // a web page on the control plane, https://<cp>/s/<code>, that opens the
-// desktop app through ao-app://share/<code>. A control plane without codes
+// desktop app through icosa-orchestrator://share/<code>. A control plane without codes
 // shares https://<cp>/app/share#<orgId>/<token> instead, which opens
-// ao-app://share/<orgId>/<token>; that share rides in the fragment, which the
+// icosa-orchestrator://share/<orgId>/<token>; that share rides in the fragment, which the
 // browser never sends to the server. Pasting any of these, or an older
 // https://<host>/share/<orgId>/<token> link, opens the same share.
 
@@ -70,8 +70,8 @@ function parseShareUrl(text: string): ShareLinkTarget | undefined {
 		return undefined;
 	}
 	let segments: string[];
-	if (url.protocol === "ao-app:") {
-		// ao-app://share/<code> or ao-app://share/<org>/<token>: "share" parses as the host.
+	if (url.protocol === "icosa-orchestrator:") {
+		// icosa-orchestrator://share/<code> or icosa-orchestrator://share/<org>/<token>: "share" parses as the host.
 		if (url.hostname !== "share") return undefined;
 		segments = url.pathname.split("/").filter(Boolean);
 		if (segments.length === 1) return isShareCode(segments[0]) ? { code: segments[0] } : undefined;

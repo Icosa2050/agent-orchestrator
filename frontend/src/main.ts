@@ -1,3 +1,6 @@
+import { localDistributionIpc } from "./main/local-distribution-ipc";
+import { applyHostLaunchProfile } from "./main/host-launch-profile";
+import { LOCAL_DISTRIBUTION } from "./shared/fork-identity";
 import type { SideCloseRequest, SideCloseState } from "./shared/side-close";
 import { SideCloseRecovery, type SideSnapshotCoverage } from "./main/side-close";
 import { SideCloseController } from "./main/side-close-controller";
@@ -17,7 +20,7 @@ import {
 	ClipboardItem,
 	desktopCapturer,
 	dialog,
-	ipcMain,
+	ipcMain as electronIpcMain,
 	Menu,
 	nativeTheme,
 	net,
@@ -35,6 +38,7 @@ import {
 	type WebContents,
 	type OpenDialogOptions,
 } from "electron";
+const ipcMain = localDistributionIpc(electronIpcMain);
 import {
 	setRendererSink,
 	startAutoUpdates,
@@ -305,7 +309,7 @@ process.stderr.on("error", ignoreStdStreamError);
 
 // The name shown in window titles, the menu bar, the dock, and the About panel.
 // Packaged bundle and installer filenames are unchanged.
-const APP_DISPLAY_NAME = "Orchestrator.inc";
+const APP_DISPLAY_NAME = "Icosa Orchestrator";
 
 // Must run before app ready so the About panel and default-menu role labels use it.
 // Unpackaged runs get a distinct name so the dev window, dock menu, and About
@@ -323,7 +327,7 @@ if (!app.isPackaged && process.platform === "darwin") {
 // Notification.isSupported() still returns true but show() silently drops the
 // toast, so notifications never appear. No-op on macOS/Linux.
 if (process.platform === "win32") {
-	app.setAppUserModelId("dev.agent-orchestrator.desktop");
+	app.setAppUserModelId("com.icosa2050.orchestrator");
 }
 
 // Escape hatch for hosts whose GPU driver stack crashes Chromium on startup
@@ -363,6 +367,7 @@ app.setPath(
 
 // Resolve once against the launch cwd, before the daemon can chdir. The exact
 // absolute value is shared by policy bootstrap and every daemon spawn.
+if (app.isPackaged) applyHostLaunchProfile(process.env, os.homedir());
 const desktopLaunchWorkingDirectory = process.cwd();
 const launchTiming = createLaunchTiming(process.getCreationTime() ?? performance.timeOrigin);
 const desktopDataDir = resolveDesktopDataDir(process.env, os.homedir(), desktopLaunchWorkingDirectory, app.isPackaged);
@@ -432,11 +437,11 @@ const OPEN_FOLDER_PATH_CHANNEL = "app:openFolderPath";
 // whose renderer isn't mounted yet. Flushed once the shell signals readiness
 // via TRAY_RENDERER_READY_CHANNEL — see the OPEN_FOLDER_PATH_CHANNEL handler.
 let pendingFolderPath: string | null = null;
-// Session deep link (ao-app://sessions/…) that arrived before the shell was
+// Session deep link (icosa-orchestrator://sessions/…) that arrived before the shell was
 // mounted (cold-start argv or early open-url). Flushed on the same
 // TRAY_RENDERER_READY_CHANNEL handshake as pendingFolderPath.
 let pendingSessionDeepLink: string | null = null;
-// Billing return (ao-app://billing) that arrived with no shell to take it —
+// Billing return (icosa-orchestrator://billing) that arrived with no shell to take it —
 // flushed on the TRAY_RENDERER_READY handshake like pendingSessionDeepLink.
 let pendingBillingSection: string | null = null;
 let daemonProcess: ChildProcess | null = null;
@@ -661,7 +666,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 // Only the app's single instance claims (or, for a loopback dev build,
-// releases) the ao-app:// deep-link protocol used by WorkOS auth callbacks and
+// releases) the icosa-orchestrator:// deep-link protocol used by WorkOS auth callbacks and
 // billing returns: a second launch that is about to exit must not change it.
 // See registerCloudProtocol. Must run before app.whenReady().
 if (!app.requestSingleInstanceLock()) {
@@ -3275,7 +3280,7 @@ ipcMain.handle("triage.launch", async () => launchTriageInTerminal(await triageE
 const dictation = registerDictationIpc(
 	path.join(
 		app.isPackaged ? process.resourcesPath : app.getAppPath(),
-		"dictation-helper", "Orchestrator.app", "Contents", "MacOS", "Orchestrator",
+		"dictation-helper", "Icosa Orchestrator Dictation.app", "Contents", "MacOS", "icosa-dictation",
 	),
 	getShellWebContents,
 );
@@ -4400,7 +4405,7 @@ function focusCloudWindow(): void {
 	window.focus();
 }
 
-// A shared session's link (ao-app://share/<code>, or ao-app://share/<orgId>/<token>
+// A shared session's link (icosa-orchestrator://share/<code>, or icosa-orchestrator://share/<orgId>/<token>
 // from before codes) the renderer has not taken yet: one that arrived before
 // the window was ready waits here. The renderer parses and checks it.
 let pendingShareLink: string | undefined;
@@ -4414,13 +4419,17 @@ ipcMain.handle("cloud:takePendingShareLink", () => {
 function isShareDeepLink(raw: string): boolean {
 	try {
 		const url = new URL(raw);
-		return url.protocol === "ao-app:" && url.hostname === "share";
+		return url.protocol === "icosa-orchestrator:" && url.hostname === "share";
 	} catch {
 		return false;
 	}
 }
 
 async function handleCloudDeepLinkAndFocus(url: string): Promise<void> {
+	if (LOCAL_DISTRIBUTION && !normalizeSessionDeepLink(url)) {
+		await dialog.showMessageBox({ type: "info", message: "Cloud links unavailable in this local build" });
+		return;
+	}
 	// macOS keeps the app (and tray) alive after the close button —
 	// window-all-closed does not quit — and a link clicked then fires open-url
 	// without activate, so nothing else recreates the shell. Hidden utility
@@ -4450,7 +4459,7 @@ async function handleCloudDeepLinkAndFocus(url: string): Promise<void> {
 		}
 		return;
 	}
-	// ao-app://sessions/… from external tools: forward the canonical URL to the
+	// icosa-orchestrator://sessions/… from external tools: forward the canonical URL to the
 	// shell, which re-reads it as its in-app ao:// form and resolves it against
 	// its workspace lists with the same session-links path as ao:// links
 	// (navigate, toast when the session is gone). The canonical form lowercases
@@ -4486,13 +4495,13 @@ async function handleCloudDeepLinkAndFocus(url: string): Promise<void> {
 function isBillingDeepLink(raw: string): boolean {
 	try {
 		const url = new URL(raw);
-		return url.protocol === "ao-app:" && url.hostname === "billing";
+		return url.protocol === "icosa-orchestrator:" && url.hostname === "billing";
 	} catch {
 		return false;
 	}
 }
 
-// macOS: the OS sends the ao-app:// URL via the open-url event when the app is
+// macOS: the OS sends the icosa-orchestrator:// URL via the open-url event when the app is
 // already running. If the app is not running, the URL is passed in process.argv
 // on first launch (handled in app.whenReady below).
 app.on("open-url", (event, url) => {
@@ -4501,7 +4510,7 @@ app.on("open-url", (event, url) => {
 });
 
 app.on("second-instance", (_event, argv) => {
-	const deepLink = argv.find((value) => value.startsWith("ao-app://"));
+	const deepLink = argv.find((value) => value.startsWith("icosa-orchestrator://"));
 	if (deepLink) {
 		void handleCloudDeepLinkAndFocus(deepLink);
 		return;
@@ -4538,6 +4547,7 @@ app.on("second-instance", (_event, argv) => {
 // A live updater additionally requires a signed + notarized build — see
 // frontend/docs/desktop-release.md.
 function initAutoUpdates(): void {
+	if (LOCAL_DISTRIBUTION) return;
 	if (!app.isPackaged) return;
 	const runFile = runFilePath();
 	if (!runFile) return;
@@ -4552,7 +4562,7 @@ function initAutoUpdates(): void {
 }
 
 // Resolve the bundle path `ao start` will later `open` and stat as a usable app.
-// On macOS process.execPath is .../Agent Orchestrator.app/Contents/MacOS/<exe>;
+// On macOS process.execPath is .../Icosa Orchestrator.app/Contents/MacOS/<exe>;
 // the thing `ao start` opens is the enclosing `.app` directory, so walk up three
 // levels (MacOS -> Contents -> .app). app.getAppPath() is WRONG here: it returns
 // the app.asar archive path inside the bundle, not the bundle itself.
@@ -4782,8 +4792,8 @@ app.whenReady().then(async () => {
 	initAutoUpdates();
 
 	// Windows/Linux: on first launch, the deep-link URL may arrive as a
-	// process.argv entry (e.g. ao-app://callback?token=...).
-	const deepLinkArg = process.argv.find((a) => a.startsWith("ao-app://"));
+	// process.argv entry (e.g. icosa-orchestrator://callback?token=...).
+	const deepLinkArg = process.argv.find((a) => a.startsWith("icosa-orchestrator://"));
 	if (deepLinkArg) {
 		void handleCloudDeepLinkAndFocus(deepLinkArg);
 	}

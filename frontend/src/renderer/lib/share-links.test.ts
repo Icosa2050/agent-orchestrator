@@ -16,7 +16,7 @@ describe("share links", () => {
 	});
 
 	it("opens the desktop deep link the page hands over", () => {
-		expect(parseShareLink(`ao-app://share/${ORG}/tok_abc-123`)).toEqual({ orgId: ORG, token: "tok_abc-123" });
+		expect(parseShareLink(`icosa-orchestrator://share/${ORG}/tok_abc-123`)).toEqual({ orgId: ORG, token: "tok_abc-123" });
 	});
 
 	it("opens the control plane's web link of the same share", () => {
@@ -25,7 +25,7 @@ describe("share links", () => {
 	});
 
 	it("reads a link from before codes exactly as pasted", () => {
-		expect(parseShareLink(`ao-app://share/${ORG}/tok.`)).toEqual({ orgId: ORG, token: "tok." });
+		expect(parseShareLink(`icosa-orchestrator://share/${ORG}/tok.`)).toEqual({ orgId: ORG, token: "tok." });
 		expect(parseShareLink(`https://cp.example.test/app/share#${ORG}/tok_abc-123),`)).toEqual({ orgId: ORG, token: "tok_abc-123)," });
 		expect(parseShareLink(`https://cp.example.test/share/${ORG}/tok/`)).toEqual({ orgId: ORG, token: "tok" });
 	});
@@ -41,8 +41,8 @@ describe("share links", () => {
 		const link = shareCodeLinkUrl("https://cp.example.test/", CODE);
 		expect(link).toBe(`https://cp.example.test/s/${CODE}`);
 		expect(parseShareLink(link)).toEqual({ code: CODE });
-		expect(parseShareLink(`ao-app://share/${CODE}`)).toEqual({ code: CODE });
-		expect(parseShareLink(`ao-app://share/${CODE}/`)).toEqual({ code: CODE });
+		expect(parseShareLink(`icosa-orchestrator://share/${CODE}`)).toEqual({ code: CODE });
+		expect(parseShareLink(`icosa-orchestrator://share/${CODE}/`)).toEqual({ code: CODE });
 		expect(parseShareLink(`https://api.aoagents.dev/s/${CODE}/`)).toEqual({ code: CODE });
 		expect(parseShareLink(`  https://api.aoagents.dev/s/${CODE}/  `)).toEqual({ code: CODE });
 		expect(parseShareLink(`\n\thttps://api.aoagents.dev/s/${CODE}\n`)).toEqual({ code: CODE });
@@ -62,7 +62,7 @@ describe("share links", () => {
 			`https://api.aoagents.dev/s/${CODE}…`,
 			`https://api.aoagents.dev/s/${CODE}​`,
 			`  https://api.aoagents.dev/s/${CODE}/ .  `,
-			`ao-app://share/${CODE}.`,
+			`icosa-orchestrator://share/${CODE}.`,
 		]) {
 			expect(parseShareLink(text), text).toEqual({ code: CODE });
 		}
@@ -71,11 +71,11 @@ describe("share links", () => {
 	it("opens only 22-character codes", () => {
 		for (const code of [SHORT_CODE, LONG_CODE, CODE.slice(0, 21)]) {
 			for (const text of [
-				`ao-app://share/${code}`,
+				`icosa-orchestrator://share/${code}`,
 				`https://api.aoagents.dev/s/${code}`,
 				`https://api.aoagents.dev/s/${code}/`,
 				`  https://api.aoagents.dev/s/${code}.  `,
-				`ao-app://share/${code}!`,
+				`icosa-orchestrator://share/${code}!`,
 			]) {
 				expect(parseShareLink(text), text).toBeUndefined();
 			}
@@ -84,8 +84,8 @@ describe("share links", () => {
 
 	it("rejects anything that does not name one share", () => {
 		for (const text of [
-			"ao-app://share/short",
-			`ao-app://share/${CODE.slice(0, 11)}-${CODE.slice(12)}`,
+			"icosa-orchestrator://share/short",
+			`icosa-orchestrator://share/${CODE.slice(0, 11)}-${CODE.slice(12)}`,
 			`https://cp.example.test/s/${CODE.slice(0, 11)}-${CODE.slice(12)}`,
 			`https://cp.example.test/s/${CODE}/extra`,
 			`https://cp.example.test/s/${CODE}/extra.`,
@@ -93,14 +93,14 @@ describe("share links", () => {
 			`https://cp.example.test/x/${CODE}`,
 			`https://cp.example.test/share/${CODE}`,
 			`https://cp.example.test/app/share#${CODE}`,
-			`ao-app://billing/${CODE}`,
+			`icosa-orchestrator://billing/${CODE}`,
 			"https://cp.example.test/s",
 			"",
 			"not a link",
-			`ao-app://billing/${ORG}/tok`,
-			`ao-app://share/${ORG}`,
-			`ao-app://share/${ORG}/tok/extra`,
-			"ao-app://share/not-an-org/tok",
+			`icosa-orchestrator://billing/${ORG}/tok`,
+			`icosa-orchestrator://share/${ORG}`,
+			`icosa-orchestrator://share/${ORG}/tok/extra`,
+			"icosa-orchestrator://share/not-an-org/tok",
 			`https://example.test/sessions/${ORG}/tok`,
 			`ftp://example.test/share/${ORG}/tok`,
 			"https://cp.example.test/app/share",

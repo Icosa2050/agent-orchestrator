@@ -187,14 +187,14 @@ ipcRenderer.on("app:openFolderPath", (_event, path: string) => {
 	}
 });
 
-// A session deep link (ao-app://sessions/…) flushed by main on renderer ready
+// A session deep link (icosa-orchestrator://sessions/…) flushed by main on renderer ready
 // races the same way as the folder path above: the readiness ping comes from a
 // child effect, before ShellLayout subscribes. Same dispatcher-and-buffer.
 // The payload is the raw URL; the shell re-reads it as its in-app ao:// form.
 let bufferedSessionDeepLink: string | null = null;
 let activeSessionDeepLinkListener: ((rawUrl: string) => void) | null = null;
 function isSessionDeepLinkUrl(value: unknown): value is string {
-	return typeof value === "string" && value.startsWith("ao-app://");
+	return typeof value === "string" && value.startsWith("icosa-orchestrator://");
 }
 ipcRenderer.on(OPEN_SESSION_DEEP_LINK_CHANNEL, (_event, target: unknown) => {
 	if (!isSessionDeepLinkUrl(target)) return;
@@ -205,7 +205,7 @@ ipcRenderer.on(OPEN_SESSION_DEEP_LINK_CHANNEL, (_event, target: unknown) => {
 	}
 });
 
-// A billing return (ao-app://billing) flushed on the shell's readiness ping
+// A billing return (icosa-orchestrator://billing) flushed on the shell's readiness ping
 // races ShellLayout's settings subscription exactly like the channels above —
 // the ping comes from a child effect, before the parent effect subscribes.
 // Same dispatcher-and-buffer. A keyboard/menu open-settings event can only
@@ -324,7 +324,7 @@ const api = {
 				if (activeOpenFolderPathListener === listener) activeOpenFolderPathListener = null;
 			};
 		},
-		// Fired by the main process for ao-app://sessions/… deep links from
+		// Fired by the main process for icosa-orchestrator://sessions/… deep links from
 		// external tools; the payload is the raw URL and the shell resolves it
 		// with the same session-links path as in-app ao:// links.
 		onOpenSessionDeepLink: (listener: (rawUrl: string) => void) => {
@@ -1038,7 +1038,7 @@ const api = {
 				ipcRenderer.off("cloud:sessionChanged", wrapped);
 			};
 		},
-		// A shared session's link opened while the app runs (ao-app://share/...).
+		// A shared session's link opened while the app runs (icosa-orchestrator://share/...).
 		onOpenShareLink: (listener: (url: string) => void) => {
 			const wrapped = (_event: Electron.IpcRendererEvent, url: string) => listener(url);
 			ipcRenderer.on("cloud:openShareLink", wrapped);

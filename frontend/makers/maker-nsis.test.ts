@@ -27,7 +27,7 @@ describe("MakerNSIS", () => {
 	});
 
 	it("builds an nsis target for the requested arch and forwards config", async () => {
-		const maker = new MakerNSIS({ appId: "dev.agent-orchestrator.desktop", icon: "assets/icon.ico" }, ["win32"]);
+		const maker = new MakerNSIS({ appId: "com.icosa2050.orchestrator", icon: "assets/icon.ico" }, ["win32"]);
 		// Forge resolves the (possibly arch-dependent) config before make().
 		await maker.prepareConfig(makeOptions.targetArch);
 		const artifacts = await maker.make(makeOptions);
@@ -38,7 +38,7 @@ describe("MakerNSIS", () => {
 		expect(options.win).toEqual(["nsis:x64"]);
 		// electron-builder must not try to publish; the workflow does that.
 		expect(options.config.publish).toBeNull();
-		expect(options.config.appId).toBe("dev.agent-orchestrator.desktop");
+		expect(options.config.appId).toBe("com.icosa2050.orchestrator");
 		// productName falls back to appName when not set on the maker config.
 		expect(options.config.productName).toBe("Agent Orchestrator");
 		expect(options.config.win).toEqual({ icon: "assets/icon.ico" });
@@ -49,7 +49,7 @@ describe("MakerNSIS", () => {
 
 	it("forwards executableName so the Start menu shortcut targets the real binary (#2414)", async () => {
 		const maker = new MakerNSIS(
-			{ appId: "dev.agent-orchestrator.desktop", executableName: "agent-orchestrator", icon: "assets/icon.ico" },
+			{ appId: "com.icosa2050.orchestrator", executableName: "agent-orchestrator", icon: "assets/icon.ico" },
 			["win32"],
 		);
 		await maker.prepareConfig(makeOptions.targetArch);

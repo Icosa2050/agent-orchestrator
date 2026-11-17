@@ -1,3 +1,4 @@
+import { LOCAL_DISTRIBUTION } from "../../../shared/fork-identity";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, ExternalLink, Loader2, Minus } from "@/components/app-icons";
 import { useEffect, useId, useState } from "react";
@@ -33,7 +34,9 @@ const ENTERPRISE_BOOKING_URL = "https://cal.com/agentwrapper/ao-design-partner?o
  * in the system browser, which return to the app afterwards.
  */
 export function BillingSection({ titleHidden }: { titleHidden?: boolean }) {
+	const { t } = useTranslation();
 	const { cloudEnabled } = useCloudGate();
+	if (LOCAL_DISTRIBUTION) return <Notice title={t("settings.billing.title")} titleHidden={titleHidden} text={t("settings.billing.localBuildUnavailable")} />;
 	if (!cloudEnabled) return null;
 	return <BillingSectionInner titleHidden={titleHidden} />;
 }

@@ -17,11 +17,11 @@ import {
 	type StaleAppCopy,
 } from "./stale-app-copies";
 
-const RUNNING_PATH = "/Applications/Agent Orchestrator.app";
+const RUNNING_PATH = "/Applications/Icosa Orchestrator.app";
 const RUNNING_VERSION = "0.13.1-nightly.202609121623";
-const DOWNLOADS_COPY = "/Users/user/Downloads/Agent Orchestrator.app";
-const DESKTOP_COPY = "/Users/user/Desktop/Agent Orchestrator.app";
-const STAGED_PATH = "/Users/user/Downloads/Agent Orchestrator.app.ao-retiring-test";
+const DOWNLOADS_COPY = "/Users/user/Downloads/Icosa Orchestrator.app";
+const DESKTOP_COPY = "/Users/user/Desktop/Icosa Orchestrator.app";
+const STAGED_PATH = "/Users/user/Downloads/Icosa Orchestrator.app.ao-retiring-test";
 const ORIGINAL_IDENTITY = { device: 1, inode: 10 };
 
 describe("readBundleMetadata", () => {
@@ -34,7 +34,7 @@ describe("readBundleMetadata", () => {
 	it("reads the exact identifier and version from Info.plist", async () => {
 		const directory = await mkdtemp(path.join(os.tmpdir(), "ao-stale-copy-"));
 		temporaryDirectories.push(directory);
-		const bundle = path.join(directory, "Agent Orchestrator.app");
+		const bundle = path.join(directory, "Icosa Orchestrator.app");
 		await mkdir(path.join(bundle, "Contents"), { recursive: true });
 		await writeFile(path.join(bundle, "Contents", "Info.plist"), `<?xml version="1.0"?>
 <plist><dict>
@@ -59,7 +59,7 @@ describe("stageStaleAppCopy", () => {
 	async function makeBundle(): Promise<{ directory: string; bundle: string; copy: StaleAppCopy }> {
 		const directory = await mkdtemp(path.join(os.tmpdir(), "ao-stage-"));
 		temporaryDirectories.push(directory);
-		const bundle = path.join(directory, "Agent Orchestrator.app");
+		const bundle = path.join(directory, "Icosa Orchestrator.app");
 		await mkdir(bundle, { recursive: true });
 		const stats = await lstat(bundle);
 		return { directory, bundle, copy: { path: bundle, version: "0.10.3", device: stats.dev, inode: stats.ino } };
@@ -371,4 +371,9 @@ describe("retireStaleMacAppCopies", () => {
 		await retireStaleMacAppCopies(options);
 		expect(options.findCopies).toHaveBeenCalledOnce();
 	});
+});
+
+it("never discovers upstream identities even under a fork filename", async () => {
+ const copies = await findStaleAppCopies({runningVersion:"0.14.8-icosa.1", homeDir:"/Users/user"}, {fileIdentity: async () => ({device:1,inode:1}),readMetadata: async () => ({bundleId:"dev.agent-orchestrator.desktop",version:"0.1.0"})});
+ expect(copies).toEqual([]);
 });

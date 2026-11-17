@@ -33,11 +33,11 @@ describe("MakerAppImage", () => {
 		const protocols = [
 			{
 				name: "Agent Orchestrator authentication callback",
-				schemes: ["ao-app"],
+				schemes: ["icosa-orchestrator"],
 			},
 		];
 		const maker = new MakerAppImage(
-			{ appId: "dev.agent-orchestrator.desktop", protocols },
+			{ appId: "com.icosa2050.orchestrator", protocols },
 			["linux"],
 		);
 		await maker.prepareConfig(makeOptions.targetArch);
@@ -53,7 +53,7 @@ describe("MakerAppImage", () => {
 	// the same as "0.0.0", so a looser check would stay green on a regression. See
 	// the rationale in maker-appimage.ts.
 	it("pins the appimage toolset so the artifact does not need libfuse2 (#4006)", async () => {
-		const maker = new MakerAppImage({ appId: "dev.agent-orchestrator.desktop" }, ["linux"]);
+		const maker = new MakerAppImage({ appId: "com.icosa2050.orchestrator" }, ["linux"]);
 		await maker.prepareConfig(makeOptions.targetArch);
 		await maker.make(makeOptions);
 

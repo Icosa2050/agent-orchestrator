@@ -528,3 +528,32 @@ func jsonResponse(status int, body string) *http.Response {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
+
+func TestForkCLIUsesHostLaunchProfileWithoutEnvironment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, key := range []string{"AO_DATA_DIR", "AO_RUN_FILE", "AO_PORT"} {
+		t.Setenv(key, "")
+	}
+	dir := filepath.Join(home, ".ao")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dataDir, runFile := filepath.Join(dir, "selected-data"), filepath.Join(dir, "selected-running.json")
+	data, _ := json.Marshal(map[string]any{"version": 1, "dataDir": dataDir, "runFile": runFile, "port": 4002})
+	if err := os.WriteFile(filepath.Join(dir, "icosa-desktop.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return false }}, "status", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status daemonStatus
+	if err := json.Unmarshal([]byte(out), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.RunFile != runFile || status.DataDir != dataDir || status.State != stateStopped {
+		t.Fatalf("profile not used: %s", out)
+	}
+}

@@ -42,7 +42,7 @@ export interface AppStateMarker {
 const SCHEMA_VERSION = 2;
 
 /** File name of the marker under the ~/.ao state dir. */
-export const APP_STATE_FILE_NAME = "app-state.json";
+export const APP_STATE_FILE_NAME = "icosa-app-state.json";
 
 export interface WriteAppStateOptions {
 	updateRestartProtocol?: 1;

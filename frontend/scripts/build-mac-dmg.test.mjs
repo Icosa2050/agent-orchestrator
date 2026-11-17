@@ -67,7 +67,7 @@ describe("install window layout", () => {
 
 	it("passes the layout to electron-builder", () => {
 		expect(macDmgLayout()).toMatchObject({
-			title: "Orchestrator",
+			title: "Icosa Orchestrator",
 			background: BACKGROUND_IMAGE,
 			iconSize: DMG_LAYOUT.iconSize,
 			contents: [
@@ -247,7 +247,7 @@ describe("buildMacDmg", () => {
 		expect(options.mac).toEqual(["dmg:arm64"]);
 		expect(options.config.publish).toBeNull();
 		expect(options.config.mac.identity).toBeNull();
-		expect(options.config.productName).toBe("Agent Orchestrator");
+		expect(options.config.productName).toBe("Icosa Orchestrator");
 		expect(options.config.directories.output).toBe(path.dirname(output));
 		expect(options.config.dmg).toMatchObject({
 			...macDmgLayout(),
@@ -267,7 +267,7 @@ describe("buildMacDmg", () => {
 
 	it.each([
 		[{ app: "", arch: "arm64", output: "x.dmg" }, /required/],
-		[{ app: "/tmp/Other.app", arch: "arm64", output: "x.dmg" }, /must be a Agent Orchestrator.app bundle/],
+		[{ app: "/tmp/Other.app", arch: "arm64", output: "x.dmg" }, /must be a Icosa Orchestrator.app bundle/],
 		[{ arch: "universal", output: "x.dmg" }, /unsupported --arch/],
 		[{ arch: "arm64", output: "x.zip" }, /must end in .dmg/],
 	])("rejects bad arguments %#", async (args, error) => {
@@ -279,5 +279,15 @@ describe("buildMacDmg", () => {
 		const output = path.join(work, "exists.dmg");
 		writeFileSync(output, "");
 		await expect(buildMacDmg({ app, arch: "arm64", output }, { buildForge })).rejects.toThrow(/already exists/);
+	});
+});
+
+describe("CI fixture identity", () => {
+	it("uses the builder bundle/executable identity in the real DMG layout job", () => {
+		const workflow = readFileSync(path.resolve(path.dirname(BACKGROUND_IMAGE), "../../../.github/workflows/frontend.yml"), "utf8");
+		const job = workflow.split("  mac-dmg-layout:")[1].split("\n  typecheck:")[0];
+		expect(job).toContain(`app="$work/${APP_BUNDLE_NAME}"`);
+		expect(job).toContain('CFBundleExecutable -string icosa-orchestrator');
+		expect(job).not.toContain('Agent Orchestrator.app');
 	});
 });

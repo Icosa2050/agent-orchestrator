@@ -146,8 +146,8 @@ Orchestrator 的所有应用状态默认都存放在 `~/.ao` 下，包括守护�
 		在访达中右键点按 Orchestrator，选择“打开”，然后在确认对话框中再次选择“打开”。如果 macOS 仍然阻止该应用，请运行以下诊断命令，并在提交 issue 时附上输出：
 		```bash
 		sw_vers
-		codesign -dvvv "/Applications/Agent Orchestrator.app"
-		spctl -a -t exec -vvv --ignore-cache --no-cache "/Applications/Agent Orchestrator.app"
+		codesign -dvvv "/Applications/Icosa Orchestrator.app"
+		spctl -a -t exec -vvv --ignore-cache --no-cache "/Applications/Icosa Orchestrator.app"
 		log show --last 10m --predicate 'subsystem == "com.apple.syspolicy"'
 		```
 	</Accordion>

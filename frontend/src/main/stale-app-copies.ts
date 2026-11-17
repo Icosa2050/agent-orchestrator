@@ -1,11 +1,12 @@
+import { FORK_IDENTITY } from "../shared/fork-identity";
 import { randomUUID } from "node:crypto";
 import { lstat, readFile, rename } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import semver from "semver";
 
-export const AO_BUNDLE_ID = "dev.agent-orchestrator.desktop";
-export const MAINTAINED_MAC_APP_PATH = "/Applications/Agent Orchestrator.app";
+export const AO_BUNDLE_ID = FORK_IDENTITY.bundleId;
+export const MAINTAINED_MAC_APP_PATH = "/Applications/Icosa Orchestrator.app";
 
 export interface BundleMetadata {
 	bundleId: string | null;
@@ -85,8 +86,8 @@ export async function findStaleAppCopies(
 
 	const dependencies = { ...defaultDiscoveryDependencies, ...dependencyOverrides };
 	const candidates = [
-		path.join(input.homeDir, "Downloads", "Agent Orchestrator.app"),
-		path.join(input.homeDir, "Desktop", "Agent Orchestrator.app"),
+		path.join(input.homeDir, "Downloads", "Icosa Orchestrator.app"),
+		path.join(input.homeDir, "Desktop", "Icosa Orchestrator.app"),
 	];
 	const copies: StaleAppCopy[] = [];
 	for (const candidate of candidates) {

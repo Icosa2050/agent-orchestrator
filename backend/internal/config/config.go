@@ -1,7 +1,7 @@
 // Package config loads the daemon's runtime configuration. The HTTP daemon is
 // a loopback-only sidecar: it binds 127.0.0.1, takes no public traffic, and
-// reads everything it needs from the environment with sane defaults so it can
-// boot with zero configuration in development.
+// resolves the Icosa host profile with explicit environment overrides so the
+// desktop, daemon and external CLI share one local state location.
 package config
 
 import (
@@ -31,7 +31,7 @@ const (
 	// an IsLoopback() validator — not a raw env read.
 	LoopbackHost = "127.0.0.1"
 	// DefaultPort is the single port for REST, terminal mux, health, and control.
-	DefaultPort = 3001
+	DefaultPort = 3002
 	// DefaultRequestTimeout bounds a single REST request. Long-lived terminal mux
 	// connections are mounted outside this timeout.
 	DefaultRequestTimeout = 60 * time.Second
@@ -148,9 +148,8 @@ type Config struct {
 	// DataDir is the directory holding durable SQLite state: DB and WAL files.
 	// It is created on first use by the storage layer.
 	DataDir string
-	// StateDir is the root for non-SQLite AO state. It defaults to ~/.ao. When
-	// AO_DATA_DIR is explicitly set, that override is also the state root so an
-	// isolated daemon never leaks account state into the default home.
+	// StateDir is the root for non-SQLite AO state. It follows the resolved
+	// data directory, matching the desktop host profile and explicit overrides.
 	StateDir string
 	// Agent is the compatibility agent adapter id selected by AO_AGENT;
 	// startSession fails fast if no adapter with this id is registered.
@@ -247,12 +246,12 @@ func (c Config) Addr() string {
 //
 // Recognised variables:
 //
-//	AO_PORT              bind port           (default 3001)
+//	AO_PORT              bind port           (profile or 3002)
 //	AO_REQUEST_TIMEOUT   per-request timeout (Go duration > 0, default 60s)
 //	AO_SHUTDOWN_TIMEOUT  shutdown deadline   (Go duration > 0, default 10s)
 //	AO_INSTALLER_SHUTDOWN_TIMEOUT harness installer drain (Go duration > 0, default systeminstall.DefaultShutdownTimeout)
-//	AO_RUN_FILE          running.json path   (default ~/.ao/running.json)
-//	AO_DATA_DIR          durable state dir   (default ~/.ao/data)
+//	AO_RUN_FILE          running.json path   (default ~/.ao/dev/running.json)
+//	AO_DATA_DIR          durable state dir   (default ~/.ao/dev/data)
 //	AO_AGENT             compatibility agent id (default claude-code)
 //	AO_APP_RUN_ID        desktop-app launch id, set by the Electron supervisor
 //	                     (default: a fresh id minted per daemon boot)
@@ -274,9 +273,13 @@ func (c Config) Addr() string {
 //
 // The bind host is not configurable: the daemon is loopback-only by design.
 func Load() (Config, error) {
+	profile, err := loadHostLaunchProfile()
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		Host:            LoopbackHost,
-		Port:            DefaultPort,
+		Port:            profile.Port,
 		RequestTimeout:  DefaultRequestTimeout,
 		ShutdownTimeout: DefaultShutdownTimeout,
 		Agent:           DefaultAgent,
@@ -547,7 +550,7 @@ func Load() (Config, error) {
 		}
 	}
 
-	stateDir, dataDir, runFile, err := ResolvePaths()
+	stateDir, dataDir, runFile, err := resolvePaths(profile)
 	if err != nil {
 		return Config{}, err
 	}
@@ -711,39 +714,21 @@ func newAppRunID() string {
 }
 
 // resolveRunFilePath picks where running.json lives. An explicit AO_RUN_FILE
-// wins; otherwise it sits under the canonical AO home directory so the CLI and
-// Electron supervisor share one handshake location.
-func resolveRunFilePath() (string, error) {
+// wins; otherwise the validated host profile supplies the desktop handshake.
+func resolveRunFilePath(profile hostLaunchProfile) (string, error) {
 	if p, ok := os.LookupEnv("AO_RUN_FILE"); ok && p != "" {
 		return absOverride("AO_RUN_FILE", p)
 	}
-	stateDir, err := defaultStateDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(stateDir, "running.json"), nil
+	return profile.RunFile, nil
 }
 
 // resolveDataDir picks where durable state (the SQLite DB) lives. An explicit
-// AO_DATA_DIR wins; otherwise it defaults under the same canonical AO home
-// directory as the run-file.
-func resolveDataDir() (string, error) {
+// AO_DATA_DIR wins; otherwise the validated host profile supplies the path.
+func resolveDataDir(profile hostLaunchProfile) (string, error) {
 	if p, ok := os.LookupEnv("AO_DATA_DIR"); ok && p != "" {
 		return absOverride("AO_DATA_DIR", p)
 	}
-	stateDir, err := defaultStateDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(stateDir, "data"), nil
-}
-
-func defaultStateDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve state dir: %w", err)
-	}
-	return filepath.Join(homeDir, ".ao"), nil
+	return profile.DataDir, nil
 }
 
 // absOverride resolves an explicit AO_DATA_DIR/AO_RUN_FILE override to an
@@ -762,17 +747,23 @@ func absOverride(name, p string) (string, error) {
 
 // ResolvePaths resolves state paths without parsing unrelated daemon settings.
 func ResolvePaths() (stateDir, dataDir, runFile string, err error) {
-	dataDir, err = resolveDataDir()
+	profile, err := loadHostLaunchProfile()
+	if err != nil {
+		return "", "", "", err
+	}
+	return resolvePaths(profile)
+}
+
+func resolvePaths(profile hostLaunchProfile) (stateDir, dataDir, runFile string, err error) {
+	dataDir, err = resolveDataDir(profile)
 	if err != nil {
 		return
 	}
-	runFile, err = resolveRunFilePath()
+	runFile, err = resolveRunFilePath(profile)
 	if err != nil {
 		return
 	}
-	stateDir = filepath.Dir(dataDir)
-	if os.Getenv("AO_DATA_DIR") != "" {
-		stateDir = dataDir
-	}
+	// Electron passes the profile's dataDir as AO_DATA_DIR, making it the state root.
+	stateDir = dataDir
 	return
 }

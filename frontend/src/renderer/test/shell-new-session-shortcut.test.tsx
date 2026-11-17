@@ -1666,7 +1666,7 @@ describe("shell taskbar-icon folder drop subscription", () => {
 	expect(shellMocks.navigate).not.toHaveBeenCalledWith({to: "/", replace: true});
 });
 
-/** Delivers an ao-app:// session deep link the way the main process does. */
+/** Delivers an icosa-orchestrator:// session deep link the way the main process does. */
 function emitSessionDeepLink(rawUrl: string) {
 	const listener = shellMocks.state.sessionDeepLinkListener;
 	if (!listener) throw new Error("session deep link listener was not registered");
@@ -1697,7 +1697,7 @@ describe("shell session deep links", () => {
 
 	it("navigates to a live session named by an ao-app link", async () => {
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-1");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-1");
 		expect(shellMocks.navigate).toHaveBeenCalledWith({
 			to: "/projects/$projectId/sessions/$sessionId",
 			params: { projectId: "proj-1", sessionId: "sess-1" },
@@ -1712,7 +1712,7 @@ describe("shell session deep links", () => {
 		shellMocks.state.workspaceQuery = { data: [], dataUpdatedAt: 0, isError: true, isSuccess: false };
 		const view = await renderShell();
 
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-1");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-1");
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToast).toBeNull();
 
@@ -1743,7 +1743,7 @@ describe("shell session deep links", () => {
 		shellMocks.state.workspaceQuery = { data: [], dataUpdatedAt: 0, isError: false, isSuccess: true };
 		const view = await renderShell();
 
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-1");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-1");
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToast).toBeNull();
 
@@ -1778,7 +1778,7 @@ describe("shell session deep links", () => {
 			{ id: "proj-1", hostId: "box-a", sessions: [{ id: "sess-x", status: "working" }] },
 		] as unknown as WorkspaceSummary[];
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-x");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-x");
 		expect(shellMocks.navigate).toHaveBeenCalledWith({
 			to: "/host/$hostId/project/$projectId/session/$sessionId",
 			params: { hostId: "box-a", projectId: "proj-1", sessionId: "sess-x" },
@@ -1797,7 +1797,7 @@ describe("shell session deep links", () => {
 			{ id: "proj-1", hostId: "box-a", sessions: [{ id: "sess-1", status: "working" }] },
 		] as unknown as WorkspaceSummary[];
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-1");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-1");
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToast?.title).toContain("more than one machine");
 	});
@@ -1807,7 +1807,7 @@ describe("shell session deep links", () => {
 		shellMocks.state.remoteHostsState = { hosts: [{ hostId: "box-a", status: "connecting" }], listed: true, settled: true, refresh: async () => undefined };
 		shellMocks.state.remoteWorkspaces = [];
 		const view = await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-remote/sess-remote");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-remote/sess-remote");
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToast).toBeNull();
 
@@ -1839,7 +1839,7 @@ describe("shell session deep links", () => {
 		useUiStore.setState({ remoteHosts: true });
 		shellMocks.state.cloudSessionStatus = "unauthenticated";
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-1");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-1");
 		expect(shellMocks.navigate).toHaveBeenCalledWith({
 			to: "/projects/$projectId/sessions/$sessionId",
 			params: { projectId: "proj-1", sessionId: "sess-1" },
@@ -1859,7 +1859,7 @@ describe("shell session deep links", () => {
 			{ id: "proj-remote", hostId: "box-a", sessions: [] },
 		] as unknown as WorkspaceSummary[];
 		const view = await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-remote/sess-remote");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-remote/sess-remote");
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToast).toBeNull();
 
@@ -1895,7 +1895,7 @@ describe("shell session deep links", () => {
 			{ id: STANDALONE_WORKSPACE_ID, hostId: "box-b", sessions: [{ id: "sess-b", status: "working" }] },
 		] as unknown as WorkspaceSummary[];
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink(`ao-app://sessions/${STANDALONE_WORKSPACE_ID}/sess-b`);
+		emitSessionDeepLink(`icosa-orchestrator://sessions/${STANDALONE_WORKSPACE_ID}/sess-b`);
 		// A standalone session takes the host-scoped scratchpad route.
 		expect(shellMocks.navigate).toHaveBeenCalledWith({
 			to: "/host/$hostId/session/$sessionId",
@@ -1905,7 +1905,7 @@ describe("shell session deep links", () => {
 
 	it("refuses a terminated session with the same toast as in-app ao:// links", async () => {
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-2");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-2");
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToast?.title).toContain("sess-2");
 		expect(useUiStore.getState().globalToast?.title).toContain("terminated");
@@ -1913,7 +1913,7 @@ describe("shell session deep links", () => {
 
 	it("shows the quiet not-found toast for a stale link", async () => {
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-gone");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-gone");
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToast?.title).toContain("Session not found");
 	});
@@ -1929,7 +1929,7 @@ describe("shell session deep links", () => {
 			{ id: "proj-remote", hostId: "box-a", sessions: [] },
 		] as unknown as WorkspaceSummary[];
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-remote/sess-remote");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-remote/sess-remote");
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToast?.title).toContain("host");
 		expect(useUiStore.getState().globalToast?.title).not.toContain("Session not found");
@@ -1940,7 +1940,7 @@ describe("shell session deep links", () => {
 			{ id: "proj-remote", hostId: "box-a", sessions: [{ id: "sess-remote", status: "working" }] },
 		] as unknown as WorkspaceSummary[];
 		await renderShellWithReadyDaemon();
-		emitSessionDeepLink("ao-app://sessions/proj-remote/sess-remote");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-remote/sess-remote");
 		expect(shellMocks.navigate).toHaveBeenCalledWith({
 			to: "/host/$hostId/project/$projectId/session/$sessionId",
 			params: { hostId: "box-a", projectId: "proj-remote", sessionId: "sess-remote" },
@@ -1950,7 +1950,7 @@ describe("shell session deep links", () => {
 	it("opens an artifact link in the destination session", async () => {
 		await renderShellWithReadyDaemon();
 		const openSpy = vi.spyOn(useUiStore.getState(), "requestWorkspaceFileOpen").mockImplementation(() => {});
-		emitSessionDeepLink("ao-app://sessions/proj-1/sess-1/artifacts/report.md");
+		emitSessionDeepLink("icosa-orchestrator://sessions/proj-1/sess-1/artifacts/report.md");
 		expect(openSpy).toHaveBeenCalledWith("sess-1", "report.md", undefined, "artifact");
 		expect(shellMocks.navigate).toHaveBeenCalledWith({
 			to: "/projects/$projectId/sessions/$sessionId",

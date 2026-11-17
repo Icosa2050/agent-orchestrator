@@ -135,8 +135,8 @@ All Orchestrator application state lives under `~/.ao` by default, including the
 		In Finder, right-click Orchestrator, choose Open, then choose Open again in the confirmation dialog. If macOS still blocks the app, run these diagnostics and include the output when opening an issue:
 		```bash
 		sw_vers
-		codesign -dvvv "/Applications/Agent Orchestrator.app"
-		spctl -a -t exec -vvv --ignore-cache --no-cache "/Applications/Agent Orchestrator.app"
+		codesign -dvvv "/Applications/Icosa Orchestrator.app"
+		spctl -a -t exec -vvv --ignore-cache --no-cache "/Applications/Icosa Orchestrator.app"
 		log show --last 10m --predicate 'subsystem == "com.apple.syspolicy"'
 		```
 	</Accordion>

@@ -56,7 +56,7 @@ export function redeemShareTarget(client: Pick<CloudCpClient, "redeemShareLink" 
 
 /**
  * Opens shared cloud sessions: a link opened from outside the app
- * (ao-app://share/...), one pasted here, or the command palette's request.
+ * (icosa-orchestrator://share/...), one pasted here, or the command palette's request.
  * Redeeming a link gives this person their own access to the session, which
  * then appears beside their projects; the session opens at once.
  */

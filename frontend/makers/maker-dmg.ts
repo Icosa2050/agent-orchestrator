@@ -60,7 +60,7 @@ export default class MakerDMG extends MakerBase<MakerDMGConfig> {
 		// image renamed to "<productFilename>.app" (dmg.ts computeDmgOptions'
 		// default `contents` entry). Passing Forge's PACKAGE directory here would
 		// therefore copy the whole package dir in under that name and produce
-		// "Agent Orchestrator.app/Agent Orchestrator.app", an outer bundle with no
+		// "Icosa Orchestrator.app/Icosa Orchestrator.app", an outer bundle with no
 		// Contents that cannot launch.
 		//
 		// maker-nsis.ts passes the bare `dir` and is correct to: winPackager goes

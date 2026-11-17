@@ -1,3 +1,5 @@
+// Exercise dormant hosted UI/auth machinery; separate fork tests assert the real gate.
+vi.mock("../shared/fork-identity", async (importOriginal) => ({ ...await importOriginal<typeof import("../shared/fork-identity")>(), LOCAL_DISTRIBUTION: false }));
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

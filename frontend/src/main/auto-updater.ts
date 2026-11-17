@@ -1,3 +1,4 @@
+import { LOCAL_DISTRIBUTION } from "../shared/fork-identity";
 import { autoUpdater as stockAutoUpdater } from "electron-updater";
 import { StableGitHubProvider } from "./stable-github-provider";
 import { MacDifferentialV2Updater } from "./mac-differential-v2-updater";
@@ -54,6 +55,11 @@ import {
 const autoUpdater = process.platform === "darwin" && macDifferentialRollout.enabled === true
   ? new MacDifferentialV2Updater({ trustedKeys: macV2TrustedKeys })
   : stockAutoUpdater;
+
+if (LOCAL_DISTRIBUTION) {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+}
 
 const FAIL_CLOSED_UPDATE_SETTINGS: UpdateSettings = {
   enabled: false,
@@ -2418,6 +2424,7 @@ function wireUpdaterEvents(): void {
 }
 
 export function getUpdateStatus(): UpdateStatus {
+  if (LOCAL_DISTRIBUTION) return { state: "unsupported", message: "Updates managed locally" };
   // Derive the nudge at read time: a streak can cross the threshold without
   // any broadcast (no checking-for-update → restore no-ops), and Settings
   // seeds from this getter (#3526).
@@ -2651,6 +2658,7 @@ async function requestAutomaticUpdateCheck(
 // downloaded automatically. Both preferences come from update-settings.
 // Caller guards on app.isPackaged.
 export async function startAutoUpdates(stateDir: string): Promise<void> {
+  if (LOCAL_DISTRIBUTION) return;
   escalationStateDir = stateDir;
   restoreStagedBuild(stateDir);
   recordUpdateDiagnostic("automatic-updates-started", { stagedVersion, stagedAtMs });
@@ -2687,6 +2695,7 @@ export async function setUpdateSettings(
   stateDir: string,
   settings: UpdateSettings,
 ): Promise<void> {
+  if (LOCAL_DISTRIBUTION) return;
   await runSerializedUpdaterOperation("settings-write", () =>
     persistUpdaterSettings(stateDir, settings),
   );
@@ -2706,6 +2715,7 @@ export async function checkForUpdatesNow(
   stateDir: string,
   options: UpdateCheckOptions = {},
 ): Promise<void> {
+  if (LOCAL_DISTRIBUTION) return;
   escalationStateDir = stateDir;
   wireUpdaterEvents();
   // Asking again IS the explicit retry the exhausted message points at.
@@ -2815,6 +2825,7 @@ export async function returnToHome(
   stateDir: string,
   requestId?: string,
 ): Promise<void> {
+  if (LOCAL_DISTRIBUTION) return;
   escalationStateDir = stateDir;
   wireUpdaterEvents();
   if (!app.isPackaged) {
@@ -2878,6 +2889,7 @@ export async function returnToHome(
 
 // downloadUpdateNow starts downloading the update found by checkForUpdatesNow.
 export async function downloadUpdateNow(requestId?: string): Promise<void> {
+  if (LOCAL_DISTRIBUTION) return;
   if (manualDownloadPending || lastStatus.state === "downloading" || lastStatus.state === "preparing") return;
   const version = lastStatus.version;
   wireUpdaterEvents();
@@ -2942,6 +2954,7 @@ export async function setMacDifferentialUpdates(
   stateDir: string,
   enabled: boolean,
 ): Promise<void> {
+  if (LOCAL_DISTRIBUTION) return;
   if (typeof enabled !== "boolean") return;
   developerModeRequested = enabled;
   // Revoke eligibility synchronously, even while a previous operation is busy.
@@ -2978,7 +2991,7 @@ export async function setMacDifferentialUpdates(
 // with nothing yet installed in /Applications.
 export function getMacInstallBlocker(): string | undefined {
   if (process.platform !== "darwin") return undefined;
-  // .../Agent Orchestrator.app/Contents/MacOS/<binary> -> the .app bundle root
+  // .../Icosa Orchestrator.app/Contents/MacOS/<binary> -> the .app bundle root
   const bundle = path.resolve(process.execPath, "..", "..", "..");
   // Everything below assumes that shape. Under `npm start`, and in tests,
   // execPath is a bare node/electron binary and this resolves to some unrelated
@@ -3046,6 +3059,7 @@ export function clearUpdateRestartRequest(): void {
 }
 
 export async function quitAndInstallUpdate(confirmedVersion?: string): Promise<UpdateInstallResult> {
+  if (LOCAL_DISTRIBUTION) return;
   recordUpdateDiagnostic("install-requested", { confirmedVersion });
   if (confirmedVersion !== undefined && (typeof confirmedVersion !== "string" || !confirmedVersion.trim())) {
     throw new Error("A valid confirmed update version is required.");
@@ -3267,6 +3281,7 @@ async function prepareRememberedNonDarwinUpdate(): Promise<void> {
 // ensureUpdatePrefs prompts once (first run, before any settings file exists)
 // for auto-update opt-in + channel, with a nightly instability disclaimer.
 export async function ensureUpdatePrefs(stateDir: string): Promise<void> {
+  if (LOCAL_DISTRIBUTION) return;
   if (existsSync(path.join(stateDir, UPDATE_SETTINGS_FILE_NAME))) return;
 
   const installedNightly = installedUpdateChannel() === "nightly";

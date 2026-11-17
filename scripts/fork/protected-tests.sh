@@ -21,6 +21,10 @@ mode=${1:-all}
 # path (relative to frontend/) and minimum passing tests.
 frontend_tests='
 forge.config.test.ts 35
+src/main/host-launch-profile.test.ts 34
+src/main/local-distribution-ipc.test.ts 1
+src/main/fork-local-distribution.test.ts 1
+src/renderer/components/settings/ForkLocalSettings.test.tsx 2
 src/renderer/components/ShareArtifactPopover.test.tsx 68
 src/main/remotes-main.test.ts 41
 src/main/remotes-ipc.test.ts 8
@@ -51,7 +55,9 @@ backend_tests='
 ./internal/httpd ^TestForkAgentAccounts 2
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
-./internal/cli ^TestForkTriage 1
+./internal/config ^TestForkHostLaunchProfile 4
+./internal/cli ^TestForkCLIUsesHostLaunchProfileWithoutEnvironment 1
+./internal/cli ^(TestForkTriage|TestForkPackagedIdentity|TestForkStartMissingInstallDoesNotAcquire|TestForkContainerInstallCheckMatchesMissingInstallError|TestForkLinuxAppImagePath|TestForkNonDarwinScanLocations|TestForkMarkerIdentityOnEveryPlatform|TestForkStartLocalDistributionNotice) 8
 ./internal/daemon ^TestPublishRemoteHost 1
 ./internal/daemon ^(TestOptOut|TestForkDefaultPolicy) 5
 ./internal/storage/sqlite/store ^TestForkSessionRetention 1
@@ -102,10 +108,10 @@ run_backend() {
 	while read -r pkg re min; do
 		[ -n "$pkg" ] || continue
 		# go test -run passes with "no tests to run"; count the selection first.
-		count=$(go test -list "$re" "$pkg" | grep -cE '^(Test|Example|Fuzz)' || true)
+		count=$(go test -p 2 -list "$re" "$pkg" | grep -cE '^(Test|Example|Fuzz)' || true)
 		echo "go test $pkg -run '$re': $count tests (floor $min)"
 		[ "$count" -ge "$min" ] || fail "$pkg -run '$re' selects $count tests, below the floor of $min"
-		go test -count=1 -run "$re" "$pkg"
+		go test -p 2 -count=1 -run "$re" "$pkg"
 	done <<<"$backend_tests"
 }
 

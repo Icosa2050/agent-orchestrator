@@ -1,3 +1,4 @@
+import { hostedFixturePolicy } from "./e2e/hosted-fixture-policy";
 // defineConfig comes from vitest/config (a superset of vite's) so the `test`
 // block typechecks; vitest itself must be pointed at this file explicitly
 // (package.json test script) because it only auto-discovers vite.config.*.
@@ -273,6 +274,7 @@ export default defineConfig({
 		},
 	},
 	plugins: [
+		hostedFixturePolicy(),
 		TanStackRouterVite({
 			routesDirectory: "./src/renderer/routes",
 			generatedRouteTree: "./src/renderer/routeTree.gen.ts",

@@ -5,7 +5,7 @@ import path from "node:path";
 
 // Capture buildForge's args without pulling in electron-builder's real machinery.
 const buildForge = vi.fn<(forge: { dir: string }, options: any) => Promise<string[]>>(async () => [
-	"/out/make/Agent Orchestrator-0.10.3-arm64.dmg",
+	"/out/make/Icosa Orchestrator-0.10.3-arm64.dmg",
 ]);
 vi.mock("app-builder-lib", () => ({ buildForge }));
 
@@ -38,9 +38,9 @@ import MakerDMG, { sealDmg, verifyDmg } from "./maker-dmg";
 import { BACKGROUND_IMAGE, VOLUME_ICON } from "../scripts/build-mac-dmg.mjs";
 
 const makeOptions = {
-	dir: "/tmp/app/Agent Orchestrator-darwin-arm64",
+	dir: "/tmp/app/Icosa Orchestrator-darwin-arm64",
 	makeDir: "/tmp/app/make",
-	appName: "Agent Orchestrator",
+	appName: "Icosa Orchestrator",
 	targetPlatform: "darwin" as const,
 	targetArch: "arm64" as const,
 	forgeConfig: {} as never,
@@ -50,7 +50,7 @@ const makeOptions = {
 // What Forge actually hands the maker: `dir` is the PACKAGE directory and the
 // bundle sits inside it. electron-builder's mac path treats buildForge's `dir`
 // as the .app itself, so this is the only correct value to pass through.
-const APP_PATH = "/tmp/app/Agent Orchestrator-darwin-arm64/Agent Orchestrator.app";
+const APP_PATH = "/tmp/app/Icosa Orchestrator-darwin-arm64/Icosa Orchestrator.app";
 
 beforeEach(() => {
 	buildForge.mockClear();
@@ -69,17 +69,17 @@ describe("MakerDMG", () => {
 	});
 
 	it("builds a dmg target for the requested arch and forwards config", async () => {
-		const maker = new MakerDMG({ appId: "dev.agent-orchestrator.desktop" }, ["darwin"]);
+		const maker = new MakerDMG({ appId: "com.icosa2050.orchestrator" }, ["darwin"]);
 		await maker.prepareConfig(makeOptions.targetArch);
 		const artifacts = await maker.make(makeOptions);
 
-		expect(artifacts).toEqual(["/out/make/Agent Orchestrator-0.10.3-arm64.dmg"]);
+		expect(artifacts).toEqual(["/out/make/Icosa Orchestrator-0.10.3-arm64.dmg"]);
 		const [, options] = buildForge.mock.calls[0];
 		expect(options.mac).toEqual(["dmg:arm64"]);
 		// electron-builder must not try to publish; the workflow does that.
 		expect(options.config.publish).toBeNull();
-		expect(options.config.appId).toBe("dev.agent-orchestrator.desktop");
-		expect(options.config.productName).toBe("Agent Orchestrator");
+		expect(options.config.appId).toBe("com.icosa2050.orchestrator");
+		expect(options.config.productName).toBe("Icosa Orchestrator");
 	});
 
 	// The layout check. buildForge sets `prepackaged: resolve(dir)`, and
@@ -87,7 +87,7 @@ describe("MakerDMG", () => {
 	// (`appPath = prepackaged ?? join(computeAppOutDir(...), "<name>.app")`), then
 	// dmg-builder copies appPath into the image renamed to "<name>.app". Passing
 	// Forge's package directory here nests the whole directory under that name and
-	// yields "Agent Orchestrator.app/Agent Orchestrator.app", an outer bundle with
+	// yields "Icosa Orchestrator.app/Icosa Orchestrator.app", an outer bundle with
 	// no Contents that cannot launch. Verified against app-builder-lib 26.15.3.
 	it("hands buildForge the .app inside the package dir, not the package dir", async () => {
 		await new MakerDMG().make(makeOptions);
@@ -135,12 +135,12 @@ describe("MakerDMG", () => {
 
 	it("never returns a dmg blockmap among the artifacts", async () => {
 		buildForge.mockResolvedValueOnce([
-			"/out/make/Agent Orchestrator-0.10.3-arm64.dmg",
-			"/out/make/Agent Orchestrator-0.10.3-arm64.dmg.blockmap",
+			"/out/make/Icosa Orchestrator-0.10.3-arm64.dmg",
+			"/out/make/Icosa Orchestrator-0.10.3-arm64.dmg.blockmap",
 		]);
 		// This array is exactly what Forge hands its publisher, so filtering here is
 		// what keeps a sidecar off the release regardless of how it got generated.
-		expect(await new MakerDMG().make(makeOptions)).toEqual(["/out/make/Agent Orchestrator-0.10.3-arm64.dmg"]);
+		expect(await new MakerDMG().make(makeOptions)).toEqual(["/out/make/Icosa Orchestrator-0.10.3-arm64.dmg"]);
 	});
 
 	// Without these options electron-builder still writes a .DS_Store, but with
@@ -149,7 +149,7 @@ describe("MakerDMG", () => {
 		await new MakerDMG().make(makeOptions);
 		const [, options] = buildForge.mock.calls.at(-1)!;
 		const dmg = options.config.dmg;
-		expect(dmg.title).toBe("Orchestrator");
+		expect(dmg.title).toBe("Icosa Orchestrator");
 		expect(dmg.iconSize).toBe(128);
 		expect(dmg.background).toBe(BACKGROUND_IMAGE);
 		expect(path.basename(BACKGROUND_IMAGE)).toBe("background.png");

@@ -1,3 +1,4 @@
+import { hostedFixturePolicyEnabled } from "./e2e/hosted-fixture-policy";
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_SNAPSHOT_SCHEME } from "./src/shared/artifact-snapshot";
@@ -82,4 +83,11 @@ describe("VITE_AO_TEAMS at build time", () => {
 		vi.stubEnv("VITE_AO_TEAMS", "true");
 		await expect(loadConfig()).rejects.toThrow(/VITE_AO_TEAMS must be "on" or "off"/);
 	});
+});
+
+it("never enables hosted fixtures for packaged builds or ordinary serving", () => {
+ expect(hostedFixturePolicyEnabled("build", "hosted-renderer-fixture", "1")).toBe(false);
+ expect(hostedFixturePolicyEnabled("serve", "development", "1")).toBe(false);
+ expect(hostedFixturePolicyEnabled("serve", "hosted-renderer-fixture", undefined)).toBe(false);
+ expect(hostedFixturePolicyEnabled("serve", "hosted-renderer-fixture", "1")).toBe(true);
 });

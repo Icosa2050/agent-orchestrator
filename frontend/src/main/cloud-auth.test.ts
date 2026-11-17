@@ -1,3 +1,5 @@
+vi.mock("../shared/fork-identity", () => ({ LOCAL_DISTRIBUTION: false }));
+vi.mock("./local-distribution-ipc", () => ({ localDistributionIpc: (ipc: unknown) => ipc }));
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -47,7 +49,7 @@ vi.mock("electron", () => ({
     once: vi.fn(),
     removeAsDefaultProtocolClient: vi.fn(),
     setAsDefaultProtocolClient: vi.fn(),
-    // These tests exercise the packaged deep-link (ao-app://) sign-in flow;
+    // These tests exercise the packaged deep-link (icosa-orchestrator://) sign-in flow;
     // unpackaged builds default to a loopback redirect instead.
     isPackaged: true,
   },
@@ -123,7 +125,7 @@ describe("native WorkOS authentication", () => {
     );
 
     const signIn = await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
     expect(signIn).not.toHaveProperty("signIn");
@@ -145,7 +147,7 @@ describe("native WorkOS authentication", () => {
 
   it("silently accepts the same completed callback without exchanging its code again", async () => {
     await beginCloudSignIn(dataDir);
-    const callback = "ao-app://callback?code=code_123&state=state_123";
+    const callback = "icosa-orchestrator://callback?code=code_123&state=state_123";
     const account = await handleCloudDeepLink(callback, dataDir);
 
     await expect(handleCloudDeepLink(callback, dataDir)).resolves.toEqual(account);
@@ -155,7 +157,7 @@ describe("native WorkOS authentication", () => {
 
   it("exchanges a callback once when the OS delivers it concurrently", async () => {
     await beginCloudSignIn(dataDir);
-    const callback = "ao-app://callback?code=code_123&state=state_123";
+    const callback = "icosa-orchestrator://callback?code=code_123&state=state_123";
     const accounts = await Promise.all([
       handleCloudDeepLink(callback, dataDir),
       handleCloudDeepLink(callback, dataDir),
@@ -167,19 +169,19 @@ describe("native WorkOS authentication", () => {
 
   it("ignores callbacks with no login pending without changing the signed-in account", async () => {
     await beginCloudSignIn(dataDir);
-    const account = await handleCloudDeepLink("ao-app://callback?code=code_123&state=state_123", dataDir);
+    const account = await handleCloudDeepLink("icosa-orchestrator://callback?code=code_123&state=state_123", dataDir);
     await expect(handleCloudDeepLink(
-      "ao-app://callback?code=different_code&state=state_123", dataDir,
+      "icosa-orchestrator://callback?code=different_code&state=state_123", dataDir,
     )).resolves.toEqual(account);
     await expect(handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=unverified_state", dataDir,
+      "icosa-orchestrator://callback?code=code_123&state=unverified_state", dataDir,
     )).resolves.toEqual(account);
     expect(mocks.authenticateWithCode).toHaveBeenCalledTimes(1);
   });
 
   it("quietly returns to an account saved before callback deduplication was added", async () => {
     await beginCloudSignIn(dataDir);
-    const callback = "ao-app://callback?code=code_123&state=state_123";
+    const callback = "icosa-orchestrator://callback?code=code_123&state=state_123";
     const account = await handleCloudDeepLink(callback, dataDir);
     const store = await readAuthStore(dataDir);
     delete store.completedCallback;
@@ -191,7 +193,7 @@ describe("native WorkOS authentication", () => {
 
   it("does not restore a signed-out account when its old return button is clicked", async () => {
     await beginCloudSignIn(dataDir);
-    const callback = "ao-app://callback?code=code_123&state=state_123";
+    const callback = "icosa-orchestrator://callback?code=code_123&state=state_123";
     await handleCloudDeepLink(callback, dataDir);
     await signOutCloud(dataDir);
 
@@ -202,7 +204,7 @@ describe("native WorkOS authentication", () => {
 
   it("keeps a newer pending login when an already completed callback repeats", async () => {
     await beginCloudSignIn(dataDir);
-    const callback = "ao-app://callback?code=code_123&state=state_123";
+    const callback = "icosa-orchestrator://callback?code=code_123&state=state_123";
     const account = await handleCloudDeepLink(callback, dataDir);
     mocks.getAuthorizationUrlWithPKCE.mockResolvedValueOnce({
       url: "https://workos.example/authorize", state: "state_456", codeVerifier: "verifier_456",
@@ -210,7 +212,7 @@ describe("native WorkOS authentication", () => {
     await beginCloudSignIn(dataDir);
 
     await expect(handleCloudDeepLink(callback, dataDir)).resolves.toEqual(account);
-    await handleCloudDeepLink("ao-app://callback?code=code_456&state=state_456", dataDir);
+    await handleCloudDeepLink("icosa-orchestrator://callback?code=code_456&state=state_456", dataDir);
     expect(mocks.authenticateWithCode).toHaveBeenCalledTimes(2);
     expect(mocks.authenticateWithCode).toHaveBeenLastCalledWith(expect.objectContaining({
       code: "code_456", codeVerifier: "verifier_456",
@@ -221,7 +223,7 @@ describe("native WorkOS authentication", () => {
   // accepted website analytics. It must never change how signing in goes.
   describe("website visitor id on the return link", () => {
     const VISITOR = "019a3f5e-8c2b-7d41-b6f0-3e2d1c0b9a87";
-    const callback = (extra = "") => `ao-app://callback?code=code_123&state=state_123${extra}`;
+    const callback = (extra = "") => `icosa-orchestrator://callback?code=code_123&state=state_123${extra}`;
 
     // Everything the sign-in produced, for comparing a run with and without the id.
     async function signInWith(extra: string) {
@@ -325,11 +327,11 @@ describe("native WorkOS authentication", () => {
       await beginCloudSignIn(dataDir);
       const pending = await readAuthStore(dataDir);
       await expect(handleCloudDeepLink(
-        `ao-app://callback?error=access_denied&error_description=User%20cancelled&web_distinct_id=${VISITOR}`,
+        `icosa-orchestrator://callback?error=access_denied&error_description=User%20cancelled&web_distinct_id=${VISITOR}`,
         dataDir,
       )).rejects.toThrow("User cancelled");
       await expect(handleCloudDeepLink(
-        `ao-app://callback?error=access_denied&web_distinct_id=${VISITOR}`,
+        `icosa-orchestrator://callback?error=access_denied&web_distinct_id=${VISITOR}`,
         dataDir,
       )).rejects.toThrow("WorkOS sign-in failed: access_denied");
       expect(mocks.authenticateWithCode).not.toHaveBeenCalled();
@@ -339,11 +341,11 @@ describe("native WorkOS authentication", () => {
     it("keeps a state mismatch a failure, whatever id rides along", async () => {
       await beginCloudSignIn(dataDir);
       await expect(handleCloudDeepLink(
-        `ao-app://callback?code=code_123&state=attacker_state&web_distinct_id=${VISITOR}`,
+        `icosa-orchestrator://callback?code=code_123&state=attacker_state&web_distinct_id=${VISITOR}`,
         dataDir,
       )).rejects.toThrow("state did not match");
       await expect(handleCloudDeepLink(
-        `ao-app://callback?web_distinct_id=${VISITOR}`,
+        `icosa-orchestrator://callback?web_distinct_id=${VISITOR}`,
         dataDir,
       )).rejects.toThrow("WorkOS callback is incomplete");
       expect(mocks.authenticateWithCode).not.toHaveBeenCalled();
@@ -374,7 +376,7 @@ describe("native WorkOS authentication", () => {
 
     beforeEach(async () => {
       await beginCloudSignIn(dataDir);
-      await handleCloudDeepLink("ao-app://callback?code=code_123&state=state_123", dataDir);
+      await handleCloudDeepLink("icosa-orchestrator://callback?code=code_123&state=state_123", dataDir);
       mocks.providerAuthenticate.mockResolvedValue({
         provider: "claude-code",
         credentialType: "oauth_token",
@@ -439,7 +441,7 @@ describe("native WorkOS authentication", () => {
 
     beforeEach(async () => {
       await beginCloudSignIn(dataDir);
-      await handleCloudDeepLink("ao-app://callback?code=code_123&state=state_123", dataDir);
+      await handleCloudDeepLink("icosa-orchestrator://callback?code=code_123&state=state_123", dataDir);
       mocks.providerAuthenticate.mockResolvedValue({ provider: "codex", credentialType: "auth_json", secret: "{\"tokens\":{}}" });
     });
 
@@ -469,7 +471,7 @@ describe("native WorkOS authentication", () => {
     await beginCloudSignIn(dataDir);
     await expect(
       handleCloudDeepLink(
-        "ao-app://callback?code=code_123&state=attacker_state",
+        "icosa-orchestrator://callback?code=code_123&state=attacker_state",
         dataDir,
       ),
     ).rejects.toThrow("state did not match");
@@ -479,7 +481,7 @@ describe("native WorkOS authentication", () => {
     mocks.encryptionAvailable = false;
     await beginCloudSignIn(dataDir);
     const signIn = await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
 
@@ -498,7 +500,7 @@ describe("native WorkOS authentication", () => {
     mocks.selectedStorageBackend = "basic_text";
     await beginCloudSignIn(dataDir);
     const signIn = await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
 
@@ -554,7 +556,7 @@ describe("native WorkOS authentication", () => {
     );
     await beginCloudSignIn(dataDir);
     await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
 
@@ -594,7 +596,7 @@ describe("native WorkOS authentication", () => {
     );
     await beginCloudSignIn(dataDir);
     await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
 
@@ -607,7 +609,7 @@ describe("native WorkOS authentication", () => {
   it("publishes signed-out state when a token request finds the auth store missing", async () => {
     await beginCloudSignIn(dataDir);
     await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
     await rm(path.join(dataDir, "cloud-auth.bin"), { force: true });
@@ -643,7 +645,7 @@ describe("native WorkOS authentication", () => {
       });
     await beginCloudSignIn(dataDir);
     await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
 
@@ -687,7 +689,7 @@ describe("native WorkOS authentication", () => {
     );
     await beginCloudSignIn(dataDir);
     await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
 
@@ -716,7 +718,7 @@ describe("native WorkOS authentication", () => {
   it("signs out locally without opening the browser", async () => {
     await beginCloudSignIn(dataDir);
     await handleCloudDeepLink(
-      "ao-app://callback?code=code_123&state=state_123",
+      "icosa-orchestrator://callback?code=code_123&state=state_123",
       dataDir,
     );
     mocks.openExternal.mockClear();
@@ -775,18 +777,18 @@ describe("registerCloudProtocol", () => {
     return { app, registerCloudProtocol };
   }
 
-  it("claims ao-app:// for the packaged app, and keeps it", async () => {
+  it("claims icosa-orchestrator:// for the packaged app, and keeps it", async () => {
     const { app, registerCloudProtocol } = await load({ isPackaged: true });
     registerCloudProtocol();
-    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("ao-app");
+    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator");
     expect(app.removeAsDefaultProtocolClient).not.toHaveBeenCalled();
     expect(app.once).not.toHaveBeenCalled();
   });
 
-  it("claims ao-app:// for a packaged app signing in through a loopback override", async () => {
+  it("claims icosa-orchestrator:// for a packaged app signing in through a loopback override", async () => {
     const { app, registerCloudProtocol } = await load({ isPackaged: true, redirect: "http://127.0.0.1:3000/callback" });
     registerCloudProtocol();
-    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("ao-app");
+    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator");
     expect(app.removeAsDefaultProtocolClient).not.toHaveBeenCalled();
   });
 
@@ -794,27 +796,27 @@ describe("registerCloudProtocol", () => {
     // Windows and Linux start the installed app with the link as argv[1].
     const { app, registerCloudProtocol } = await load({
       isPackaged: true,
-      argv: [process.execPath, "ao-app://callback?code=c&state=s"],
+      argv: [process.execPath, "icosa-orchestrator://callback?code=c&state=s"],
       platform: "win32",
     });
     registerCloudProtocol();
-    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("ao-app");
+    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator");
   });
 
-  it("keeps a loopback dev build from claiming ao-app://", async () => {
+  it("keeps a loopback dev build from claiming icosa-orchestrator://", async () => {
     const { app, registerCloudProtocol } = await load({ isPackaged: false });
     registerCloudProtocol();
     expect(app.setAsDefaultProtocolClient).not.toHaveBeenCalled();
     expect(app.removeAsDefaultProtocolClient).not.toHaveBeenCalled();
   });
 
-  it.each(["darwin", "win32"] as const)("hands ao-app:// back on %s when an earlier dev run took it", async (os) => {
+  it.each(["darwin", "win32"] as const)("hands icosa-orchestrator:// back on %s when an earlier dev run took it", async (os) => {
     const { app, registerCloudProtocol } = await load({ isPackaged: false, ownsScheme: true, platform: os });
     registerCloudProtocol();
     // Windows only matches (and removes) the registration for this exact
     // executable and script.
-    expect(app.isDefaultProtocolClient).toHaveBeenCalledWith("ao-app", process.execPath, [devScript]);
-    expect(app.removeAsDefaultProtocolClient).toHaveBeenCalledWith("ao-app", process.execPath, [devScript]);
+    expect(app.isDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator", process.execPath, [devScript]);
+    expect(app.removeAsDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator", process.execPath, [devScript]);
     expect(app.setAsDefaultProtocolClient).not.toHaveBeenCalled();
   });
 
@@ -829,8 +831,8 @@ describe("registerCloudProtocol", () => {
   it("releases with the bare scheme when a dev build has no app path", async () => {
     const { app, registerCloudProtocol } = await load({ isPackaged: false, ownsScheme: true, argv: [process.execPath] });
     expect(() => registerCloudProtocol()).not.toThrow();
-    expect(app.isDefaultProtocolClient).toHaveBeenCalledWith("ao-app");
-    expect(app.removeAsDefaultProtocolClient).toHaveBeenCalledWith("ao-app");
+    expect(app.isDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator");
+    expect(app.removeAsDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator");
   });
 
   it("treats a localhost override like the loopback default", async () => {
@@ -844,23 +846,23 @@ describe("registerCloudProtocol", () => {
 
   it.each([
     ["a bounce page", "https://staging.aoagents.dev/app/auth/return"],
-    ["the deep link itself", "ao-app://callback"],
-  ])("claims ao-app:// for a dev build signing in through %s, until it quits", async (_name, redirect) => {
+    ["the deep link itself", "icosa-orchestrator://callback"],
+  ])("claims icosa-orchestrator:// for a dev build signing in through %s, until it quits", async (_name, redirect) => {
     const { app, registerCloudProtocol } = await load({ isPackaged: false, redirect, ownsScheme: true });
     registerCloudProtocol();
     // Windows launches this checkout's script with the dev Electron binary.
-    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("ao-app", process.execPath, [devScript]);
+    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator", process.execPath, [devScript]);
     expect(app.removeAsDefaultProtocolClient).not.toHaveBeenCalled();
     expect(app.once).toHaveBeenCalledWith("will-quit", expect.any(Function));
     const onQuit = vi.mocked(app.once).mock.calls[0][1] as () => void;
     onQuit();
-    expect(app.removeAsDefaultProtocolClient).toHaveBeenCalledWith("ao-app", process.execPath, [devScript]);
+    expect(app.removeAsDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator", process.execPath, [devScript]);
   });
 
   it("claims for a deep-link dev build on Linux without a release on quit", async () => {
-    const { app, registerCloudProtocol } = await load({ isPackaged: false, redirect: "ao-app://callback", platform: "linux" });
+    const { app, registerCloudProtocol } = await load({ isPackaged: false, redirect: "icosa-orchestrator://callback", platform: "linux" });
     registerCloudProtocol();
-    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("ao-app", process.execPath, [devScript]);
+    expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("icosa-orchestrator", process.execPath, [devScript]);
     expect(app.once).not.toHaveBeenCalled();
   });
 });

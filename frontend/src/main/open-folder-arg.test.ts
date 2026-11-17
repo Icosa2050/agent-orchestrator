@@ -35,8 +35,8 @@ describe("parseOpenFolderPathArg", () => {
 		expect(parseOpenFolderPathArg(["-x", "--no-sandbox", "--installed-via=msi"])).toBeUndefined();
 	});
 
-	it("ignores URL-scheme entries such as the ao-app:// deep link", () => {
-		expect(parseOpenFolderPathArg(["electron.exe", "ao-app://callback?token=abc"])).toBeUndefined();
+	it("ignores URL-scheme entries such as the icosa-orchestrator:// deep link", () => {
+		expect(parseOpenFolderPathArg(["electron.exe", "icosa-orchestrator://callback?token=abc"])).toBeUndefined();
 	});
 
 	it("skips a file path (not a directory) before finding the real directory", async () => {

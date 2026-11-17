@@ -58,7 +58,7 @@ describe("opening a share link", () => {
 	it("asks for a new link when the control plane refuses a short link as a bad request", async () => {
 		mocks.client.redeemShareLinkCode.mockRejectedValue(new CloudCpError("The request body is invalid.", { status: 400, code: "invalid_request" }));
 		renderHost();
-		act(() => requestOpenShareLink(`ao-app://share/${CODE}`));
+		act(() => requestOpenShareLink(`icosa-orchestrator://share/${CODE}`));
 		expect((await screen.findByRole("alert")).textContent).toBe("This link can't be opened right now. Ask for a new link.");
 		expect(mocks.navigate).not.toHaveBeenCalled();
 	});
@@ -69,21 +69,21 @@ describe("opening a share link", () => {
 	])("explains a %i for a short link as before", async (status, message) => {
 		mocks.client.redeemShareLinkCode.mockRejectedValue(new CloudCpError("refused", { status }));
 		renderHost();
-		act(() => requestOpenShareLink(`ao-app://share/${CODE}`));
+		act(() => requestOpenShareLink(`icosa-orchestrator://share/${CODE}`));
 		expect((await screen.findByRole("alert")).textContent).toBe(message);
 	});
 
 	it("keeps showing the control plane's text for a bad request on a link from before codes", async () => {
 		mocks.client.redeemShareLink.mockRejectedValue(new CloudCpError("The request body is invalid.", { status: 400 }));
 		renderHost();
-		act(() => requestOpenShareLink(`ao-app://share/${ORG}/tok`));
+		act(() => requestOpenShareLink(`icosa-orchestrator://share/${ORG}/tok`));
 		expect((await screen.findByRole("alert")).textContent).toBe("The request body is invalid.");
 		expect(mocks.client.redeemShareLink).toHaveBeenCalledWith(ORG, "tok");
 	});
 
 	it("does not send a code of the wrong length", async () => {
 		renderHost();
-		act(() => requestOpenShareLink("ao-app://share/k7Hq2x9PmB4w"));
+		act(() => requestOpenShareLink("icosa-orchestrator://share/k7Hq2x9PmB4w"));
 		expect((await screen.findByRole("alert")).textContent).toBe("That isn't a share link.");
 		expect(mocks.client.redeemShareLinkCode).not.toHaveBeenCalled();
 		expect(mocks.client.redeemShareLink).not.toHaveBeenCalled();

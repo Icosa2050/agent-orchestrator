@@ -3,7 +3,7 @@
 // existing .app in a dmg with that layout, and a check that a finished dmg
 // really carries it.
 //
-//   node scripts/build-mac-dmg.mjs --app <path/Agent Orchestrator.app> --arch <arm64|x64> --output <file.dmg>
+//   node scripts/build-mac-dmg.mjs --app <path/Icosa Orchestrator.app> --arch <arm64|x64> --output <file.dmg>
 //   node scripts/build-mac-dmg.mjs --check <file.dmg>
 //
 // Why this exists: the published stable dmg is not made by
@@ -35,11 +35,11 @@ const frontendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), ".."
 
 // The bundle keeps its current name: `ao start`, the updater, stale-copy cleanup
 // and the repair installer look it up by this exact name.
-export const APP_NAME = "Agent Orchestrator";
+export const APP_NAME = "Icosa Orchestrator";
 export const APP_BUNDLE_NAME = `${APP_NAME}.app`;
 // The mounted volume: Finder's window title and sidebar entry. Nothing looks
 // it up by name.
-export const VOLUME_NAME = "Orchestrator";
+export const VOLUME_NAME = "Icosa Orchestrator";
 
 // Window and icon geometry in Finder points. Positions are icon centres. The
 // window is the window FRAME (Finder's title bar takes ~32pt of it), so the
@@ -114,7 +114,7 @@ export async function buildMacDmg({ app, arch, output }, { buildForge } = {}) {
 			mac: [`dmg:${arch}`],
 			projectDir: frontendDir,
 			config: {
-				appId: "dev.agent-orchestrator.desktop",
+				appId: "com.icosa2050.orchestrator",
 				productName: APP_NAME,
 				directories: { output: path.dirname(outputPath) },
 				publish: null,

@@ -13,7 +13,7 @@ const shadowed: Shadowed = {
 	shadowIdentity: "identity-1",
 	versionChecked: true,
 	shadowVersion: "0.13.0",
-	bundledPath: "/Applications/Agent Orchestrator.app/Contents/Resources/daemon/ao",
+	bundledPath: "/Applications/Icosa Orchestrator.app/Contents/Resources/daemon/ao",
 	bundledVersion: "0.14.8",
 	relation: "older",
 	fix: { kind: "replace", replaces: "link" },
@@ -83,7 +83,7 @@ describe("CliShadowSettingsRow", () => {
 		const details = container.querySelector("details");
 		expect(details).not.toHaveAttribute("open");
 		expect(details).toHaveTextContent("/Users/me/.local/bin/ao");
-		expect(details).toHaveTextContent("/Applications/Agent Orchestrator.app/Contents/Resources/daemon/ao");
+		expect(details).toHaveTextContent("/Applications/Icosa Orchestrator.app/Contents/Resources/daemon/ao");
 	});
 
 	it("only lets a path wrap after a slash", async () => {
