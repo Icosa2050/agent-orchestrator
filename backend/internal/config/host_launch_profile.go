@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -19,6 +20,10 @@ type hostLaunchProfile struct {
 }
 
 func loadHostLaunchProfile() (hostLaunchProfile, error) {
+	return loadHostLaunchProfileForOS(runtime.GOOS)
+}
+
+func loadHostLaunchProfileForOS(platform string) (hostLaunchProfile, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		// Harness subprocesses may have no HOME while supplying both paths. There
@@ -30,6 +35,12 @@ func loadHostLaunchProfile() (hostLaunchProfile, error) {
 	}
 	aoHome := filepath.Join(home, ".ao")
 	defaults := hostLaunchProfile{DataDir: filepath.Join(aoHome, "dev", "data"), RunFile: filepath.Join(aoHome, "dev", "running.json"), Port: DefaultPort}
+	// The local-distribution profile is supported on macOS/Linux only. Windows
+	// has no POSIX mode/uid contract; ignore the file rather than pretend to
+	// validate its ACL. Environment overrides are still applied by the caller.
+	if platform == "windows" {
+		return defaults, nil
+	}
 	file, err := os.Open(filepath.Join(aoHome, "icosa-desktop.json"))
 	if os.IsNotExist(err) {
 		return defaults, nil

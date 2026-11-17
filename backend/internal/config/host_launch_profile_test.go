@@ -58,9 +58,14 @@ func TestForkHostLaunchProfileVectors(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			// Exercise Windows policy on every host, including malformed vectors.
+			windows, windowsErr := loadHostLaunchProfileForOS("windows")
+			if windowsErr != nil || windows.DataDir != filepath.Join(home, ".ao", "dev", "data") || windows.RunFile != filepath.Join(home, ".ao", "dev", "running.json") || windows.Port != DefaultPort {
+				t.Fatalf("Windows must ignore profile: %+v, %v", windows, windowsErr)
+			}
 			cfg, err := Load()
 			state, dataDir, runFile, pathErr := ResolvePaths()
-			if !v.Valid {
+			if !v.Valid && runtime.GOOS != "windows" {
 				if err == nil || pathErr == nil {
 					t.Fatalf("invalid profile accepted: Load=%v ResolvePaths=%v", err, pathErr)
 				}
@@ -70,7 +75,7 @@ func TestForkHostLaunchProfileVectors(t *testing.T) {
 				t.Fatalf("Load=%v ResolvePaths=%v", err, pathErr)
 			}
 			wantData, wantRun, wantPort := filepath.Join(home, ".ao", "dev", "data"), filepath.Join(home, ".ao", "dev", "running.json"), 3002
-			if !v.Absent {
+			if !v.Absent && runtime.GOOS != "windows" {
 				wantData = profile["dataDir"].(string)
 				wantRun = profile["runFile"].(string)
 				wantPort = int(profile["port"].(float64))
