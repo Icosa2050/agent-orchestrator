@@ -541,10 +541,22 @@ func TestForkStartMissingInstallDoesNotAcquire(t *testing.T) {
 		return nil, errors.New("unexpected network request")
 	})}}
 	out, _, err := executeCLI(t, deps, "start", "--json")
-	if err == nil || !strings.Contains(err.Error(), "automatic acquisition is disabled") {
+	const message = "local Icosa Orchestrator app is not installed; automatic acquisition is disabled for this local build"
+	if err == nil || err.Error() != message {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if out != "" || calls != 0 {
 		t.Fatalf("missing install emitted output %q or made %d requests", out, calls)
+	}
+}
+
+func TestForkContainerInstallCheckMatchesMissingInstallError(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "..", "test", "cli", "install-check.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const message = "local Icosa Orchestrator app is not installed; automatic acquisition is disabled for this local build"
+	if !strings.Contains(string(script), `grep -qF "`+message+`"`) {
+		t.Fatal("container smoke check must accept the fork missing-install error")
 	}
 }

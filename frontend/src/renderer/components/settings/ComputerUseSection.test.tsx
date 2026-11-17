@@ -77,15 +77,15 @@ beforeEach(() => {
 	delete document.documentElement.dataset.aoPlatform;
 });
 
-describe("Orchestrator's own permissions", () => {
-	const appGear = () => screen.findByRole("button", { name: "Open Orchestrator's permissions in System Settings" });
+describe("Icosa Orchestrator's own permissions", () => {
+	const appGear = () => screen.findByRole("button", { name: "Open Icosa Orchestrator's permissions in System Settings" });
 
 	it("are not shown off macOS", async () => {
 		daemon({ status: () => installed });
 		renderSection();
 		expect(await screen.findByText("Installed")).toBeInTheDocument();
 		expect(screen.queryByText("Native computer use")).not.toBeInTheDocument();
-		expect(screen.queryByText("Grant macOS permissions to Orchestrator")).not.toBeInTheDocument();
+		expect(screen.queryByText("Grant macOS permissions to Icosa Orchestrator")).not.toBeInTheDocument();
 		expect(bridgeMocks.getAppPrivacy).not.toHaveBeenCalled();
 	});
 
@@ -96,7 +96,7 @@ describe("Orchestrator's own permissions", () => {
 		renderSection();
 
 		expect(await screen.findByText("Native computer use")).toBeInTheDocument();
-		expect(await screen.findByText("Grant macOS permissions to Orchestrator")).toBeInTheDocument();
+		expect(await screen.findByText("Grant macOS permissions to Icosa Orchestrator")).toBeInTheDocument();
 		await userEvent.click(await appGear());
 		expect(bridgeMocks.requestAppPrivacy).not.toHaveBeenCalled();
 		expect(bridgeMocks.showPrivacyGuide).toHaveBeenCalledWith(expect.objectContaining({
@@ -106,7 +106,7 @@ describe("Orchestrator's own permissions", () => {
 		}));
 	});
 
-	it("asks macOS for missing grants, docks the guide on Orchestrator's missing pane, and follows the grants", async () => {
+	it("asks macOS for missing grants, docks the guide on Icosa Orchestrator's missing pane, and follows the grants", async () => {
 		document.documentElement.dataset.aoPlatform = "darwin";
 		daemon({ status: () => notInstalled });
 		let grants = { accessibility: false, screenRecording: false };
@@ -121,7 +121,7 @@ describe("Orchestrator's own permissions", () => {
 			target: "orchestrator",
 			pane: "screenRecording",
 			granted: { accessibility: true, screenRecording: false },
-			text: expect.objectContaining({ drag: "Drag Orchestrator into the list above", allowed: "Orchestrator is allowed here" }),
+			text: expect.objectContaining({ drag: "Drag Icosa Orchestrator into the list above", allowed: "Icosa Orchestrator is allowed here" }),
 		}));
 
 		grants = { accessibility: true, screenRecording: true };
@@ -193,7 +193,7 @@ describe("Orchestrator's own permissions", () => {
 		const alert = await screen.findByRole("alert");
 		expect(alert).toHaveTextContent("System Settings did not open");
 		// Below the native section's row, so it reads as that section's error.
-		expect(screen.getByText("Grant macOS permissions to Orchestrator").compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(screen.getByText("Grant macOS permissions to Icosa Orchestrator").compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 	});
 
 	it("keep Cua Driver's failures under Cua Driver, above their section", async () => {
@@ -213,7 +213,7 @@ describe("Orchestrator's own permissions", () => {
 		document.documentElement.dataset.aoPlatform = "darwin";
 		daemon({ status: () => notInstalled });
 		renderSection();
-		expect(await screen.findByText("Could not check Orchestrator's permissions.")).toBeInTheDocument();
+		expect(await screen.findByText("Could not check Icosa Orchestrator's permissions.")).toBeInTheDocument();
 		expect(await appGear()).toBeDisabled();
 	});
 });
@@ -225,7 +225,7 @@ describe("ComputerUseSection", () => {
 		renderSection();
 
 		const install = await screen.findByRole("button", { name: "Install · Official installer" });
-		expect(screen.getByText("Powers Orchestrator's computer use tools, so agents in chat sessions can see the screen and operate desktop apps.")).toBeInTheDocument();
+		expect(screen.getByText("Powers Icosa Orchestrator's computer use tools, so agents in chat sessions can see the screen and operate desktop apps.")).toBeInTheDocument();
 		expect(screen.queryByText("Background service")).not.toBeInTheDocument();
 
 		await userEvent.click(install);

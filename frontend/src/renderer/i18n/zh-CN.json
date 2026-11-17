@@ -4962,5 +4962,7 @@
 	"shell.deleteCloudProjectTitle": "删除项目",
 	"shell.deleteCloudProjectLead": "这将永久删除 {{name}}",
 	"shell.deleteCloudProjectConfirm": "永久删除",
-	"shell.cloudProjectDeleted": "已永久删除 {{name}}"
+	"shell.cloudProjectDeleted": "已永久删除 {{name}}",
+	"settings.updates.managedLocally": "Updates managed locally",
+	"settings.billing.localBuildUnavailable": "Cloud billing unavailable in this local build"
 }

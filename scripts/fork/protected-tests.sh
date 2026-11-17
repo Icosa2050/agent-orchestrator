@@ -24,6 +24,7 @@ forge.config.test.ts 35
 src/main/host-launch-profile.test.ts 7
 src/main/local-distribution-ipc.test.ts 1
 src/main/fork-local-distribution.test.ts 1
+src/renderer/components/settings/ForkLocalSettings.test.tsx 2
 src/renderer/components/ShareArtifactPopover.test.tsx 68
 src/main/remotes-main.test.ts 41
 src/main/remotes-ipc.test.ts 8
@@ -54,7 +55,7 @@ backend_tests='
 ./internal/httpd ^TestForkAgentAccounts 2
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
-./internal/cli ^(TestForkTriage|TestForkPackagedIdentity|TestForkStartMissingInstallDoesNotAcquire) 3
+./internal/cli ^(TestForkTriage|TestForkPackagedIdentity|TestForkStartMissingInstallDoesNotAcquire|TestForkContainerInstallCheckMatchesMissingInstallError) 4
 ./internal/daemon ^TestPublishRemoteHost 1
 ./internal/daemon ^(TestOptOut|TestForkDefaultPolicy) 5
 ./internal/storage/sqlite/store ^TestForkSessionRetention 1

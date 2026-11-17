@@ -4980,5 +4980,7 @@
 	"shell.deleteCloudProjectTitle": "プロジェクトを完全に削除",
 	"shell.deleteCloudProjectLead": "{{name}} を完全に削除します",
 	"shell.deleteCloudProjectConfirm": "完全に削除",
-	"shell.cloudProjectDeleted": "{{name}} を完全に削除しました"
+	"shell.cloudProjectDeleted": "{{name}} を完全に削除しました",
+	"settings.updates.managedLocally": "Updates managed locally",
+	"settings.billing.localBuildUnavailable": "Cloud billing unavailable in this local build"
 }

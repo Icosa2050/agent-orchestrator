@@ -5108,5 +5108,7 @@
 	"shell.deleteCloudProjectTitle": "Supprimer le projet",
 	"shell.deleteCloudProjectLead": "Cela supprimera définitivement {{name}}",
 	"shell.deleteCloudProjectConfirm": "Supprimer définitivement",
-	"shell.cloudProjectDeleted": "{{name}} supprimé définitivement"
+	"shell.cloudProjectDeleted": "{{name}} supprimé définitivement",
+	"settings.updates.managedLocally": "Updates managed locally",
+	"settings.billing.localBuildUnavailable": "Cloud billing unavailable in this local build"
 }

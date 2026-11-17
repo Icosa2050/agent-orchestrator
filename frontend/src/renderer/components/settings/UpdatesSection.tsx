@@ -41,7 +41,8 @@ function nextUpdateRequestId(prefix = "feature-update"): string {
 }
 
 export function UpdatesSection(props: { titleHidden?: boolean } = {}) {
- if (LOCAL_DISTRIBUTION) return <SettingsSection title="Updates" sectionId="updates" titleHidden={props.titleHidden}><p>Updates managed locally</p></SettingsSection>;
+	const { t } = useTranslation();
+	if (LOCAL_DISTRIBUTION) return <SettingsSection title={t("settings.updates.versionSection")} sectionId="updates" titleHidden={props.titleHidden}><p>{t("settings.updates.managedLocally")}</p></SettingsSection>;
  return <HostedUpdatesSection {...props} />;
 }
 function HostedUpdatesSection({ titleHidden }: { titleHidden?: boolean } = {}) {

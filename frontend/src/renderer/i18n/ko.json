@@ -4980,5 +4980,7 @@
 	"shell.deleteCloudProjectTitle": "프로젝트 삭제",
 	"shell.deleteCloudProjectLead": "{{name}}을(를) 영구적으로 삭제합니다",
 	"shell.deleteCloudProjectConfirm": "영구 삭제",
-	"shell.cloudProjectDeleted": "{{name}}을(를) 삭제했습니다"
+	"shell.cloudProjectDeleted": "{{name}}을(를) 삭제했습니다",
+	"settings.updates.managedLocally": "Updates managed locally",
+	"settings.billing.localBuildUnavailable": "Cloud billing unavailable in this local build"
 }

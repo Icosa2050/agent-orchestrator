@@ -1,3 +1,5 @@
+// Exercise dormant hosted UI/auth machinery; separate fork tests assert the real gate.
+vi.mock("../../../shared/fork-identity", async (importOriginal) => ({ ...await importOriginal<typeof import("../../../shared/fork-identity")>(), LOCAL_DISTRIBUTION: false }));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";

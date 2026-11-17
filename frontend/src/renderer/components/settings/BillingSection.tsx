@@ -34,8 +34,9 @@ const ENTERPRISE_BOOKING_URL = "https://cal.com/agentwrapper/ao-design-partner?o
  * in the system browser, which return to the app afterwards.
  */
 export function BillingSection({ titleHidden }: { titleHidden?: boolean }) {
+	const { t } = useTranslation();
 	const { cloudEnabled } = useCloudGate();
-	if (LOCAL_DISTRIBUTION) return <Notice title="Billing" titleHidden={titleHidden} text="Cloud billing unavailable in this local build" />;
+	if (LOCAL_DISTRIBUTION) return <Notice title={t("settings.billing.title")} titleHidden={titleHidden} text={t("settings.billing.localBuildUnavailable")} />;
 	if (!cloudEnabled) return null;
 	return <BillingSectionInner titleHidden={titleHidden} />;
 }

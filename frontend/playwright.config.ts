@@ -18,7 +18,7 @@ export default defineConfig({
 		// launch, which is all the browser-based e2e suite needs.
 		command: process.env.AO_PERF_PRODUCTION === "1"
 			? "node scripts/performance-web.mjs"
-			: `npm run dev:web -- --port ${port} --host 127.0.0.1`,
+			: `npm run dev:web -- --port ${port} --host 127.0.0.1 --mode hosted-renderer-fixture`,
 		port,
 		reuseExistingServer: !process.env.CI,
 	},

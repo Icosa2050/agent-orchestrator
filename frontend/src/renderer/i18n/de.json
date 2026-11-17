@@ -4980,5 +4980,7 @@
 	"shell.deleteCloudProjectTitle": "Projekt löschen",
 	"shell.deleteCloudProjectLead": "Dadurch wird {{name}} endgültig gelöscht",
 	"shell.deleteCloudProjectConfirm": "Endgültig löschen",
-	"shell.cloudProjectDeleted": "{{name}} gelöscht"
+	"shell.cloudProjectDeleted": "{{name}} gelöscht",
+	"settings.updates.managedLocally": "Updates werden lokal verwaltet",
+	"settings.billing.localBuildUnavailable": "Cloud-Abrechnung ist in dieser lokalen Version nicht verfügbar"
 }

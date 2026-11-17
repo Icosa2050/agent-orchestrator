@@ -5228,5 +5228,7 @@
 	"shell.deleteCloudProjectTitle": "Удалить проект навсегда",
 	"shell.deleteCloudProjectLead": "Проект {{name}} будет удалён навсегда",
 	"shell.deleteCloudProjectConfirm": "Удалить навсегда",
-	"shell.cloudProjectDeleted": "Проект {{name}} удалён навсегда"
+	"shell.cloudProjectDeleted": "Проект {{name}} удалён навсегда",
+	"settings.updates.managedLocally": "Updates managed locally",
+	"settings.billing.localBuildUnavailable": "Cloud billing unavailable in this local build"
 }
