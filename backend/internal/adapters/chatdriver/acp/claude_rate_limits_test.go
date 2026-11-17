@@ -41,6 +41,26 @@ func TestClaudeRateLimitTypesFillTheirOwnWindow(t *testing.T) {
 	if got := c.claudeRateLimits(claudeLimitMeta("overage", 0.5, weekly), session.Add(time.Minute)); got.PrimaryUsedPercent != -1 || got.SecondaryUsedPercent != 90 {
 		t.Fatalf("after session reset = %#v", got)
 	}
+	// A status-only update (no utilization) for a later window leaves that
+	// window's level unknown instead of carrying the previous one forward.
+	next := session.Add(5 * time.Hour)
+	statusOnly := map[string]any{"_claude/rateLimit": map[string]any{"rateLimitType": "five_hour", "status": "allowed", "resetsAt": float64(next.Unix())}}
+	if got := c.claudeRateLimits(statusOnly, session.Add(time.Minute)); got.PrimaryUsedPercent != -1 || got.SecondaryUsedPercent != 90 {
+		t.Fatalf("status-only new window = %#v", got)
+	}
+	// The same reset without utilization keeps the known level.
+	sameWindow := &conversation{}
+	sameWindow.claudeRateLimits(claudeLimitMeta("five_hour", 0.85, session), now)
+	statusSame := map[string]any{"_claude/rateLimit": map[string]any{"rateLimitType": "five_hour", "status": "allowed_warning", "resetsAt": float64(session.Unix())}}
+	if got := sameWindow.claudeRateLimits(statusSame, now); got == nil || got.PrimaryUsedPercent != 85 {
+		t.Fatalf("status-only same window = %#v", got)
+	}
+	// When it was the only slot, the quota position is unknown.
+	alone := &conversation{}
+	alone.claudeRateLimits(claudeLimitMeta("five_hour", 0.85, session), now)
+	if got := alone.claudeRateLimits(statusOnly, session.Add(time.Minute)); got != nil {
+		t.Fatalf("status-only new window, only slot = %#v, want nil", got)
+	}
 	if got := (&conversation{}).claudeRateLimits(claudeLimitMeta("overage", 0.5, weekly), now); got != nil {
 		t.Fatalf("only an unslotted window = %#v, want nil", got)
 	}

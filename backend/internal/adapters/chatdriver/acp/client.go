@@ -1442,12 +1442,19 @@ func (c *conversation) claudeRateLimits(meta map[string]any, now time.Time) *por
 			c.claudeWindows = make(map[string]claudeWindowReading)
 		}
 		reading := c.claudeWindows[kind]
-		if utilization, ok := number(value["utilization"]); ok {
+		utilization, hasUtilization := number(value["utilization"])
+		if seconds, ok := number(value["resetsAt"]); ok && seconds > 0 {
+			resetsAt := time.Unix(int64(seconds), 0).UTC()
+			// A different reset is a new window: without a utilization of its
+			// own its level is unknown, not the previous window's.
+			if !hasUtilization && !resetsAt.Equal(reading.resetsAt) {
+				reading.known = false
+			}
+			reading.resetsAt = resetsAt
+		}
+		if hasUtilization {
 			// The Claude SDK reports utilization as 0..1.
 			reading.usedPercent, reading.known = utilization*100, true
-		}
-		if seconds, ok := number(value["resetsAt"]); ok && seconds > 0 {
-			reading.resetsAt = time.Unix(int64(seconds), 0).UTC()
 		}
 		c.claudeWindows[kind] = reading
 	}
