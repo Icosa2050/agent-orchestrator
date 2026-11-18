@@ -36,6 +36,13 @@ remote policy can otherwise force a local app to quit. `fork-version-floor.test.
 protects the omission and the independent updater startup; the latter still reads
 the fork release feed from `app-update.yml`.
 
+The Usage page (Spend and Limits, raw token counts by default) and the Cmd+K
+palette are normal features of the local-distribution build, not Developer Mode
+or nightly ones. Developer Mode keeps its default of off and still gates the
+experimental Windows tab; Teams stays off. Watch `routes/_shell.usage.tsx`,
+the Usage rows in `Sidebar.tsx` and `lib/command-palette.ts`, and
+`lib/build-channel.ts`; `fork-local-usage.test.tsx` protects them.
+
 Artifact Publish is also protected: desktop `cloudShare:publish` and Cloud requests must refuse signed-out calls before uploading or contacting the control plane. Manual credentials cannot be linked through the desktop Cloud API; link a machine explicitly from its own CLI if desired.
 
 Fork guard and Public boundary are unconditional reusable jobs of CI on every PR and push to main. `ci-ok` requires both to succeed, even when other lanes are skipped.

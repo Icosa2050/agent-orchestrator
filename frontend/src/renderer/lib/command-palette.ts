@@ -829,15 +829,13 @@ export function buildCommands(ctx: CommandPaletteContext, t: TFunction = appI18n
 		searchOnly: true,
 		action: { kind: "open-session-import" },
 	});
-	if (ctx.developerMode) {
-		items.push({
-			id: "global-usage",
-			group: "global",
-			title: t("usage.title"),
-			keywords: ["usage", "cost", "tokens", "limits", "spend", "billing", "quota"],
-			action: { kind: "navigate", target: { to: "/usage" } },
-		});
-	}
+	items.push({
+		id: "global-usage",
+		group: "global",
+		title: t("usage.title"),
+		keywords: ["usage", "cost", "tokens", "limits", "spend", "billing", "quota"],
+		action: { kind: "navigate", target: { to: "/usage" } },
+	});
 	items.push({
 		id: "global-settings",
 		group: "global",

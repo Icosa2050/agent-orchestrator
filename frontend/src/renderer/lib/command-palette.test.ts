@@ -183,8 +183,8 @@ describe("buildCommands grouping", () => {
 		expect(map.get("current-copy-branch")?.action).toEqual({ kind: "copy-branch", branch: "feature/w-pr" });
 	});
 
-	it("offers Open usage only in Developer Mode", () => {
-		expect(byId(buildCommands({ workspaces: workspaces() })).has("global-usage")).toBe(false);
+	it("offers Open usage with or without Developer Mode", () => {
+		expect(byId(buildCommands({ workspaces: workspaces() })).has("global-usage")).toBe(true);
 		expect(byId(buildCommands({ workspaces: workspaces(), developerMode: true })).has("global-usage")).toBe(true);
 	});
 
