@@ -362,10 +362,11 @@ func (u ConversationUsage) ContextFraction() float64 {
 type ConversationRateLimits struct {
 	// Percentages in 0..100. Negative means the provider did not report that
 	// window, which is not the same as reporting it empty.
-	PrimaryUsedPercent       float64 `json:"primaryUsedPercent"`
-	SecondaryUsedPercent     float64 `json:"secondaryUsedPercent"`
-	PrimaryResetsInSeconds   int64   `json:"primaryResetsInSeconds,omitempty"`
-	SecondaryResetsInSeconds int64   `json:"secondaryResetsInSeconds,omitempty"`
+	PrimaryUsedPercent   float64 `json:"primaryUsedPercent"`
+	SecondaryUsedPercent float64 `json:"secondaryUsedPercent"`
+	// The absolute instants each window refills; zero when not reported.
+	PrimaryResetsAt   time.Time `json:"primaryResetsAt,omitzero"`
+	SecondaryResetsAt time.Time `json:"secondaryResetsAt,omitzero"`
 	// PlanLabel is the provider's name for the account tier, when it says.
 	PlanLabel string `json:"planLabel,omitempty"`
 }

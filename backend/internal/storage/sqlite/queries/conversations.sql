@@ -592,14 +592,17 @@ SET context_used = ?,
     usage_currency = ?
 WHERE id = ?;
 
--- Account quota position, latest wins. Percentages in 0..100; the resets columns
--- are remaining seconds, not the absolute instant the provider sends.
+-- Account quota position, latest wins. Percentages in 0..100; the resets_at
+-- columns are the absolute instants. The legacy resets_in columns are cleared:
+-- remaining seconds go stale as soon as the row ages.
 -- name: UpdateConversationRateLimits :exec
 UPDATE conversations
 SET rate_limit_primary_percent = ?,
     rate_limit_secondary_percent = ?,
-    rate_limit_primary_resets_in = ?,
-    rate_limit_secondary_resets_in = ?,
+    rate_limit_primary_resets_in = NULL,
+    rate_limit_secondary_resets_in = NULL,
+    rate_limit_primary_resets_at = ?,
+    rate_limit_secondary_resets_at = ?,
     rate_limit_plan = ?
 WHERE id = ?;
 

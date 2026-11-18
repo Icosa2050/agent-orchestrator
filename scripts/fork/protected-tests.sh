@@ -53,7 +53,7 @@ src/main/cloud-folder-push.test.ts 84
 # package (relative to backend/), -run regex (no spaces) and minimum listed tests.
 backend_tests='
 ./internal/httpd ^(TestLAN|TestMobileLAN|TestAccountTokenIssuanceReturnsThroughRealLANListener) 29
-./internal/httpd ^TestForkAgentAccounts 2
+./internal/httpd ^(TestForkAgentAccounts|TestForkUsageRequiresDeviceCredentials) 3
 ./internal/httpd/controllers ^(TestLANOnly|TestTunnelOnly|TestMobileStatus) 19
 ./internal/cli ^TestRemoteHost 7
 ./internal/config ^TestForkHostLaunchProfile 4

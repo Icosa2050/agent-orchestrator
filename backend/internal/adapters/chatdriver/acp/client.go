@@ -838,7 +838,7 @@ func (c *conversation) processUpdate(params acpsdk.SessionNotification) error {
 			usage.Currency = update.UsageUpdate.Cost.Currency
 		}
 		emit(ports.ChatEvent{Kind: ports.ChatEventUsage, Usage: usage})
-		if limits := claudeRateLimits(update.UsageUpdate.Meta); limits != nil {
+		if limits := c.claudeRateLimits(update.UsageUpdate.Meta, time.Now()); limits != nil {
 			emit(ports.ChatEvent{Kind: ports.ChatEventRateLimits, RateLimits: limits})
 		}
 		c.trackClaudeRateLimit(update.UsageUpdate.Meta, time.Now())
@@ -1406,25 +1406,79 @@ func copyDetail(target, source map[string]any, sourceKey, targetKey string) {
 	}
 }
 
-func claudeRateLimits(meta map[string]any) *ports.ChatRateLimits {
+type claudeWindowReading struct {
+	usedPercent float64
+	known       bool
+	resetsAt    time.Time
+}
+
+// claudeWindowSlot places a Claude rateLimitType in the quota position: the
+// five-hour window is the session slot, every seven-day window (overall or per
+// model) the weekly slot. Anything else (overage, unknown) has no slot.
+func claudeWindowSlot(kind string) string {
+	switch {
+	case kind == "five_hour":
+		return "session"
+	case kind == "seven_day" || strings.HasPrefix(kind, "seven_day_"):
+		return "weekly"
+	default:
+		return ""
+	}
+}
+
+// claudeRateLimits folds one Claude rate-limit update into the per-window
+// readings and returns the whole quota position, or nil when no window with a
+// slot has been read. Resets are absolute instants.
+func (c *conversation) claudeRateLimits(meta map[string]any, now time.Time) *ports.ChatRateLimits {
 	value := nestedMap(meta, "_claude/rateLimit")
 	if value == nil {
 		return nil
 	}
-	limits := &ports.ChatRateLimits{PrimaryUsedPercent: -1, SecondaryUsedPercent: -1}
-	if utilization, ok := number(value["utilization"]); ok {
-		// The Claude SDK reports utilization as 0..1.
-		limits.PrimaryUsedPercent = utilization * 100
-	}
-	if resetsAt, ok := number(value["resetsAt"]); ok {
-		remaining := int64(resetsAt) - time.Now().Unix()
-		if remaining < 0 {
-			remaining = 0
+	kind, _ := value["rateLimitType"].(string)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if slot := claudeWindowSlot(kind); slot != "" {
+		if c.claudeWindows == nil {
+			c.claudeWindows = make(map[string]claudeWindowReading)
 		}
-		limits.PrimaryResetsInSeconds = remaining
+		reading := c.claudeWindows[kind]
+		utilization, hasUtilization := number(value["utilization"])
+		if seconds, ok := number(value["resetsAt"]); ok && seconds > 0 {
+			resetsAt := time.Unix(int64(seconds), 0).UTC()
+			// A different reset is a new window: without a utilization of its
+			// own its level is unknown, not the previous window's.
+			if !hasUtilization && !resetsAt.Equal(reading.resetsAt) {
+				reading.known = false
+			}
+			reading.resetsAt = resetsAt
+		}
+		if hasUtilization {
+			// The Claude SDK reports utilization as 0..1.
+			reading.usedPercent, reading.known = utilization*100, true
+		}
+		c.claudeWindows[kind] = reading
 	}
-	if kind, ok := value["rateLimitType"].(string); ok {
-		limits.PlanLabel = strings.ReplaceAll(kind, "_", " ")
+	limits := &ports.ChatRateLimits{PrimaryUsedPercent: -1, SecondaryUsedPercent: -1}
+	found := false
+	for windowKind, reading := range c.claudeWindows {
+		// A window that has refilled no longer has a known level.
+		if !reading.known || (!reading.resetsAt.IsZero() && !reading.resetsAt.After(now)) {
+			continue
+		}
+		switch claudeWindowSlot(windowKind) {
+		case "session":
+			limits.PrimaryUsedPercent, limits.PrimaryResetsAt = reading.usedPercent, reading.resetsAt
+			found = true
+		case "weekly":
+			// The tighter weekly window is the one that stops the next turn.
+			if reading.usedPercent > limits.SecondaryUsedPercent {
+				limits.SecondaryUsedPercent, limits.SecondaryResetsAt = reading.usedPercent, reading.resetsAt
+			}
+			found = true
+		}
+	}
+	if !found {
+		return nil
 	}
 	return limits
 }

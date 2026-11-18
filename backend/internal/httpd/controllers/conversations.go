@@ -1674,13 +1674,32 @@ func rateLimitsPayload(limits *domain.ConversationRateLimits) *ConversationRateL
 	if limits == nil {
 		return nil
 	}
+	now := time.Now()
 	return &ConversationRateLimitsPayload{
 		PrimaryUsedPercent:       limits.PrimaryUsedPercent,
 		SecondaryUsedPercent:     limits.SecondaryUsedPercent,
-		PrimaryResetsInSeconds:   limits.PrimaryResetsInSeconds,
-		SecondaryResetsInSeconds: limits.SecondaryResetsInSeconds,
+		PrimaryResetsInSeconds:   secondsUntil(limits.PrimaryResetsAt, now),
+		SecondaryResetsInSeconds: secondsUntil(limits.SecondaryResetsAt, now),
+		PrimaryResetsAt:          instantString(limits.PrimaryResetsAt),
+		SecondaryResetsAt:        instantString(limits.SecondaryResetsAt),
 		PlanLabel:                limits.PlanLabel,
 	}
+}
+
+// secondsUntil counts down from the stored instant at read time, so a reloaded
+// conversation never shows a frozen countdown.
+func secondsUntil(at, now time.Time) int64 {
+	if at.IsZero() || !at.After(now) {
+		return 0
+	}
+	return int64(at.Sub(now).Seconds())
+}
+
+func instantString(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	return at.UTC().Format(time.RFC3339)
 }
 
 // turnDiffPayload maps a turn's changed-file summary onto the wire shape.

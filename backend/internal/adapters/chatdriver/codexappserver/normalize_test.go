@@ -373,6 +373,13 @@ func TestNormalizeRateLimits(t *testing.T) {
 	if got := ev.RateLimits.PrimaryResetsInSeconds; got != 490444 {
 		t.Fatalf("primary resets in %d, want 490444", got)
 	}
+	// The provider's absolute instant is carried as is, so it never goes stale.
+	if got := ev.RateLimits.PrimaryResetsAt; !got.Equal(time.Unix(1786159947, 0)) {
+		t.Fatalf("primary resets at %v, want %v", got, time.Unix(1786159947, 0).UTC())
+	}
+	if !ev.RateLimits.SecondaryResetsAt.IsZero() {
+		t.Fatalf("secondary resets at %v, want zero", ev.RateLimits.SecondaryResetsAt)
+	}
 	if ev.RateLimits.PlanLabel != "pro" {
 		t.Fatalf("plan = %q, want pro", ev.RateLimits.PlanLabel)
 	}

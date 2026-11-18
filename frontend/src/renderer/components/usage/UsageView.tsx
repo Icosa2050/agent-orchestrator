@@ -4,9 +4,10 @@ import { ScrollArea } from "radix-ui";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LOCAL_DISTRIBUTION } from "../../../shared/fork-identity";
-import { useAgentAccountActions, useAgentAccounts } from "../../hooks/useAgentAccounts";
+import { ALL_HOSTS, useFleetLimits, useFleetRemoteHosts, type FleetScope } from "../../hooks/useFleetLimits";
 import { useUsageLimitWindows, useUsageReport } from "../../hooks/useUsageReport";
 import { useWorkspaceQuery } from "../../hooks/useWorkspaceQuery";
+import { LOCAL_HOST } from "../../lib/hosts";
 import { formatRange } from "../../lib/usage-format";
 import type { UsageUnit } from "../../lib/usage-report";
 import { cn } from "../../lib/utils";
@@ -26,7 +27,7 @@ import {
 	DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import { UsageLimits } from "./UsageLimits";
+import { UsageFleetLimits } from "./UsageFleetLimits";
 import { UsageSkeleton } from "./UsageSkeleton";
 import { UsageSpend } from "./UsageSpend";
 import { UsageWindows } from "./UsageWindows";
@@ -61,7 +62,25 @@ export function UsageView() {
 	const [offset, setOffset] = useState(0);
 	const [projectFilter, setProjectFilter] = useState(ALL_PROJECTS);
 	const [refreshingLimits, setRefreshingLimits] = useState(false);
+	const [chosenScope, setScope] = useState<FleetScope>(ALL_HOSTS);
 	const now = useNow(30_000);
+	const remoteHosts = useFleetRemoteHosts();
+	// Without a saved remote the page is this computer's, as before.
+	const scope: FleetScope = remoteHosts.length === 0 ? LOCAL_HOST
+		: chosenScope === ALL_HOSTS || chosenScope === LOCAL_HOST || remoteHosts.some((host) => host.hostId === chosenScope) ? chosenScope : ALL_HOSTS;
+	const hostLabel = (hostId: string) => hostId === LOCAL_HOST ? t("remote.thisComputer") : remoteHosts.find((host) => host.hostId === hostId)?.label ?? hostId;
+	const hostOptionState = (host: (typeof remoteHosts)[number]) =>
+		host.failureReason === "unauthorized" ? t("usage.fleet.state.repair")
+			: host.failureReason === "incompatible" ? t("usage.fleet.state.update")
+			: host.status === "connected" ? null : t(`usage.fleet.state.${host.status}`);
+	const scopeOptions = [
+		{ value: ALL_HOSTS, label: t("usage.fleet.allHosts") },
+		{ value: LOCAL_HOST, label: t("remote.thisComputer") },
+		...remoteHosts.map((host) => {
+			const state = hostOptionState(host);
+			return { value: host.hostId, label: state ? t("usage.fleet.hostState", { host: host.label, state }) : host.label };
+		}),
+	];
 
 	const workspaces = useWorkspaceQuery({ includeCloud: false }).data;
 	const projects = useMemo(
@@ -74,9 +93,8 @@ export function UsageView() {
 	);
 	const filterProjects = useMemo(() => projects.filter((project) => project.id !== STANDALONE_WORKSPACE_ID), [projects]);
 	const report = useUsageReport(days, offset, projectFilter === ALL_PROJECTS ? undefined : projectFilter);
-	const accounts = useAgentAccounts(tab === "limits");
+	const fleet = useFleetLimits(tab === "limits", scope, now);
 	const limitWindows = useUsageLimitWindows(7, tab === "windows");
-	const accountActions = useAgentAccountActions();
 	const isLimits = tab === "limits";
 	const isWindows = tab === "windows";
 
@@ -91,14 +109,14 @@ export function UsageView() {
 		}
 		setRefreshingLimits(true);
 		try {
-			await accountActions.refresh();
+			await fleet.refresh();
 		} catch (error) {
 			showGlobalToast(t("usage.limits.refreshFailed"), error instanceof Error ? error.message : undefined, "error");
 		} finally {
 			setRefreshingLimits(false);
 		}
 	};
-	const refreshing = isWindows ? limitWindows.isFetching : isLimits ? refreshingLimits || accounts.isFetching : report.isFetching;
+	const refreshing = isWindows ? limitWindows.isFetching : isLimits ? refreshingLimits || fleet.isFetching : report.isFetching;
 	const loading = <UsageSkeleton view={tab} />;
 	const failed = (error: Error) => <p role="alert" className="py-16 text-center text-sm text-destructive">{error.message}</p>;
 	const staleError = (error: Error | null) => (error ? <p role="alert" className="mb-4 text-xs text-destructive">{error.message}</p> : null);
@@ -121,6 +139,22 @@ export function UsageView() {
 							))}
 						</div>
 						<div className="ms-auto flex shrink-0 items-center gap-0.5">
+							{tab === "limits" && remoteHosts.length > 0 ? (
+								<SettingsOptionMenu
+									aria-label={t("usage.fleet.scope")}
+									value={scope}
+									options={scopeOptions}
+									onChange={(value) => setScope(value)}
+									menuAlign="end"
+									triggerClassName="h-(--size-control-md)! text-xs!"
+									renderTrigger={(selected) => (
+										<span className="min-w-0 truncate">
+											<span className="text-muted-foreground">{t("usage.fleet.scope")} </span>
+											{selected?.label}
+										</span>
+									)}
+								/>
+							) : null}
 							{tab === "spend" && filterProjects.length > 0 ? (
 								<DropdownMenu>
 									<Tooltip>
@@ -179,6 +213,16 @@ export function UsageView() {
 							</Tooltip>
 						</div>
 					</div>
+					{tab === "limits" && remoteHosts.length > 0 && scope !== ALL_HOSTS ? (
+						<div className="mt-2 flex flex-wrap items-center gap-1.5">
+							<FilterChip
+								label={t("usage.fleet.host")}
+								value={hostLabel(scope)}
+								removeLabel={t("usage.removeFilter", { filter: `${t("usage.fleet.host")}: ${hostLabel(scope)}` })}
+								onRemove={() => setScope(ALL_HOSTS)}
+							/>
+						</div>
+					) : null}
 					{tab === "spend" && selectedProjectName ? (
 						<div className="mt-2 flex flex-wrap items-center gap-1.5">
 							<FilterChip
@@ -207,17 +251,10 @@ export function UsageView() {
 									failed(limitWindows.error)
 								) : null
 							) : isLimits ? (
-								accounts.data ? (
-									<>
-										{staleError(accounts.error)}
-										<UsageLimits accounts={accounts.data} now={now} />
-									</>
-								) : accounts.isLoading ? (
+								fleet.isLoading ? (
 									loading
-								) : accounts.error ? (
-									failed(accounts.error)
 								) : (
-									<UsageLimits accounts={[]} now={now} />
+									<UsageFleetLimits rows={fleet.rows} hosts={fleet.hosts} showHosts={remoteHosts.length > 0 && scope === ALL_HOSTS} now={now} />
 								)
 							) : report.data && report.data.rows.length > 0 ? (
 								<>

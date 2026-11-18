@@ -256,6 +256,9 @@ type conversation struct {
 	compactedTurn     string
 
 	claudeRejectedLimits map[string]time.Time
+	// claudeWindows is the latest reading per Claude rateLimitType. Each update
+	// names one window, so the quota position is assembled from all of them.
+	claudeWindows map[string]claudeWindowReading
 
 	eventMu      sync.RWMutex
 	events       chan ports.ChatEvent

@@ -292,6 +292,8 @@ type Conversation struct {
 	ActiveBranchID             string
 	OpencodeMode               string
 	AutoCompactWindow          string
+	RateLimitPrimaryResetsAt   sql.NullString
+	RateLimitSecondaryResetsAt sql.NullString
 }
 
 type ConversationActivity struct {

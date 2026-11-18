@@ -3693,7 +3693,7 @@ func TestACPDriverMapsCostRateLimitsAndAuthRecovery(t *testing.T) {
 	if usageEvent.Usage == nil || usageEvent.Usage.Cost == nil || *usageEvent.Usage.Cost != 1.25 || usageEvent.Usage.Currency != "USD" {
 		t.Fatalf("usage event = %#v", usageEvent)
 	}
-	if limitEvent.RateLimits == nil || limitEvent.RateLimits.PrimaryUsedPercent != 80 || limitEvent.RateLimits.PrimaryResetsInSeconds < 3500 {
+	if limitEvent.RateLimits == nil || limitEvent.RateLimits.PrimaryUsedPercent != 80 || time.Until(limitEvent.RateLimits.PrimaryResetsAt) < 3500*time.Second || limitEvent.RateLimits.PlanLabel != "" {
 		t.Fatalf("rate-limit event = %#v", limitEvent)
 	}
 

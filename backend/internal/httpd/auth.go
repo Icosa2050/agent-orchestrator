@@ -349,6 +349,17 @@ func authenticatedLANBearer(r *http.Request) bool {
 	return authenticated
 }
 
+// requiresDeviceCredential lists the routes the shared pairing password
+// never reaches on the LAN listener.
+func requiresDeviceCredential(path string) bool {
+	for _, prefix := range []string{"/api/v1/agents/accounts", "/api/v1/usage"} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func authMiddleware(state *authState, lock *lockout, connected *mobileConnectReporter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -376,14 +387,14 @@ func authMiddleware(state *authState, lock *lockout, connected *mobileConnectRep
 				}
 				conn.owner.mu.Unlock()
 			}
-			// Agent accounts expose local provider credentials and login controls.
-			// Shared pairing passwords never authorize them, even when allowed
-			// for ordinary app routes. This listener boundary cannot be spoofed
-			// with a loopback Host header.
-			if authenticated && credential.Kind == requestscope.CredentialPassword &&
-				(r.URL.Path == "/api/v1/agents/accounts" || strings.HasPrefix(r.URL.Path, "/api/v1/agents/accounts/")) {
+			// Agent accounts expose local provider credentials and login controls,
+			// and usage carries their emails and limit history. Shared pairing
+			// passwords never authorize them, even when allowed for ordinary app
+			// routes. This listener boundary cannot be spoofed with a loopback
+			// Host header.
+			if authenticated && credential.Kind == requestscope.CredentialPassword && requiresDeviceCredential(r.URL.Path) {
 				envelope.WriteAPIError(w, r, http.StatusUnauthorized, "unauthorized", "DEVICE_CREDENTIAL_REQUIRED",
-					"agent accounts require a paired device or account token", nil)
+					"agent accounts and usage require a paired device or account token", nil)
 				return
 			}
 			if authenticated {

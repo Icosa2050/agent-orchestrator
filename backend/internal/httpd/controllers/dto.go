@@ -4108,11 +4108,14 @@ type ConversationRateLimitsPayload struct {
 	// window, which is not the same as reporting it empty.
 	PrimaryUsedPercent   float64 `json:"primaryUsedPercent"`
 	SecondaryUsedPercent float64 `json:"secondaryUsedPercent"`
-	// Seconds remaining, not the absolute reset instant: a duration cannot read as
-	// already-refilled once the snapshot is a few minutes old.
-	PrimaryResetsInSeconds   int64  `json:"primaryResetsInSeconds,omitempty"`
-	SecondaryResetsInSeconds int64  `json:"secondaryResetsInSeconds,omitempty"`
-	PlanLabel                string `json:"planLabel,omitempty"`
+	// Seconds remaining, counted from the stored absolute instant when the
+	// response is built.
+	PrimaryResetsInSeconds   int64 `json:"primaryResetsInSeconds,omitempty"`
+	SecondaryResetsInSeconds int64 `json:"secondaryResetsInSeconds,omitempty"`
+	// The absolute reset instants (RFC 3339) behind those countdowns.
+	PrimaryResetsAt   string `json:"primaryResetsAt,omitempty" format:"date-time"`
+	SecondaryResetsAt string `json:"secondaryResetsAt,omitempty" format:"date-time"`
+	PlanLabel         string `json:"planLabel,omitempty"`
 	// Title is the name the provider currently gives this thread. Empty means it has
 	// none, which is the normal state until something names it.
 	Title string `json:"title,omitempty"`

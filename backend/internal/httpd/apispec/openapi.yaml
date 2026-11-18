@@ -19691,12 +19691,18 @@ components:
       properties:
         planLabel:
           type: string
+        primaryResetsAt:
+          format: date-time
+          type: string
         primaryResetsInSeconds:
           format: int64
           type: integer
         primaryUsedPercent:
           format: double
           type: number
+        secondaryResetsAt:
+          format: date-time
+          type: string
         secondaryResetsInSeconds:
           format: int64
           type: integer

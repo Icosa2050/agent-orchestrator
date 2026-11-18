@@ -6797,6 +6797,25 @@ func TestUsageProjectionWithoutContextWindow(t *testing.T) {
 	}
 }
 
+// A provider's absolute reset instant is stored as is, per window.
+func TestRateLimitProjectionStoresAbsoluteResets(t *testing.T) {
+	h := newHarnessForHarness(t, domain.HarnessClaudeCode)
+	weekly := time.Date(2030, 1, 7, 9, 0, 0, 0, time.UTC)
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventRateLimits, RateLimits: &ports.ChatRateLimits{
+		PrimaryUsedPercent: -1, SecondaryUsedPercent: 84, SecondaryResetsAt: weekly,
+	}})
+	snapshot := h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return s.Conversation.RateLimits != nil && s.Conversation.RateLimits.SecondaryUsedPercent == 84
+	})
+	limits := snapshot.Conversation.RateLimits
+	if !limits.SecondaryResetsAt.Equal(weekly) || !limits.PrimaryResetsAt.IsZero() {
+		t.Fatalf("resets = %v / %v, want zero / %v", limits.PrimaryResetsAt, limits.SecondaryResetsAt, weekly)
+	}
+	if limits.PrimaryUsedPercent >= 0 {
+		t.Fatalf("primary = %v; a weekly reading must not fill the session window", limits.PrimaryUsedPercent)
+	}
+}
+
 // Rate limits are current state too, and an unreported window must survive a round
 // trip through the database as unreported rather than as a reassuring zero.
 func TestRateLimitProjectionKeepsOnlyTheLatest(t *testing.T) {
@@ -6822,8 +6841,10 @@ func TestRateLimitProjectionKeepsOnlyTheLatest(t *testing.T) {
 		t.Errorf("secondary = %v; an unreported window must not read as untouched quota",
 			limits.SecondaryUsedPercent)
 	}
-	if limits.PrimaryResetsInSeconds != 490444 {
-		t.Errorf("primary resets in %d, want 490444", limits.PrimaryResetsInSeconds)
+	// Remaining seconds are stored as the absolute instant they point at, so the
+	// countdown keeps moving after a reload.
+	if want := h.now().Add(490444 * time.Second); !limits.PrimaryResetsAt.Equal(want.UTC()) {
+		t.Errorf("primary resets at %v, want %v", limits.PrimaryResetsAt, want)
 	}
 	if limits.PlanLabel != "pro" {
 		t.Errorf("plan = %q, want pro", limits.PlanLabel)

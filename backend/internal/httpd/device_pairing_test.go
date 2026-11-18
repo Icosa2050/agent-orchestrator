@@ -466,6 +466,50 @@ func TestForkAgentAccountsRequireDeviceCredentials(t *testing.T) {
 	}
 }
 
+// Usage carries account emails and limit history, so it follows the agent
+// accounts rule: no shared password on the LAN listener, loopback unchanged.
+func TestForkUsageRequiresDeviceCredentials(t *testing.T) {
+	h := newPairingHost(t)
+	h.router.HandleFunc("/api/v1/usage", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	h.router.HandleFunc("/api/v1/usage/*", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	h.router.HandleFunc("/api/v1/usagex", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	id, token := h.pair(h.code(), "fork desktop")
+	h.lan.SetAccountTokenHash(mobilebridge.HashPassword("account-secret"))
+	for _, path := range []string{"/api/v1/usage", "/api/v1/usage/limit-windows", "/api/v1/usage/limit-history", "/api/v1/usage/report", "/api/v1/usage/sessions", "/api/v1/usage/prices"} {
+		for _, method := range []string{http.MethodGet, http.MethodPut} {
+			for _, tc := range []struct {
+				name, credential string
+				want             int
+			}{
+				{"shared password", "secret12", http.StatusUnauthorized},
+				{"paired device", token, http.StatusOK},
+				{"account", "account-secret", http.StatusOK},
+			} {
+				got, body := h.remote(method, path, tc.credential, nil)
+				if got != tc.want {
+					t.Fatalf("%s %s %s: got %d want %d", method, path, tc.name, got, tc.want)
+				}
+				if tc.want == http.StatusUnauthorized && body["code"] != "DEVICE_CREDENTIAL_REQUIRED" {
+					t.Fatalf("%s %s %s: code %v", method, path, tc.name, body["code"])
+				}
+			}
+			if got, _ := h.local(method, path, nil); got != http.StatusOK {
+				t.Fatalf("loopback %s %s: %d", method, path, got)
+			}
+		}
+	}
+	// Only the usage tree: a sibling path keeps the ordinary rule.
+	if got, _ := h.remote(http.MethodGet, "/api/v1/usagex", "secret12", nil); got != http.StatusOK {
+		t.Fatalf("sibling route with shared password: %d", got)
+	}
+	if status, _ := h.local(http.MethodDelete, "/api/v1/mobile/devices/"+id, nil); status != http.StatusNoContent {
+		t.Fatalf("revoke: %d", status)
+	}
+	if got, body := h.remote(http.MethodGet, "/api/v1/usage/limit-windows", token, nil); got != http.StatusUnauthorized || body["code"] != "DEVICE_REVOKED" {
+		t.Fatalf("revoked device: %d %v", got, body)
+	}
+}
+
 func TestForkAgentAccountsOriginBoundary(t *testing.T) {
 	h := newPairingHost(t)
 	_, token := h.pair(h.code(), "fork phone")

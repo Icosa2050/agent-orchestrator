@@ -664,8 +664,12 @@ type ChatRateLimits struct {
 	PrimaryUsedPercent   float64
 	SecondaryUsedPercent float64
 	// PrimaryResetsInSeconds is how long until the tighter window refills.
+	// Producers that know the absolute instant set PrimaryResetsAt instead,
+	// which wins: a duration goes stale as soon as it is stored.
 	PrimaryResetsInSeconds   int64
 	SecondaryResetsInSeconds int64
+	PrimaryResetsAt          time.Time
+	SecondaryResetsAt        time.Time
 	// PlanLabel is the provider's name for the account tier, when it says.
 	PlanLabel string
 	// CodexCapacity carries the normalized full/sparse provider observation to
