@@ -15,7 +15,8 @@ import { useUiStore } from "./stores/ui-store";
 
 vi.mock("./components/NotificationCenter", () => ({ NotificationCenter: () => null }));
 vi.mock("./hooks/useWorkspaceQuery", () => ({ useWorkspaceQuery: () => ({ data: [] }) }));
-vi.mock("./hooks/useUsageReport", () => ({
+vi.mock("./hooks/useUsageReport", async (importOriginal) => ({
+	...await importOriginal<typeof import("./hooks/useUsageReport")>(),
 	useUsageReport: () => ({
 		data: { since: "2026-11-10T00:00:00Z", until: "2026-11-17T00:00:00Z", periods: [], rows: [{ harness: "claude-code", model: "m", tokens: 1 }], sessions: [], totals: {} },
 		isLoading: false,
@@ -26,10 +27,10 @@ vi.mock("./hooks/useUsageReport", () => ({
 	}),
 	useUsageLimitWindows: () => ({ data: undefined, isLoading: false, isFetching: false, error: null, refetch: vi.fn() }),
 }));
-vi.mock("./hooks/useAgentAccounts", async (importOriginal) => ({
-	...await importOriginal<typeof import("./hooks/useAgentAccounts")>(),
-	useAgentAccounts: () => ({ data: [], isLoading: false, isFetching: false, error: null }),
-	useAgentAccountActions: () => ({ refresh: vi.fn() }),
+vi.mock("./hooks/useFleetLimits", async (importOriginal) => ({
+	...await importOriginal<typeof import("./hooks/useFleetLimits")>(),
+	useFleetLimits: () => ({ rows: [], hosts: [], isLoading: false, isFetching: false, refresh: vi.fn() }),
+	useFleetRemoteHosts: () => [],
 }));
 vi.mock("./components/usage/UsageSpend", () => ({ UsageSpend: ({ unit }: { unit: string }) => <p>Spend unit {unit}</p> }));
 
