@@ -187,14 +187,25 @@ func chatRateLimitsFromCapacity(observation ports.CodexCapacityObservation, now 
 		if observation.Overall.Primary != nil {
 			limits.PrimaryUsedPercent = observation.Overall.Primary.UsedPercent
 			limits.PrimaryResetsInSeconds = resetsAtIn(observation.Overall.Primary.ResetsAt, now)
+			limits.PrimaryResetsAt = futureInstant(observation.Overall.Primary.ResetsAt, now)
 		}
 		if observation.Overall.Secondary != nil {
 			limits.SecondaryUsedPercent = observation.Overall.Secondary.UsedPercent
 			limits.SecondaryResetsInSeconds = resetsAtIn(observation.Overall.Secondary.ResetsAt, now)
+			limits.SecondaryResetsAt = futureInstant(observation.Overall.Secondary.ResetsAt, now)
 		}
 	}
 	limits.CodexCapacity = &observation
 	return limits
+}
+
+// futureInstant is the provider's absolute reset when it is still ahead;
+// a passed or missing reset is zero (unknown).
+func futureInstant(resetsAt *time.Time, now time.Time) time.Time {
+	if resetsAt == nil || !resetsAt.After(now) {
+		return time.Time{}
+	}
+	return resetsAt.UTC()
 }
 
 func resetsAtIn(resetsAt *time.Time, now time.Time) int64 {

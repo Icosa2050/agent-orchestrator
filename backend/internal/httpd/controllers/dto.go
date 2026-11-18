@@ -4113,8 +4113,8 @@ type ConversationRateLimitsPayload struct {
 	PrimaryResetsInSeconds   int64 `json:"primaryResetsInSeconds,omitempty"`
 	SecondaryResetsInSeconds int64 `json:"secondaryResetsInSeconds,omitempty"`
 	// The absolute reset instants (RFC 3339) behind those countdowns.
-	PrimaryResetsAt   string `json:"primaryResetsAt,omitempty"`
-	SecondaryResetsAt string `json:"secondaryResetsAt,omitempty"`
+	PrimaryResetsAt   string `json:"primaryResetsAt,omitempty" format:"date-time"`
+	SecondaryResetsAt string `json:"secondaryResetsAt,omitempty" format:"date-time"`
 	PlanLabel         string `json:"planLabel,omitempty"`
 	// Title is the name the provider currently gives this thread. Empty means it has
 	// none, which is the normal state until something names it.

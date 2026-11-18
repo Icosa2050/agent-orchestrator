@@ -19692,6 +19692,7 @@ components:
         planLabel:
           type: string
         primaryResetsAt:
+          format: date-time
           type: string
         primaryResetsInSeconds:
           format: int64
@@ -19700,6 +19701,7 @@ components:
           format: double
           type: number
         secondaryResetsAt:
+          format: date-time
           type: string
         secondaryResetsInSeconds:
           format: int64

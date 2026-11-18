@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useUiStore } from "../../stores/ui-store";
 import { TooltipProvider } from "../ui/tooltip";
+import { UsageFleetLimits } from "./UsageFleetLimits";
 import { UsageView } from "./UsageView";
 
 // Cross-host fixture (design §11, limits only): this computer plus five hosts.
@@ -169,5 +170,28 @@ describe("UsageView fleet limits", () => {
 			"host-e /api/v1/agents/accounts?refresh",
 			"local /api/v1/agents/accounts?refresh",
 		]));
+	});
+
+	it("says why a selected host shows nothing instead of asking to sign in", async () => {
+		const { user } = await openLimits();
+		await user.click(screen.getByRole("button", { name: "Hosts" }));
+		await user.click(await screen.findByRole("menuitem", { name: "P50: offline" }));
+		expect(await screen.findByText("Its limits appear here once the host answers again.")).toBeInTheDocument();
+		expect(screen.getByText("P50: offline", { selector: "p" })).toBeInTheDocument();
+		expect(screen.queryByText("No accounts report limits yet")).not.toBeInTheDocument();
+		expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+		await user.click(screen.getByRole("button", { name: /^Hosts/ }));
+		await user.click(await screen.findByRole("menuitem", { name: "MB (2)" }));
+		expect(await screen.findByText("Pair this device with the host again to read its limits.")).toBeInTheDocument();
+	});
+
+	it("says how old a stale host's reading is", () => {
+		const client = new QueryClient();
+		render(<QueryClientProvider client={client}><UsageFleetLimits rows={[]} showHosts now={new Date(now)} hosts={[
+			{ hostId: "local", state: { kind: "ok" } },
+			{ hostId: "host-a", label: "MacStudio", state: { kind: "stale", since: ago(5) } },
+		]} /></QueryClientProvider>);
+		expect(screen.getByText("MacStudio: stale, read 5 minutes ago")).toBeInTheDocument();
 	});
 });

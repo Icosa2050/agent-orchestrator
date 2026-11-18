@@ -30,6 +30,10 @@ export function UsageFleetLimits({ rows, hosts, showHosts, now }: { rows: readon
 		}
 	};
 	const troubled = hosts.filter((host) => host.state.kind !== "ok");
+	// A single selected host that cannot answer: say so instead of "sign in".
+	const unavailable = rows.length === 0 && hosts.length === 1 && troubled.length === 1 && hosts[0].label !== undefined ? hosts[0] : null;
+	const unavailableBody = (state: FleetHostState) =>
+		state.kind === "repair" ? t("usage.fleet.unavailable.repair") : state.kind === "update" ? t("usage.fleet.unavailable.update") : t("usage.fleet.unavailable.other");
 	const windowName = (window: NonNullable<FleetLimitRow["window"]>) =>
 		window.kind === "5h" ? t("usage.fleet.window.fiveHour")
 			: window.kind === "weekly" ? t("usage.fleet.window.weekly")
@@ -38,12 +42,17 @@ export function UsageFleetLimits({ rows, hosts, showHosts, now }: { rows: readon
 
 	return (
 		<div className="flex flex-col gap-3">
-			{troubled.length > 0 ? (
+			{troubled.length > 0 && !unavailable ? (
 				<p className="text-xs text-muted-foreground" data-fleet-host-states="true">
 					{troubled.map((host) => t("usage.fleet.hostState", { host: hostName(host), state: stateText(host.state) })).join(" · ")}
 				</p>
 			) : null}
-			{rows.length === 0 ? (
+			{unavailable ? (
+				<div className="flex flex-col items-center gap-2 py-16 text-center" data-fleet-unavailable={unavailable.hostId}>
+					<p className="text-control font-medium text-foreground">{t("usage.fleet.hostState", { host: hostName(unavailable), state: stateText(unavailable.state) })}</p>
+					<p className="max-w-sm text-xs text-muted-foreground">{unavailableBody(unavailable.state)}</p>
+				</div>
+			) : rows.length === 0 ? (
 				<div className="flex flex-col items-center gap-2 py-16 text-center">
 					<p className="text-control font-medium text-foreground">{t("usage.limits.empty")}</p>
 					<p className="max-w-sm text-xs text-muted-foreground">{t("usage.limits.emptyBody")}</p>
