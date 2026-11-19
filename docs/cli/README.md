@@ -95,7 +95,9 @@ Rules:
   `usage limits`; anything else exits 2 before a request is made, and the
   remote transport refuses every method but `GET`. A command opts in
   explicitly (the `ao.remote` annotation), so new commands stay local until
-  reviewed. Hidden internal commands ignore an inherited `AO_HOST`.
+  reviewed. Hidden internal commands, and every command inside an AO-managed
+  agent session (`AO_SESSION_ID` set), ignore an inherited `AO_HOST`, so agents
+  keep reaching their own daemon; an explicit `--host` still applies.
 - **Own token, never the pairing password.** Agent accounts and usage refuse
   the shared password (`DEVICE_CREDENTIAL_REQUIRED`); the CLI only ever holds
   its device token. A revoked token (`DEVICE_REVOKED`) reports
@@ -107,11 +109,12 @@ Rules:
   (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), `*.ts.net`, or names that resolve
   only to those. Any other URL needs `--allow-untrusted-network` at
   `ao remote add`, recorded for that host.
-- **Storage.** Names, URLs, host and device IDs live in `~/.ao/cli-remotes.json`
+- **Storage.** Both files live in `$AO_DATA_DIR` when it is set, otherwise
+  `~/.ao`. Names, URLs, host and device IDs live in `cli-remotes.json`
   (0600). Tokens live in the macOS login keychain (service
   `icosa-orchestrator-cli`, account `<name>`, written through `security -i`
   so the token is never on a command line), elsewhere in
-  `~/.ao/cli-remote-tokens.json` (0600; refused if group/world readable).
+  `cli-remote-tokens.json` (0600; refused if group/world readable).
 - **Versions.** The LAN API does not expose the daemon build, so `needs update`
   means the host lacks the identity probe or a route the CLI reads, or reports
   an older API contract.
@@ -331,7 +334,7 @@ The CLI and daemon share the same environment-driven config:
 | `AO_INSTALLER_SHUTDOWN_TIMEOUT` | about `285s` | How long the daemon waits at shutdown for an agent CLI install or update it started to stop and clean up. Never less than `AO_SHUTDOWN_TIMEOUT`. A new daemon on the same data directory waits for this too. Tests set it low. |
 | `AO_KEEP_DAEMON`      | unset (off)          | Keep the desktop app's daemon running after the window closes; stop only via `ao stop`. (fork) |
 | `AO_DISABLE_GPU`      | unset (off)          | Skip Chromium hardware acceleration; escape hatch for broken Linux GPU drivers.                |
-| `AO_HOST`             | unset                | Saved remote (`ao remote ls`) that read-only commands read instead of this machine; `--host` wins. (fork) |
+| `AO_HOST`             | unset                | Saved remote (`ao remote ls`) that read-only commands read instead of this machine; `--host` wins; ignored inside agent sessions. (fork) |
 
 The primary daemon always binds `127.0.0.1`. Connect Mobile is a separate,
 opt-in authenticated listener; see [network boundaries](../architecture.md#multi-listener-architecture-loopback--lan).

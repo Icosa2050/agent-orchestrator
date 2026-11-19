@@ -566,3 +566,73 @@ func TestRemoteHTTPClientBypassesEnvironmentProxies(t *testing.T) {
 		t.Fatalf("injected transport replaced: %T", got)
 	}
 }
+
+func TestInheritedAOHostIsIgnoredInsideAgentSessions(t *testing.T) {
+	env := newRemoteTestEnv(t)
+	host := newFakeRemoteHost(t, "host-r")
+	env.add(t, "mini", host)
+	before := len(host.seen())
+
+	cfg := setConfigEnv(t)
+	var mu sync.Mutex
+	var local []string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		local = append(local, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method + " " + r.URL.Path {
+		case "GET /api/v1/sessions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []any{}})
+		case "POST /api/v1/sessions/local-1/kill":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "local-1"})
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(daemon.Close)
+	writeRunFileFor(t, cfg, daemon)
+	t.Setenv("AO_HOST", "mini")
+	t.Setenv("AO_SESSION_ID", "agent-orchestrator-1")
+
+	if _, err := env.run(t, "session", "ls", "--json"); err != nil {
+		t.Fatalf("session ls in an agent session: %v", err)
+	}
+	if _, err := env.run(t, "session", "kill", "local-1"); ExitCode(err) == 2 {
+		t.Fatalf("kill refused in an agent session: %v", err)
+	}
+	mu.Lock()
+	reached := strings.Join(local, ",")
+	mu.Unlock()
+	if !strings.Contains(reached, "GET /api/v1/sessions") || !strings.Contains(reached, "POST /api/v1/sessions/local-1/kill") {
+		t.Fatalf("local daemon saw %q", reached)
+	}
+	if got := host.seen(); len(got) != before {
+		t.Fatalf("an inherited AO_HOST reached the remote: %v", got[before:])
+	}
+
+	// An explicit --host still works inside a session.
+	if out, err := env.run(t, "--host", "mini", "project", "ls", "--json"); err != nil || !strings.Contains(out, "remote-proj") {
+		t.Fatalf("--host in an agent session: %q, %v", out, err)
+	}
+}
+
+func TestRemotesLiveInAODataDirWhenSet(t *testing.T) {
+	env := newRemoteTestEnv(t)
+	dataDir := t.TempDir()
+	t.Setenv("AO_DATA_DIR", dataDir)
+	env.deps.RemotesDir = ""
+	host := newFakeRemoteHost(t, "host-r")
+	env.add(t, "mini", host)
+	if _, err := os.Stat(filepath.Join(dataDir, "cli-remotes.json")); err != nil {
+		t.Fatalf("cli-remotes.json not under AO_DATA_DIR: %v", err)
+	}
+	dir, err := (&commandContext{deps: env.deps}).remotesDir()
+	if err != nil || dir != dataDir {
+		t.Fatalf("remotesDir = %q, %v; want %q", dir, err, dataDir)
+	}
+	if store, err := (&commandContext{deps: Deps{LookPath: func(string) (string, error) { return "", errors.New("none") }}}).remoteSecrets(); err != nil ||
+		store.Describe() != filepath.Join(dataDir, "cli-remote-tokens.json")+" (0600)" {
+		t.Fatalf("token file store = %v, %v", store, err)
+	}
+}

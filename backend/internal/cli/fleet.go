@@ -40,7 +40,8 @@ func remoteMode(cmd *cobra.Command) (mode string, hidden bool) {
 
 // selectRemoteHost points c at the host named by --host or AO_HOST. A command
 // that has not opted in is refused, so a mutation never lands on the wrong
-// machine. Internal hidden commands ignore an inherited AO_HOST.
+// machine. Internal hidden commands and agent sessions (AO_SESSION_ID) ignore
+// an inherited AO_HOST.
 func (c *commandContext) selectRemoteHost(cmd *cobra.Command, flagValue string) error {
 	fromFlag := false
 	if f := cmd.Flag("host"); f != nil && f.Changed {
@@ -48,6 +49,12 @@ func (c *commandContext) selectRemoteHost(cmd *cobra.Command, flagValue string) 
 	}
 	name := strings.TrimSpace(flagValue)
 	if !fromFlag {
+		// An AO-managed agent session inherits the user's shell environment;
+		// its commands must keep reaching its own daemon. Only an explicit
+		// --host sends them elsewhere.
+		if strings.TrimSpace(os.Getenv("AO_SESSION_ID")) != "" {
+			return nil
+		}
 		name = strings.TrimSpace(os.Getenv("AO_HOST"))
 	}
 	if name == "" {

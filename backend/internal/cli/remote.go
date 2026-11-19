@@ -417,7 +417,8 @@ func newRemoteCommand(ctx *commandContext) *cobra.Command {
 		Long: "Pair this CLI with other Orchestrator hosts over Tailscale and read them with --host <name>.\n\n" +
 			"Each host issues this CLI its own device token from a one-time code (`ao remote-host pair` on that host).\n" +
 			"Tokens live in the macOS login keychain (service " + remoteKeychainService + ") or, elsewhere, in a 0600 file\n" +
-			"under ~/.ao; names and addresses live in ~/.ao/cli-remotes.json.",
+			"cli-remote-tokens.json; names and addresses live in cli-remotes.json. Both files are in $AO_DATA_DIR when set,\n" +
+			"otherwise ~/.ao.",
 		Annotations: map[string]string{remoteAnnotation: remoteAnnotationLocalOnly},
 	}
 	cmd.AddCommand(newRemoteAddCommand(ctx), newRemoteListCommand(ctx), newRemoteRemoveCommand(ctx))

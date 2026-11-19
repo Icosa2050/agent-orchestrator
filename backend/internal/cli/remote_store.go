@@ -51,10 +51,14 @@ func validRemoteName(name string) error {
 	return nil
 }
 
-// remotesDir is ~/.ao unless a test points Deps.RemotesDir elsewhere.
+// remotesDir is $AO_DATA_DIR when set, else ~/.ao, so an isolated run never
+// touches the real remotes. Tests may point Deps.RemotesDir elsewhere.
 func (c *commandContext) remotesDir() (string, error) {
 	if c.deps.RemotesDir != "" {
 		return c.deps.RemotesDir, nil
+	}
+	if dir := strings.TrimSpace(os.Getenv("AO_DATA_DIR")); dir != "" {
+		return filepath.Abs(dir)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
