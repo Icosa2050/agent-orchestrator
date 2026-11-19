@@ -4,6 +4,7 @@ import { apiClient, apiErrorCode } from "../lib/api-client";
 import { apiErrorException } from "../lib/api-error-exception";
 import { buildFleetLimitRows, hostStateFromError, type FleetHostInput, type FleetHostState } from "../lib/fleet-limits";
 import { clientForHost } from "../lib/host-clients";
+import { buildPeakHistoryRows, LIMIT_PEAK_WEEKS, type UsageLimitPeaks } from "../lib/limit-peaks";
 import { LOCAL_HOST, type HostId } from "../lib/hosts";
 import { markApiError } from "../lib/reported-errors";
 import { useShellMaybe } from "../lib/shell-context";
@@ -46,6 +47,12 @@ export async function fetchHostAccounts(hostId: HostId, refresh = false): Promis
 async function fetchHostLimitWindows(hostId: HostId): Promise<UsageLimitWindows> {
 	return request(() => client(hostId).GET("/api/v1/usage/limit-windows", { params: { query: { days: LIMIT_WINDOW_DAYS } } })) as Promise<UsageLimitWindows>;
 }
+
+async function fetchHostLimitPeaks(hostId: HostId): Promise<UsageLimitPeaks> {
+	return request(() => client(hostId).GET("/api/v1/usage/limit-peaks", { params: { query: { weeks: LIMIT_PEAK_WEEKS } } })) as Promise<UsageLimitPeaks>;
+}
+
+const limitPeaksKey = (hostId: HostId) => [...usageReportQueryKey, "limit-peaks", LIMIT_PEAK_WEEKS, "host", hostId];
 
 // This computer shares the Windows tab's cache entry; remote hosts get their own.
 const limitWindowsKey = (hostId: HostId) =>
@@ -110,6 +117,17 @@ export function useFleetLimits(enabled: boolean, scope: FleetScope, now: Date) {
 		})),
 	});
 
+	// Peaks change at most once a reading: a slow poll is enough.
+	const peakQueries = useQueries({
+		queries: reachable.map((hostId) => ({
+			queryKey: limitPeaksKey(hostId),
+			queryFn: () => fetchHostLimitPeaks(hostId),
+			enabled,
+			retry: retryHost,
+			refetchInterval: 5 * 60_000,
+		})),
+	});
+
 	const inputs: FleetHostInput[] = inScope.map((hostId) => {
 		const remote = remotes.find((host) => host.hostId === hostId);
 		const label = hostId === LOCAL_HOST ? undefined : remote?.label ?? hostId;
@@ -128,10 +146,17 @@ export function useFleetLimits(enabled: boolean, scope: FleetScope, now: Date) {
 	});
 
 	const rows = buildFleetLimitRows(inputs, now);
+	// History is optional per host too: one without the route (an older build) adds nothing.
+	const history = buildPeakHistoryRows(reachable.map((hostId, index) => ({
+		hostId,
+		label: inputs.find((input) => input.hostId === hostId)?.label,
+		windows: peakQueries[index]?.data?.windows,
+	})));
 
 	return {
 		hosts: inputs,
 		rows,
+		history,
 		isLoading: accountQueries.some((query) => query.isLoading) && rows.length === 0,
 		isFetching: accountQueries.some((query) => query.isFetching),
 		/** Asks every reachable host in scope for a fresh provider reading. Explicit clicks only. */
@@ -139,6 +164,7 @@ export function useFleetLimits(enabled: boolean, scope: FleetScope, now: Date) {
 			const results = await Promise.allSettled(reachable.map(async (hostId) => {
 				queryClient.setQueryData(agentAccountsQueryKeyFor(hostId), await fetchHostAccounts(hostId, true));
 				await queryClient.invalidateQueries({ queryKey: limitWindowsKey(hostId), exact: true });
+				await queryClient.invalidateQueries({ queryKey: limitPeaksKey(hostId), exact: true });
 			}));
 			const failed = results.find((result) => result.status === "rejected");
 			if (failed) throw failed.reason;

@@ -2323,6 +2323,18 @@ type UsageLimitWindowsResponse struct {
 	Logins         []domain.UsageLimitLogin `json:"logins"`
 }
 
+// UsageLimitPeaksQuery is how many weeks of limit periods to read.
+type UsageLimitPeaksQuery struct {
+	Weeks int `query:"weeks,omitempty" minimum:"1" maximum:"26" description:"Weeks of reset periods to read; they are kept for 180 days. Defaults to 12."`
+}
+
+// UsageLimitPeaksResponse is how full each login's limit windows got per reset period, for judging how much each subscription is used.
+type UsageLimitPeaksResponse struct {
+	Since   time.Time                    `json:"since"`
+	Until   time.Time                    `json:"until"`
+	Windows []domain.UsageLimitPeakTrack `json:"windows"`
+}
+
 // UsageReportResponse is token and estimated-cost usage over a window, by day or by hour in the requested time zone.
 type UsageReportResponse struct {
 	Days       int                          `json:"days"`

@@ -82,6 +82,8 @@ var legacyActorlessUserCLICommands = map[string]struct{}{
 	"ao account ls":                             {},
 	"ao account show":                           {},
 	"ao account switch":                         {},
+	"ao usage":                                  {},
+	"ao usage limits":                           {},
 	"ao agent":                                  {},
 	"ao agent ls":                               {},
 	"ao automation":                             {},

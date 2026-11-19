@@ -5033,6 +5033,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/usage/limit-peaks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read how full each login's limit windows got per reset period, kept for 180 days */
+        get: operations["getUsageLimitPeaks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/usage/limit-windows": {
         parameters: {
             query?: never;
@@ -9270,6 +9287,13 @@ export interface components {
             subagentTranscriptPath?: string;
             transcriptPath?: string;
         };
+        UsageLimitDayPeak: {
+            /** @description UTC day, YYYY-MM-DD */
+            day: string;
+            /** Format: double */
+            maxUsedPct: number;
+            readings: number;
+        };
         UsageLimitHistoryRequest: {
             enabled: null | boolean;
         };
@@ -9283,6 +9307,48 @@ export interface components {
             /** @enum {string} */
             provider: "claude" | "codex";
             windows: components["schemas"]["UsageLimitSpan"][];
+        };
+        UsageLimitPeak: {
+            /** Format: date-time */
+            firstReadingAt: string;
+            /** Format: date-time */
+            lastReadingAt: string;
+            open: boolean;
+            /** Format: double */
+            peakUsedPct: number;
+            readings: number;
+            /** Format: date-time */
+            resetAt: string;
+        };
+        UsageLimitPeakSummary: {
+            /** Format: double */
+            avgPeak: number;
+            /** Format: double */
+            maxPeak: number;
+            periods: number;
+            periodsOver80: number;
+            periodsUnder30: number;
+        };
+        UsageLimitPeakTrack: {
+            accountId: string;
+            days: components["schemas"]["UsageLimitDayPeak"][];
+            durationMinutes?: number;
+            email?: string;
+            label: string;
+            login: string;
+            periods: components["schemas"]["UsageLimitPeak"][];
+            plan?: string;
+            /** @enum {string} */
+            provider: "claude" | "codex";
+            summary: components["schemas"]["UsageLimitPeakSummary"];
+            windowId: string;
+        };
+        UsageLimitPeaksResponse: {
+            /** Format: date-time */
+            since: string;
+            /** Format: date-time */
+            until: string;
+            windows: components["schemas"]["UsageLimitPeakTrack"][];
         };
         UsageLimitPoint: {
             /** Format: date-time */
@@ -28249,6 +28315,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UsageLimitHistoryResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    getUsageLimitPeaks: {
+        parameters: {
+            query?: {
+                /** @description Weeks of reset periods to read; they are kept for 180 days. Defaults to 12. */
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageLimitPeaksResponse"];
                 };
             };
             /** @description Bad Request */

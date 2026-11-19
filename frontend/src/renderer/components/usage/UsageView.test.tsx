@@ -28,7 +28,7 @@ vi.mock("../../hooks/useFleetLimits", () => ({
 	ALL_HOSTS: "all",
 	useFleetLimits: (_enabled: boolean, scope: string) => {
 		mocks.scope = scope;
-		return { rows: [], hosts: [], isLoading: false, isFetching: false, refresh: vi.fn() };
+		return { rows: [], history: [], hosts: [], isLoading: false, isFetching: false, refresh: vi.fn() };
 	},
 	useFleetRemoteHosts: () => mocks.remoteHosts,
 }));
