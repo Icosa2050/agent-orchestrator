@@ -540,3 +540,29 @@ func TestKeychainStoreKeepsTheTokenOffArgvAndVerifiesTheWrite(t *testing.T) {
 		t.Fatal("an unverified keychain write succeeded")
 	}
 }
+
+func TestRemoteHTTPClientBypassesEnvironmentProxies(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://proxy.example:8080")
+	t.Setenv("HTTPS_PROXY", "http://proxy.example:8080")
+	c := &commandContext{deps: DefaultDeps()}
+	client := c.remoteHTTPClient(time.Second)
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("remote transport = %T, want *http.Transport", client.Transport)
+	}
+	if transport.Proxy != nil {
+		t.Fatal("remote client transport has a proxy func; tokens could travel through HTTP(S)_PROXY")
+	}
+	if c.deps.HTTPClient.Transport != nil {
+		t.Fatal("the shared daemon client was modified")
+	}
+	if client.CheckRedirect == nil {
+		t.Fatal("remote client follows redirects")
+	}
+
+	injected := &http.Transport{}
+	c = &commandContext{deps: Deps{HTTPClient: &http.Client{Transport: injected}}}
+	if got := c.remoteHTTPClient(time.Second).Transport; got != injected {
+		t.Fatalf("injected transport replaced: %T", got)
+	}
+}

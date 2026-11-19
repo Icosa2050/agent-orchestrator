@@ -170,10 +170,27 @@ func (e remoteMismatchError) Error() string {
 		e.name, e.got, e.want, e.name)
 }
 
-// remoteHTTPClient never follows redirects, so a bearer token cannot leak to
-// another origin.
+// remoteDirectTransport is http.DefaultTransport without its environment
+// proxy: an HTTP(S)_PROXY would otherwise carry the bearer token over plain
+// http to the proxy, and Go bypasses proxies only for loopback, not Tailscale.
+var remoteDirectTransport = func() *http.Transport {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		base = &http.Transport{}
+	}
+	t := base.Clone()
+	t.Proxy = nil
+	return t
+}()
+
+// remoteHTTPClient dials hosts directly, never through a proxy, and never
+// follows redirects, so a bearer token cannot leak to another hop or origin.
+// An injected test transport is kept as is.
 func (c *commandContext) remoteHTTPClient(timeout time.Duration) *http.Client {
 	client := *c.deps.HTTPClient
+	if client.Transport == nil {
+		client.Transport = remoteDirectTransport
+	}
 	client.Timeout = timeout
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &client
