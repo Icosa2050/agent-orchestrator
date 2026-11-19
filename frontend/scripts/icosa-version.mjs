@@ -56,8 +56,14 @@ export function resolveIcosaVersion({ packageVersion, names, requested }) {
 	const { base, floor } = icosaBase(packageVersion);
 	let version;
 	if (requested) {
-		if (parseIcosaVersion(requested, base) === null) {
+		const n = parseIcosaVersion(requested, base);
+		if (n === null) {
 			throw new Error(`ICOSA_VERSION ${requested} must match ^${base}-icosa\\.<N>$ (N >= 1, base from package.json)`);
+		}
+		// Builds at or below the floor predate stamping and may exist only where
+		// this context cannot see them (aofiles); never rebuild those numbers.
+		if (n <= floor) {
+			throw new Error(`ICOSA_VERSION ${requested} is at or below the floor ${base}-icosa.${floor} from package.json; those versions were already built. Use N > ${floor} or omit ICOSA_VERSION`);
 		}
 		version = requested;
 	} else {

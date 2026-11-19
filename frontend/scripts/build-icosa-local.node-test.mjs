@@ -59,6 +59,13 @@ test('explicit version must match the package base', () => {
  for (const bad of ['0.14.9-icosa.1', '0.14.8-icosa.0', '0.14.8', '0.14.8-icosa.x']) assert.throws(() => resolve(bad), /must match/);
 });
 
+test('explicit version at or below the floor is refused even when no build is visible', () => {
+ for (const requested of ['0.14.8-icosa.1', '0.14.8-icosa.2']) {
+  assert.throws(() => resolveIcosaVersion({ packageVersion: '0.14.8-icosa.2', names: [], requested }), /at or below the floor 0\.14\.8-icosa\.2/);
+ }
+ assert.equal(resolveIcosaVersion({ packageVersion: '0.14.8-icosa.2', names: [], requested: '0.14.8-icosa.3' }).version, '0.14.8-icosa.3');
+});
+
 test('CFBundleVersion is numeric and ordered across N and bases', () => {
  assert.equal(bundleVersion('0.14.8-icosa.3'), '0.14.8003');
  const order = ['0.14.8-icosa.9', '0.14.8-icosa.10', '0.14.9-icosa.1', '0.15.0-icosa.1', '1.0.0-icosa.1'].map(bundleVersion);
@@ -114,6 +121,17 @@ test('recipe numbers from the publish dir alone when the legacy dir is unreadabl
  assert.match(result.stdout, /RESOLVED 0\.14\.8-icosa\.3 0\.14\.8003/);
 });
 
+test('recipe refuses an explicit pre-stamping version when the legacy dir is unreadable', async t => {
+ const { root, env, source, script } = await scratch(t, 'icosa-floor-');
+ // The launchd agent cannot see aofiles, where icosa.1/.2 live.
+ await rm(path.join(root, 'legacy'), { recursive: true });
+ await writeFile(script, stopBeforePackaging(source));
+ const result = spawnSync('bash', [script], { encoding: 'utf8', env: env({ ICOSA_VERSION: '0.14.8-icosa.2' }) });
+ assert.equal(result.status, 1, result.stderr);
+ assert.match(result.stderr, /at or below the floor/);
+ assert.doesNotMatch(result.stdout, /UNEXPECTED_PACKAGE_WORK/);
+});
+
 test('recipe refuses an explicit version for another base', async t => {
  const { env, script, source } = await scratch(t, 'icosa-base-');
  await writeFile(script, stopBeforePackaging(source));
@@ -127,11 +145,11 @@ for (const collision of ['destination', 'legacy destination', 'zip', 'dmg', 'man
  test(`refuses ${collision} before any package or notary work`, async t => {
   const { root, env, source, script } = await scratch(t, 'icosa-build-');
   await writeFile(script, stopBeforePackaging(source));
-  if (collision === 'destination') await mkdir(path.join(root, 'published/0.14.8-icosa.2'));
-  else if (collision === 'legacy destination') await mkdir(path.join(root, 'legacy/0.14.8-icosa.2'));
-  else if (collision.includes('manifest')) await writeFile(path.join(root, 'frontend/out/local/manifest.json'), collision === 'manifest' ? '{"version":"0.14.8-icosa.2"}' : 'invalid');
-  else await writeFile(path.join(root, `frontend/out/local/Icosa Orchestrator-0.14.8-icosa.2-arm64.${collision}`), 'pilot');
-  const result = spawnSync('bash', [script], { encoding: 'utf8', env: env({ ICOSA_VERSION: '0.14.8-icosa.2' }) });
+  if (collision === 'destination') await mkdir(path.join(root, 'published/0.14.8-icosa.5'));
+  else if (collision === 'legacy destination') await mkdir(path.join(root, 'legacy/0.14.8-icosa.5'));
+  else if (collision.includes('manifest')) await writeFile(path.join(root, 'frontend/out/local/manifest.json'), collision === 'manifest' ? '{"version":"0.14.8-icosa.5"}' : 'invalid');
+  else await writeFile(path.join(root, `frontend/out/local/Icosa Orchestrator-0.14.8-icosa.5-arm64.${collision}`), 'pilot');
+  const result = spawnSync('bash', [script], { encoding: 'utf8', env: env({ ICOSA_VERSION: '0.14.8-icosa.5' }) });
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /already built or reserved.*Never overwrite artifacts/);
   assert.doesNotMatch(result.stdout, /UNEXPECTED_PACKAGE_WORK/);

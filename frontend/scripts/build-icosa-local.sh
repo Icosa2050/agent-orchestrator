@@ -4,7 +4,7 @@
 # Do not bump versions by PR; build-icosa stamps them. frontend/package.json
 # holds only the base convention <base>-icosa.<floor> (e.g. 0.14.8-icosa.2).
 # Each build is stamped <base>-icosa.<N>: ICOSA_VERSION when given (it must
-# match ^<base>-icosa\.<N>$), else 1 + the highest N already built for that
+# match ^<base>-icosa\.<N>$ with N above the floor), else 1 + the highest N already built for that
 # base under $publish_dir, the legacy aofiles folder (read-only, only when
 # readable) and out/local (never below the floor). An upstream sync that changes
 # the base starts again at N=1. The stamp reaches package.json (restored on

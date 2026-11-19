@@ -85,7 +85,9 @@ holds only the base convention `<base>-icosa.<floor>` (currently
 stamps `<base>-icosa.<N>`:
 
 - `ICOSA_VERSION=<base>-icosa.<N>` pins a version; it must match the base in
-  `package.json`.
+  `package.json` and N must be above the floor (pre-stamping builds such as
+  `0.14.8-icosa.1`/`.2` may live only on aofiles, which the build agent cannot
+  read).
 - Otherwise N is 1 + the highest N already built for that base in the publish
   dir, the legacy `/Volumes/aofiles/ao-builds/icosa-orchestrator` (read-only,
   only when readable) and `frontend/out/local`, and never at or below the floor.
