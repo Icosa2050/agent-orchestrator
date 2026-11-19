@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { agentAccountName, agentAccountProviderNames, describeAccountProblem } from "../../hooks/useAgentAccounts";
 import type { FleetHostInput, FleetHostRef, FleetHostState, FleetLimitRow } from "../../lib/fleet-limits";
-import { PROVIDER_HARNESS } from "../../lib/usage-limits";
+import { formatCountdown, PROVIDER_HARNESS } from "../../lib/usage-limits";
 import { formatRelativeTime } from "../../lib/usage-format";
 import { useUiStore } from "../../stores/ui-store";
 import { AgentAvatar } from "../AgentAvatar";
@@ -17,7 +17,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 export function UsageFleetLimits({ rows, hosts, showHosts, now }: { rows: readonly FleetLimitRow[]; hosts: readonly FleetHostInput[]; showHosts: boolean; now: Date }) {
 	const { t, i18n } = useTranslation();
 	const openGlobalSettings = useUiStore((state) => state.openGlobalSettings);
-	const hostName = (host: FleetHostRef) => host.label ?? t("remote.thisComputer");
+	const hostName = (host: FleetHostRef) => (host.label === undefined ? t("remote.thisComputer") : host.label.trim() || host.hostId);
+	const age = (iso: string) => (now.getTime() - Date.parse(iso) < 60_000 ? t("time.justNow") : formatRelativeTime(iso, now, i18n.language));
 	const percent = new Intl.NumberFormat(i18n.language, { style: "percent", maximumFractionDigits: 0 });
 	const instant = new Intl.DateTimeFormat(i18n.language, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 	const absolute = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" });
@@ -67,6 +68,8 @@ export function UsageFleetLimits({ rows, hosts, showHosts, now }: { rows: readon
 							<TableHead className="font-normal text-muted-foreground">{t("usage.fleet.column.plan")}</TableHead>
 							<TableHead className="font-normal text-muted-foreground">{t("usage.fleet.column.window")}</TableHead>
 							<TableHead className="text-end font-normal text-muted-foreground">{t("usage.fleet.column.used")}</TableHead>
+							<TableHead className="text-end font-normal text-muted-foreground">{t("usage.fleet.column.left")}</TableHead>
+							<TableHead className="text-end font-normal text-muted-foreground">{t("usage.fleet.column.resetsIn")}</TableHead>
 							<TableHead className="font-normal text-muted-foreground">{t("usage.fleet.column.resetsAt")}</TableHead>
 							<TableHead className="font-normal text-muted-foreground">{t("usage.fleet.column.read")}</TableHead>
 							{showHosts ? <TableHead className="pe-0 font-normal text-muted-foreground">{t("usage.fleet.column.hosts")}</TableHead> : null}
@@ -76,6 +79,7 @@ export function UsageFleetLimits({ rows, hosts, showHosts, now }: { rows: readon
 						{rows.map((row) => {
 							const problem = describeAccountProblem(row.account, t)?.text ?? (row.account.signedIn ? null : t("usage.limits.signedOut"));
 							const plan = formatPlanName(row.plan);
+							const resetsIn = row.resetPassed ? null : formatCountdown(row.resetsAt, now);
 							return (
 								<TableRow key={row.key} className="hover:bg-transparent" data-fleet-account={row.accountKey} data-fleet-window={row.window?.id ?? ""}>
 									<TableCell className="ps-0">
@@ -95,19 +99,25 @@ export function UsageFleetLimits({ rows, hosts, showHosts, now }: { rows: readon
 											: row.usedPercent === null ? <span className="text-muted-foreground">—</span>
 											: percent.format(row.usedPercent / 100)}
 									</TableCell>
+									<TableCell className="text-end tabular-nums">
+										{row.usedPercent === null ? <span className="text-muted-foreground">—</span> : percent.format((100 - row.usedPercent) / 100)}
+									</TableCell>
+									<TableCell className="text-end tabular-nums text-muted-foreground">{resetsIn ?? "—"}</TableCell>
 									<TableCell className="tabular-nums text-muted-foreground">
 										{row.resetsAt && !row.resetPassed ? <time dateTime={row.resetsAt}>{instant.format(new Date(row.resetsAt))}</time> : "—"}
 									</TableCell>
 									<TableCell className="tabular-nums text-muted-foreground">
 										{row.readAt ? (
 											<time dateTime={row.readAt} title={absolute.format(new Date(row.readAt))}>
-												{showHosts && row.readOn
-													? t("usage.fleet.readOn", { age: formatRelativeTime(row.readAt, now, i18n.language), host: hostName(row.readOn) })
-													: formatRelativeTime(row.readAt, now, i18n.language)}
+												{showHosts && row.readOn ? t("usage.fleet.readOn", { age: age(row.readAt), host: hostName(row.readOn) }) : age(row.readAt)}
 											</time>
 										) : "—"}
 									</TableCell>
-									{showHosts ? <TableCell className="pe-0 text-muted-foreground">{row.hosts.map(hostName).join(" · ")}</TableCell> : null}
+									{showHosts ? (
+										<TableCell className="pe-0 whitespace-normal text-muted-foreground" data-fleet-hosts="true">
+											{row.hosts.map((host) => <span key={host.hostId} className="block whitespace-nowrap">{hostName(host)}</span>)}
+										</TableCell>
+									) : null}
 								</TableRow>
 							);
 						})}

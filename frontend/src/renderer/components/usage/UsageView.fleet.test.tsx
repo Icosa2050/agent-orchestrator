@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useUiStore } from "../../stores/ui-store";
+import { formatPlanName } from "../settings/AgentAccountsSection";
 import { TooltipProvider } from "../ui/tooltip";
 import { UsageFleetLimits } from "./UsageFleetLimits";
 import { UsageView } from "./UsageView";
@@ -24,7 +25,7 @@ const fixtures = vi.hoisted(() => ({ answers: {} as Record<string, Record<string
 const hostAnswers: Record<string, Record<string, Answer>> = {
 	local: {
 		"/api/v1/agents/accounts": accounts([
-			{ id: "device-codex", provider: "codex", device: true, default: true, loggedIn: true, signedIn: true, email: "markus.frommherz@gmail.com", plan: "pro", limits: { fetchedAt: ago(10), windows: [{ id: "codex:Weekly", label: "Weekly", usedPercent: 40, resetsAt: ahead(30), durationMinutes: 10080 }] } },
+			{ id: "device-codex", provider: "codex", device: true, default: true, loggedIn: true, signedIn: true, email: "markus.frommherz@gmail.com", plan: "promax", limits: { fetchedAt: ago(10), windows: [{ id: "codex:Weekly", label: "Weekly", usedPercent: 40, resetsAt: ahead(30), durationMinutes: 10080 }] } },
 			{ id: "device-claude", provider: "claude", device: true, default: false, loggedIn: false, signedIn: false },
 		]),
 		"/api/v1/usage/limit-windows": noHistory,
@@ -108,6 +109,7 @@ async function openLimits() {
 
 const rowsOf = (table: HTMLElement) => within(table).getAllByRole("row").slice(1);
 const cells = (row: HTMLElement) => within(row).getAllByRole("cell").map((cell) => cell.textContent);
+const hostLines = (row: HTMLElement) => [...row.querySelectorAll("[data-fleet-hosts] > span")].map((line) => line.textContent);
 
 describe("UsageView fleet limits", () => {
 	beforeEach(() => {
@@ -122,15 +124,22 @@ describe("UsageView fleet limits", () => {
 		const [fiveHour, weekly, fable] = claude.map(cells);
 		// The freshest reading wins: A's 31 %, not B's 12 %.
 		expect(weekly.slice(0, 5)).toEqual(["Claude Code", "icosa2050@gmail.com", "Max", "Weekly", "31%"]);
-		expect(weekly[6]).toBe("2 minutes ago on MacStudio");
-		expect(weekly[7]).toBe("MacStudio · mac-mini");
+		expect(weekly.slice(5, 7)).toEqual(["69%", "2d 2h"]);
+		expect(weekly[8]).toBe("2 minutes ago · MacStudio");
+		expect(hostLines(claude[1])).toEqual(["MacStudio", "mac-mini"]);
 		expect(within(claude[1]).getByText((_, element) => element?.tagName === "TIME" && element.getAttribute("dateTime") === WEEKLY_RESET)).toBeInTheDocument();
 		expect(fable[3]).toBe("Weekly · Fable");
 		expect(fable[4]).toBe("55%");
 		// B's 5h reading has reset: no stale level.
 		expect(fiveHour[3]).toBe("5h");
 		expect(fiveHour[4]).toBe("Reset · awaiting reading");
-		expect(fiveHour[6]).toBe("50 minutes ago on mac-mini");
+		expect(fiveHour.slice(5, 9)).toEqual(["—", "—", "—", "50 minutes ago · mac-mini"]);
+	});
+
+	it("names the Codex plan instead of its raw id", async () => {
+		const { table } = await openLimits();
+		const codex = rowsOf(table).find((row) => row.getAttribute("data-fleet-account")?.startsWith("codex\0"));
+		expect(cells(codex!)[2]).toBe("Pro Max");
 	});
 
 	it("shows hosts that cannot answer as plain status text", async () => {
@@ -148,7 +157,7 @@ describe("UsageView fleet limits", () => {
 		const { user, table } = await openLimits();
 		const signedOut = rowsOf(table).filter((row) => cells(row)[1] === "Claude Code CLI loginSigned out");
 		expect(signedOut).toHaveLength(1);
-		expect(cells(signedOut[0])[7]).toBe("This computer");
+		expect(hostLines(signedOut[0])).toEqual(["This computer"]);
 
 		await user.click(screen.getByRole("button", { name: "Hosts" }));
 		await user.click(await screen.findByRole("menuitem", { name: "mac-mini" }));
@@ -186,6 +195,24 @@ describe("UsageView fleet limits", () => {
 		expect(await screen.findByText("Pair this device with the host again to read its limits.")).toBeInTheDocument();
 	});
 
+	it("lists every host on its own line and says when and where a fresh reading came from", () => {
+		const client = new QueryClient();
+		const readAt = new Date(now - 10_000).toISOString();
+		const hosts = [{ hostId: "local" }, { hostId: "host-a", label: "MacStudio" }, { hostId: "host-b", label: "mac-mini m6" }, { hostId: "host-x", label: " " }];
+		const account = { id: "x", provider: "claude", default: true, device: false, loggedIn: true, signedIn: true } as const;
+		render(<QueryClientProvider client={client}><UsageFleetLimits showHosts now={new Date(now)} hosts={hosts.map((host) => ({ ...host, state: { kind: "ok" } }))} rows={[{
+			key: "k", accountKey: "k", provider: "claude", email: "me@example.com", plan: "max", account, hosts,
+			window: { id: "seven_day", label: "Weekly", kind: "weekly", model: null },
+			usedPercent: 25, resetsAt: ahead(3), resetPassed: false, readAt, readOn: hosts[1],
+		}]} /></QueryClientProvider>);
+		const row = screen.getAllByRole("row")[1];
+		expect(hostLines(row)).toEqual(["This computer", "MacStudio", "mac-mini m6", "host-x"]);
+		expect(cells(row).slice(4, 7)).toEqual(["25%", "75%", "3h 0m"]);
+		const read = within(row).getByText("just now · MacStudio");
+		expect(read.getAttribute("dateTime")).toBe(readAt);
+		expect(read.getAttribute("title")).toBeTruthy();
+	});
+
 	it("says how old a stale host's reading is", () => {
 		const client = new QueryClient();
 		render(<QueryClientProvider client={client}><UsageFleetLimits rows={[]} showHosts now={new Date(now)} hosts={[
@@ -193,5 +220,21 @@ describe("UsageView fleet limits", () => {
 			{ hostId: "host-a", label: "MacStudio", state: { kind: "stale", since: ago(5) } },
 		]} /></QueryClientProvider>);
 		expect(screen.getByText("MacStudio: stale, read 5 minutes ago")).toBeInTheDocument();
+	});
+});
+
+describe("formatPlanName", () => {
+	it.each([
+		["promax", "Pro Max"], ["prolite", "Pro Lite"], ["pro", "Pro"], ["plus", "Plus"], ["go", "Go"],
+		["self_serve_business_usage_based", "Business"], ["enterprise_cbp_usage_based", "Enterprise"],
+		["max", "Max"], ["MAX", "Max"], ["team", "Team"], ["mystery_tier", "mystery_tier"],
+	])("names %s as %s", (plan, name) => {
+		expect(formatPlanName(plan)).toBe(name);
+	});
+
+	it("shows nothing for a missing or unknown plan", () => {
+		expect(formatPlanName(undefined)).toBeNull();
+		expect(formatPlanName(" ")).toBeNull();
+		expect(formatPlanName("unknown")).toBeNull();
 	});
 });
