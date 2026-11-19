@@ -7,22 +7,26 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { buildNumbers, bundleVersion, existingNames, icosaBase, parseIcosaVersion, resolveIcosaVersion, stampVersion } from './icosa-version.mjs';
 
-const BUILD_ROOT = 'build_root=/Volumes/aofiles/ao-builds/icosa-orchestrator';
+const LEGACY = 'legacy_dir=/Volumes/aofiles/ao-builds/icosa-orchestrator';
 const helper = new URL('./icosa-version.mjs', import.meta.url);
 
-// A scratch checkout with the recipe (build root redirected) and its helper.
+// A scratch checkout with the recipe (legacy dir redirected) and its helper;
+// env() points ICOSA_PUBLISH_DIR at <root>/published.
 async function scratch(t, prefix, packageVersion = '0.14.8-icosa.2') {
  const root = await mkdtemp(path.join(tmpdir(), prefix));
  t.after(() => rm(root, { recursive: true, force: true }));
  await mkdir(path.join(root, 'frontend/scripts'), { recursive: true });
  await mkdir(path.join(root, 'frontend/out/local'), { recursive: true });
  await mkdir(path.join(root, 'published'));
+ await mkdir(path.join(root, 'legacy'));
  await writeFile(path.join(root, 'frontend/package.json'), JSON.stringify({ version: packageVersion }));
  await writeFile(path.join(root, 'frontend/package-lock.json'), JSON.stringify({ version: packageVersion, packages: { '': { version: packageVersion } } }));
  await copyFile(helper, path.join(root, 'frontend/scripts/icosa-version.mjs'));
  const source = await readFile(new URL('./build-icosa-local.sh', import.meta.url), 'utf8');
- assert.ok(source.includes(BUILD_ROOT));
- return { root, source: source.replace(BUILD_ROOT, `build_root=${path.join(root, 'published')}`), script: path.join(root, 'frontend/scripts/build-icosa-local.sh') };
+ assert.ok(source.includes(LEGACY));
+ assert.match(source, /publish_dir=\$\{ICOSA_PUBLISH_DIR:-\$HOME\/ao-builds\/icosa-orchestrator\}/);
+ const env = extra => ({ ...process.env, ICOSA_PUBLISH_DIR: path.join(root, 'published'), ...extra });
+ return { root, env, source: source.replace(LEGACY, `legacy_dir=${path.join(root, 'legacy')}`), script: path.join(root, 'frontend/scripts/build-icosa-local.sh') };
 }
 
 // Any progress past the version and collision checks is a test failure, on every host.
@@ -86,34 +90,48 @@ test('stamping rewrites package.json and the lockfile root', async t => {
  assert.equal(stamped.packages['node_modules/a'].version, '1.0.0');
 });
 
-test('recipe stamps the next free version from the build root and out/local', async t => {
- const { root, source, script } = await scratch(t, 'icosa-next-');
+test('recipe stamps the next free version from the publish dir, legacy dir and out/local', async t => {
+ const { root, env, source, script } = await scratch(t, 'icosa-next-');
  await mkdir(path.join(root, 'published/0.14.8-icosa.4'));
+ await mkdir(path.join(root, 'legacy/0.14.8-icosa.3'));
  await mkdir(path.join(root, 'published/0.14.9-icosa.30'));
  await writeFile(path.join(root, 'frontend/out/local/Icosa Orchestrator-0.14.8-icosa.5-arm64.zip'), 'older local build');
  await writeFile(script, stopBeforePackaging(source));
- const result = spawnSync('bash', [script], { encoding: 'utf8', env: { ...process.env, ICOSA_VERSION: '' } });
+ const result = spawnSync('bash', [script], { encoding: 'utf8', env: env({ ICOSA_VERSION: '' }) });
  assert.equal(result.status, 99, result.stderr);
  assert.match(result.stdout, /RESOLVED 0\.14\.8-icosa\.6 0\.14\.8006/);
 });
 
-test('recipe refuses an explicit version for another base', async t => {
- const { script, source } = await scratch(t, 'icosa-base-');
+test('recipe numbers from the publish dir alone when the legacy dir is unreadable', async t => {
+ const { root, env, source, script } = await scratch(t, 'icosa-nolegacy-');
+ await rm(path.join(root, 'legacy'), { recursive: true });
+ await writeFile(path.join(root, 'legacy'), 'not a directory');
+ await rm(path.join(root, 'published'), { recursive: true });
  await writeFile(script, stopBeforePackaging(source));
- const result = spawnSync('bash', [script], { encoding: 'utf8', env: { ...process.env, ICOSA_VERSION: '0.14.9-icosa.1' } });
+ const result = spawnSync('bash', [script], { encoding: 'utf8', env: env({ ICOSA_VERSION: '' }) });
+ assert.equal(result.status, 99, result.stderr);
+ // The publish dir is created on first use; the committed floor is icosa.2.
+ assert.match(result.stdout, /RESOLVED 0\.14\.8-icosa\.3 0\.14\.8003/);
+});
+
+test('recipe refuses an explicit version for another base', async t => {
+ const { env, script, source } = await scratch(t, 'icosa-base-');
+ await writeFile(script, stopBeforePackaging(source));
+ const result = spawnSync('bash', [script], { encoding: 'utf8', env: env({ ICOSA_VERSION: '0.14.9-icosa.1' }) });
  assert.equal(result.status, 1, result.stderr);
  assert.match(result.stderr, /must match/);
  assert.doesNotMatch(result.stdout, /UNEXPECTED_PACKAGE_WORK/);
 });
 
-for (const collision of ['destination', 'zip', 'dmg', 'manifest', 'malformed manifest']) {
+for (const collision of ['destination', 'legacy destination', 'zip', 'dmg', 'manifest', 'malformed manifest']) {
  test(`refuses ${collision} before any package or notary work`, async t => {
-  const { root, source, script } = await scratch(t, 'icosa-build-');
+  const { root, env, source, script } = await scratch(t, 'icosa-build-');
   await writeFile(script, stopBeforePackaging(source));
   if (collision === 'destination') await mkdir(path.join(root, 'published/0.14.8-icosa.2'));
+  else if (collision === 'legacy destination') await mkdir(path.join(root, 'legacy/0.14.8-icosa.2'));
   else if (collision.includes('manifest')) await writeFile(path.join(root, 'frontend/out/local/manifest.json'), collision === 'manifest' ? '{"version":"0.14.8-icosa.2"}' : 'invalid');
   else await writeFile(path.join(root, `frontend/out/local/Icosa Orchestrator-0.14.8-icosa.2-arm64.${collision}`), 'pilot');
-  const result = spawnSync('bash', [script], { encoding: 'utf8', env: { ...process.env, ICOSA_VERSION: '0.14.8-icosa.2' } });
+  const result = spawnSync('bash', [script], { encoding: 'utf8', env: env({ ICOSA_VERSION: '0.14.8-icosa.2' }) });
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /already built or reserved.*Never overwrite artifacts/);
   assert.doesNotMatch(result.stdout, /UNEXPECTED_PACKAGE_WORK/);
@@ -121,13 +139,13 @@ for (const collision of ['destination', 'zip', 'dmg', 'manifest', 'malformed man
 }
 
 test('unavailable notary profile still fails before npm, with the version stamped', async t => {
- const { root, source, script } = await scratch(t, 'icosa-notary-');
+ const { root, env, source, script } = await scratch(t, 'icosa-notary-');
  await mkdir(path.join(root, 'bin'));
  await writeFile(script, source);
  for (const [name, body] of Object.entries({uname:'echo arm64',git:'exit 0',xcrun:'exit 1',nice:'echo PACKAGING_REACHED; exit 99'})) {
   await writeFile(path.join(root, 'bin', name), `#!/bin/sh\n${body}\n`, {mode:0o755});
  }
- const result = spawnSync('/bin/bash', [script], {encoding:'utf8',env:{...process.env,ICOSA_VERSION:'',PATH:`${root}/bin:${process.env.PATH}`}});
+ const result = spawnSync('/bin/bash', [script], {encoding:'utf8',env:env({ICOSA_VERSION:'',PATH:`${root}/bin:${process.env.PATH}`})});
  assert.equal(result.status, 1, result.stderr);
  assert.match(result.stderr, /Notarization is required/);
  assert.doesNotMatch(result.stdout, /PACKAGING_REACHED/);
@@ -176,7 +194,7 @@ for (const scenario of ['existing destination', 'uncreatable parent', 'copy succ
 }
 
 const DR = 'designated => identifier "com.icosa2050.orchestrator" and anchor apple generic and certificate leaf[subject.OU] = L98MZWWR98';
-for (const previous of ['none', 'same', 'changed']) {
+for (const previous of ['none', 'same', 'changed', 'legacy']) {
  test(`manifest records version, shipped verifier and DR check (previous build: ${previous})`, async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'icosa-manifest-'));
   t.after(() => rm(root, {recursive:true, force:true}));
@@ -184,19 +202,21 @@ for (const previous of ['none', 'same', 'changed']) {
   await mkdir(path.join(app, 'Contents/Resources/daemon'), {recursive:true});
   await mkdir(path.join(root, 'bin'));
   await mkdir(path.join(root, 'out/local'), {recursive:true});
-  await mkdir(path.join(root, 'published/0.14.8-icosa.2'), {recursive:true});
+  await mkdir(path.join(root, 'published'), {recursive:true});
+  await mkdir(path.join(root, 'legacy/0.14.8-icosa.2'), {recursive:true});
+  if (previous !== 'legacy') await mkdir(path.join(root, 'published/0.14.8-icosa.2'));
   const plist = spawnSync('python3', ['-c', `import plistlib,sys; plistlib.dump(dict(CFBundleIdentifier='com.icosa2050.orchestrator',CFBundleExecutable='icosa-orchestrator',CFBundleName='Icosa Orchestrator',CFBundleDisplayName='Icosa Orchestrator',CFBundleURLTypes=[dict(CFBundleURLSchemes=['icosa-orchestrator'])],CFBundleShortVersionString='0.14.8-icosa.3',CFBundleVersion='0.14.8003'),open(sys.argv[1],'wb'))`, path.join(app, 'Contents/Info.plist')]);
   assert.equal(plist.status, 0, plist.stderr?.toString());
   await writeFile(path.join(app, 'Contents/Resources/daemon/ao'), '#!/bin/sh\necho "0.14.8-icosa.3 abc"\n', {mode:0o755});
   await writeFile(path.join(root, 'bin/codesign'), `#!/bin/sh\necho "Executable=$4/Contents/MacOS/icosa-orchestrator" >&2\necho '${DR}'\n`, {mode:0o755});
   if (previous !== 'none') {
-   const old = previous === 'same' ? DR : DR.replace('L98MZWWR98', 'OTHERTEAM1');
-   await writeFile(path.join(root, 'published/0.14.8-icosa.2/manifest.json'), JSON.stringify({designatedRequirement: `Executable=/elsewhere\n${old}\n`}));
+   const old = previous !== 'changed' ? DR : DR.replace('L98MZWWR98', 'OTHERTEAM1');
+   await writeFile(path.join(root, previous === 'legacy' ? 'legacy/0.14.8-icosa.2/manifest.json' : 'published/0.14.8-icosa.2/manifest.json'), JSON.stringify({designatedRequirement: `Executable=/elsewhere\n${old}\n`}));
   }
   for (const file of ['a.zip', 'a.dmg', 'out/local/verify-mac-artifact.sh']) await writeFile(path.join(root, file), file);
   const source = await readFile(new URL('./build-icosa-local.sh', import.meta.url), 'utf8');
   const python = source.slice(source.indexOf("<<'PY' >> out/local/verification.log\n") + 37, source.indexOf('\nPY\n# Reserve'));
-  const result = spawnSync('python3', ['-', app, path.join(root, 'a.zip'), path.join(root, 'a.dmg'), 'c0ffee', '0.14.8-icosa.3', '0.14.8003', path.join(root, 'published')], {input: python, cwd: root, encoding: 'utf8', env: {...process.env, PATH: `${root}/bin:${process.env.PATH}`, AO_NOTARY_PROFILE: 'p'}});
+  const result = spawnSync('python3', ['-', app, path.join(root, 'a.zip'), path.join(root, 'a.dmg'), 'c0ffee', '0.14.8-icosa.3', '0.14.8003', path.join(root, 'published'), path.join(root, 'legacy')], {input: python, cwd: root, encoding: 'utf8', env: {...process.env, PATH: `${root}/bin:${process.env.PATH}`, AO_NOTARY_PROFILE: 'p'}});
   assert.match(result.stdout, /designated requirement version-independent: ok/);
   if (previous === 'changed') {
    assert.notEqual(result.status, 0);
@@ -205,7 +225,7 @@ for (const previous of ['none', 'same', 'changed']) {
    return;
   }
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, previous === 'same' ? /matches 0\.14\.8-icosa\.2: ok/ : /previous build: none/);
+  assert.match(result.stdout, previous === 'none' ? /previous build: none/ : /matches 0\.14\.8-icosa\.2: ok/);
   const manifest = JSON.parse(await readFile(path.join(root, 'out/local/manifest.json'), 'utf8'));
   assert.equal(manifest.version, '0.14.8-icosa.3');
   assert.equal(manifest.bundleVersion, '0.14.8003');

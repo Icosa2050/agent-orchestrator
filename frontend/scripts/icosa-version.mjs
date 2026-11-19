@@ -4,10 +4,10 @@
 // frontend/package.json carries only the base convention (<base>-icosa.<floor>,
 // e.g. 0.14.8-icosa.2). Do not bump versions by PR; build-icosa stamps them.
 // Each build gets <base>-icosa.<N>, N = 1 + the highest N already built for
-// that base (aofiles build root and out/local), never below the committed
-// floor. An upstream sync that changes the base resets N to 1.
+// that base (publish dir, legacy aofiles folder when readable, out/local),
+// never below the committed floor. An upstream sync that changes the base resets N to 1.
 //
-//   icosa-version.mjs resolve --package-version V --build-root DIR --local DIR [--requested V]
+//   icosa-version.mjs resolve --package-version V --build-root DIR [--legacy-root DIR] --local DIR [--requested V]
 //     prints "<version> <bundleVersion>"
 //   icosa-version.mjs stamp --version V FILE...
 //     writes V into package.json / package-lock.json root versions
@@ -67,16 +67,20 @@ export function resolveIcosaVersion({ packageVersion, names, requested }) {
 }
 
 /** Names an auto-numbered build must not collide with. */
-export function existingNames({ buildRoot, local, requireBuildRoot }) {
+export function existingNames({ buildRoot, legacyRoot, local, requireBuildRoot }) {
 	const names = [];
 	try {
 		names.push(...readdirSync(buildRoot));
 	} catch (error) {
-		if (requireBuildRoot) throw new Error(`cannot list ${buildRoot} (${error.code ?? error.message}); auto-numbering needs it. Mount aofiles or set ICOSA_VERSION`);
+		if (requireBuildRoot) throw new Error(`cannot list ${buildRoot} (${error.code ?? error.message}); auto-numbering needs it. Fix the publish dir or set ICOSA_VERSION`);
 	}
-	try {
-		names.push(...readdirSync(local));
-	} catch {}
+	// Read-only and optional: older builds published there still count.
+	for (const optional of [legacyRoot, local]) {
+		if (!optional) continue;
+		try {
+			names.push(...readdirSync(optional));
+		} catch {}
+	}
 	try {
 		names.push(String(JSON.parse(readFileSync(path.join(local, "manifest.json"), "utf8")).version));
 	} catch {}
@@ -100,7 +104,7 @@ function main(argv) {
 	const [command, ...args] = argv;
 	if (command === "resolve") {
 		const requested = option(args, "--requested") || undefined;
-		const names = existingNames({ buildRoot: option(args, "--build-root"), local: option(args, "--local"), requireBuildRoot: !requested });
+		const names = existingNames({ buildRoot: option(args, "--build-root"), legacyRoot: option(args, "--legacy-root"), local: option(args, "--local"), requireBuildRoot: !requested });
 		const resolved = resolveIcosaVersion({ packageVersion: option(args, "--package-version"), names, requested });
 		console.log(`${resolved.version} ${resolved.bundleVersion}`);
 	} else if (command === "stamp") {

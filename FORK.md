@@ -86,10 +86,15 @@ stamps `<base>-icosa.<N>`:
 
 - `ICOSA_VERSION=<base>-icosa.<N>` pins a version; it must match the base in
   `package.json`.
-- Otherwise N is 1 + the highest N already built for that base under
-  `/Volumes/aofiles/ao-builds/icosa-orchestrator` and `frontend/out/local`, and
-  never at or below the floor. Auto-numbering refuses to run if the aofiles
-  build root cannot be listed.
+- Otherwise N is 1 + the highest N already built for that base in the publish
+  dir, the legacy `/Volumes/aofiles/ao-builds/icosa-orchestrator` (read-only,
+  only when readable) and `frontend/out/local`, and never at or below the floor.
+  Auto-numbering refuses to run if the publish dir cannot be listed.
+- Builds publish to `ICOSA_PUBLISH_DIR`, default
+  `~/ao-builds/icosa-orchestrator/<version>/` on the Studio's internal disk (the
+  launchd build agent has no TCC access to the external aofiles disk). The
+  fleet updater fetches from there. A version present in either place is never
+  overwritten.
 - An upstream sync that changes the base (e.g. to `0.14.9`) starts again at
   `0.14.9-icosa.1`; the sync PR resolves the `package.json` conflict to the new
   upstream version (with or without an `-icosa.0` suffix).

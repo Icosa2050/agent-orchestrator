@@ -5,21 +5,30 @@
 # holds only the base convention <base>-icosa.<floor> (e.g. 0.14.8-icosa.2).
 # Each build is stamped <base>-icosa.<N>: ICOSA_VERSION when given (it must
 # match ^<base>-icosa\.<N>$), else 1 + the highest N already built for that
-# base under $build_root and out/local (never below the floor). An upstream
-# sync that changes the base starts again at N=1. The stamp reaches package.json
-# (restored on exit, never committed), Info.plist, `ao version`, artifact names
-# and manifest.json. Existing versions are never overwritten.
+# base under $publish_dir, the legacy aofiles folder (read-only, only when
+# readable) and out/local (never below the floor). An upstream sync that changes
+# the base starts again at N=1. The stamp reaches package.json (restored on
+# exit, never committed), Info.plist, `ao version`, artifact names and
+# manifest.json. Existing versions are never overwritten.
+#
+# Builds publish to ICOSA_PUBLISH_DIR (default ~/ao-builds/icosa-orchestrator on
+# the Studio's internal disk; the launchd build agent has no TCC access to the
+# external aofiles disk). Each <version>/ folder holds the zip, dmg,
+# manifest.json, verification.log and verify-mac-artifact.sh.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 repo=$PWD
-build_root=/Volumes/aofiles/ao-builds/icosa-orchestrator
+publish_dir=${ICOSA_PUBLISH_DIR:-$HOME/ao-builds/icosa-orchestrator}
+legacy_dir=/Volumes/aofiles/ao-builds/icosa-orchestrator
+mkdir -p "$publish_dir"
 package_version=$(node -p 'require("./frontend/package.json").version')
-resolved=$(node frontend/scripts/icosa-version.mjs resolve --package-version "$package_version" --build-root "$build_root" --local frontend/out/local --requested "${ICOSA_VERSION:-}")
+resolved=$(node frontend/scripts/icosa-version.mjs resolve --package-version "$package_version" --build-root "$publish_dir" --legacy-root "$legacy_dir" --local frontend/out/local --requested "${ICOSA_VERSION:-}")
 read -r version bundle_version <<<"$resolved"
 echo "Icosa version $version (CFBundleVersion $bundle_version, base from package.json $package_version)"
-destination="$build_root/$version"
+destination="$publish_dir/$version"
 refuse() { echo "Version $version already built or reserved: $1. Never overwrite artifacts; omit ICOSA_VERSION to stamp the next free version." >&2; exit 1; }
 [ ! -e "$destination" ] && [ ! -L "$destination" ] || refuse "$destination"
+[ ! -e "$legacy_dir/$version" ] && [ ! -L "$legacy_dir/$version" ] || refuse "$legacy_dir/$version"
 for artifact in frontend/out/local/*"$version"*; do
  [ ! -e "$artifact" ] && [ ! -L "$artifact" ] || refuse "$artifact"
 done
@@ -90,9 +99,9 @@ bash scripts/verify-mac-artifact.sh "$dmg"
 } > out/local/verification.log
 # Ship the verifier next to the artifacts so hosts never need a dev checkout.
 cp -p scripts/verify-mac-artifact.sh out/local/verify-mac-artifact.sh
-python3 - "$app" "$zip" "$dmg" "$(git rev-parse HEAD)" "$version" "$bundle_version" "$build_root" <<'PY' >> out/local/verification.log
+python3 - "$app" "$zip" "$dmg" "$(git rev-parse HEAD)" "$version" "$bundle_version" "$publish_dir" "$legacy_dir" <<'PY' >> out/local/verification.log
 import hashlib,json,os,plistlib,re,sys,subprocess
-app,archive,dmg,commit,version,bundle_version,build_root=sys.argv[1:]
+app,archive,dmg,commit,version,bundle_version,publish_dir,legacy_dir=sys.argv[1:]
 def sha(path): return hashlib.file_digest(open(path,'rb'),'sha256').hexdigest()
 with open(app+'/Contents/Info.plist','rb') as f: p=plistlib.load(f)
 assert p['CFBundleIdentifier']=='com.icosa2050.orchestrator'
@@ -119,18 +128,19 @@ assert version not in designated and bundle_version not in designated,designated
 print('designated requirement: '+designated)
 print('designated requirement version-independent: ok')
 previous=None
-listed=True
-try:
- for name in os.listdir(build_root):
+listed=False
+for root in (publish_dir,legacy_dir):
+ try: names=os.listdir(root)
+ except OSError as e:
+  print('designated requirement previous build: %s unavailable (%s)'%(root,e)); continue
+ listed=True
+ for name in names:
   m=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)-icosa\.(\d+)',name)
-  if m and name!=version and os.path.isfile(os.path.join(build_root,name,'manifest.json')):
+  if m and name!=version and os.path.isfile(os.path.join(root,name,'manifest.json')):
    key=tuple(map(int,m.groups()))
-   if previous is None or key>previous[0]: previous=(key,name)
-except OSError as e:
- listed=False
- print('designated requirement previous build: unavailable (%s)'%e)
+   if previous is None or key>previous[0]: previous=(key,name,root)
 if previous:
- with open(os.path.join(build_root,previous[1],'manifest.json')) as f: old=json.load(f).get('designatedRequirement','')
+ with open(os.path.join(previous[2],previous[1],'manifest.json')) as f: old=json.load(f).get('designatedRequirement','')
  old=[l for l in old.splitlines() if l.startswith('designated => ')]
  same=old==[designated]
  print('designated requirement matches %s: %s'%(previous[1],'ok' if same else 'CHANGED'))
