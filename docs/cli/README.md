@@ -115,7 +115,9 @@ Rules:
   daemon spawns (which get `AO_DATA_DIR` set to it) share one set of remotes;
   an isolated `AO_DATA_DIR` run has its own. Names, URLs, host and device IDs live in `cli-remotes.json`
   (0600). Tokens live in the macOS login keychain (service
-  `icosa-orchestrator-cli`, account `<name>`, written through `security -i`
+  `icosa-orchestrator-cli`, account `<name>@<hash of the data dir>`, so each
+  data dir has its own token and a scratch run cannot overwrite the real one;
+  written through `security -i`
   so the token is never on a command line), elsewhere in
   `cli-remote-tokens.json` (0600; refused if group/world readable).
 - **Versions.** The LAN API does not expose the daemon build, so `needs update`

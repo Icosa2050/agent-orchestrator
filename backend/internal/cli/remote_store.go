@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -163,14 +165,14 @@ func (c *commandContext) remoteSecrets() (remoteSecretStore, error) {
 	if c.deps.RemoteSecrets != nil {
 		return c.deps.RemoteSecrets, nil
 	}
-	if runtime.GOOS == "darwin" {
-		if path, err := c.deps.LookPath("security"); err == nil {
-			return keychainSecretStore{security: path}, nil
-		}
-	}
 	dir, err := c.remotesDir()
 	if err != nil {
 		return nil, err
+	}
+	if runtime.GOOS == "darwin" {
+		if path, err := c.deps.LookPath("security"); err == nil {
+			return newKeychainSecretStore(path, dir), nil
+		}
 	}
 	return fileSecretStore{path: filepath.Join(dir, "cli-remote-tokens.json")}, nil
 }
@@ -181,8 +183,27 @@ func (c *commandContext) remoteSecrets() (remoteSecretStore, error) {
 // every write is read back before it counts.
 type keychainSecretStore struct {
 	security string
+	// scope ties each item to one data dir: the keychain is shared by every
+	// data dir, so a scratch AO_DATA_DIR run must not overwrite the real
+	// remote's token under the same name.
+	scope string
 	// run executes security with stdin; nil runs the real binary.
 	run func(ctx context.Context, stdin string, args ...string) ([]byte, int, error)
+}
+
+// newKeychainSecretStore scopes items to the remotes dir that holds their
+// metadata.
+func newKeychainSecretStore(security, remotesDir string) keychainSecretStore {
+	sum := sha256.Sum256([]byte(filepath.Clean(remotesDir)))
+	return keychainSecretStore{security: security, scope: hex.EncodeToString(sum[:])[:12]}
+}
+
+// account is the keychain account for a remote: <name>@<data dir hash>.
+func (k keychainSecretStore) account(name string) string {
+	if k.scope == "" {
+		return name
+	}
+	return name + "@" + k.scope
 }
 
 func (k keychainSecretStore) exec(ctx context.Context, stdin string, args ...string) ([]byte, int, error) {
@@ -200,11 +221,11 @@ func (k keychainSecretStore) exec(ctx context.Context, stdin string, args ...str
 }
 
 func (k keychainSecretStore) Describe() string {
-	return "the login keychain (service " + remoteKeychainService + ")"
+	return "the login keychain (service " + remoteKeychainService + ", account " + k.account("<name>") + ")"
 }
 
 func (k keychainSecretStore) Get(ctx context.Context, name string) (string, error) {
-	out, code, err := k.exec(ctx, "", "find-generic-password", "-s", remoteKeychainService, "-a", name, "-w")
+	out, code, err := k.exec(ctx, "", "find-generic-password", "-s", remoteKeychainService, "-a", k.account(name), "-w")
 	if err != nil {
 		return "", fmt.Errorf("read keychain: %w", err)
 	}
@@ -221,7 +242,7 @@ func (k keychainSecretStore) Set(ctx context.Context, name, token string) error 
 	if !deviceTokenPattern.MatchString(token) || !remoteNamePattern.MatchString(name) {
 		return errors.New("refusing to store a malformed token or name")
 	}
-	line := fmt.Sprintf("add-generic-password -U -s %q -a %q -l %q -w %q\n", remoteKeychainService, name, "Orchestrator CLI remote "+name, token)
+	line := fmt.Sprintf("add-generic-password -U -s %q -a %q -l %q -w %q\n", remoteKeychainService, k.account(name), "Orchestrator CLI remote "+name, token)
 	if _, _, err := k.exec(ctx, line, "-i"); err != nil {
 		return fmt.Errorf("write keychain: %w", err)
 	}
@@ -236,7 +257,7 @@ func (k keychainSecretStore) Set(ctx context.Context, name, token string) error 
 }
 
 func (k keychainSecretStore) Delete(ctx context.Context, name string) error {
-	_, code, err := k.exec(ctx, "", "delete-generic-password", "-s", remoteKeychainService, "-a", name)
+	_, code, err := k.exec(ctx, "", "delete-generic-password", "-s", remoteKeychainService, "-a", k.account(name))
 	if err != nil {
 		return fmt.Errorf("delete keychain item: %w", err)
 	}

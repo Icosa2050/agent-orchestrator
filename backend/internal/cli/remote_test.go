@@ -492,11 +492,13 @@ func TestFileSecretStoreIsPrivate(t *testing.T) {
 func TestKeychainStoreKeepsTheTokenOffArgvAndVerifiesTheWrite(t *testing.T) {
 	saved := ""
 	var calls [][]string
-	store := keychainSecretStore{security: "security", run: func(_ context.Context, stdin string, args ...string) ([]byte, int, error) {
+	store := newKeychainSecretStore("security", "/home/u/.ao/dev/data")
+	account := "mini@" + store.scope
+	store.run = func(_ context.Context, stdin string, args ...string) ([]byte, int, error) {
 		calls = append(calls, args)
 		switch args[0] {
 		case "-i":
-			if strings.Contains(stdin, `-s "icosa-orchestrator-cli" -a "mini"`) {
+			if strings.Contains(stdin, `-s "icosa-orchestrator-cli" -a "`+account+`"`) {
 				saved = fakeRemoteToken
 			}
 			return nil, 0, nil
@@ -510,7 +512,7 @@ func TestKeychainStoreKeepsTheTokenOffArgvAndVerifiesTheWrite(t *testing.T) {
 			return nil, 0, nil
 		}
 		return nil, 1, nil
-	}}
+	}
 	ctx := context.Background()
 	if err := store.Set(ctx, "mini", fakeRemoteToken); err != nil {
 		t.Fatal(err)
@@ -660,5 +662,40 @@ func TestRemotesLiveInTheDaemonDataDirSharedWithAgents(t *testing.T) {
 	t.Setenv("AO_DATA_DIR", t.TempDir())
 	if got := names(); len(got) != 0 {
 		t.Fatalf("isolated run sees remotes %v", got)
+	}
+}
+
+func TestKeychainAccountsAreScopedToTheDataDir(t *testing.T) {
+	accounts := map[string]string{}
+	for _, dir := range []string{"/home/u/.ao/dev/data", "/tmp/scratch"} {
+		store := newKeychainSecretStore("security", dir)
+		var seen []string
+		store.run = func(_ context.Context, stdin string, args ...string) ([]byte, int, error) {
+			seen = append(seen, stdin+" "+strings.Join(args, " "))
+			if args[0] == "find-generic-password" {
+				return []byte(fakeRemoteToken), 0, nil
+			}
+			return nil, 0, nil
+		}
+		ctx := context.Background()
+		if err := store.Set(ctx, "mini", fakeRemoteToken); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Delete(ctx, "mini"); err != nil {
+			t.Fatal(err)
+		}
+		want := `-a "mini@` + store.scope + `"`
+		for _, call := range seen {
+			if !strings.Contains(call, want) && !strings.Contains(call, "-a mini@"+store.scope) {
+				t.Fatalf("call %q does not use account mini@%s", call, store.scope)
+			}
+		}
+		accounts[dir] = store.account("mini")
+	}
+	if accounts["/home/u/.ao/dev/data"] == accounts["/tmp/scratch"] {
+		t.Fatalf("two data dirs share keychain account %q", accounts["/tmp/scratch"])
+	}
+	if got := newKeychainSecretStore("security", "/tmp/scratch/").account("mini"); got != accounts["/tmp/scratch"] {
+		t.Fatalf("an equivalent path changed the account: %q vs %q", got, accounts["/tmp/scratch"])
 	}
 }
