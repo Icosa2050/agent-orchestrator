@@ -400,6 +400,15 @@ describe("Windows app labels", () => {
 		expect(config.packagerConfig?.name).toBe("Icosa Orchestrator");
 		expect(config.packagerConfig?.appBundleId).toBe("com.icosa2050.orchestrator");
 	});
+
+	it("takes the stamped numeric CFBundleVersion from build-icosa and rejects malformed ones", async () => {
+		vi.stubEnv("ICOSA_BUNDLE_VERSION", "0.14.8003");
+		vi.resetModules();
+		const { default: stamped, icosaBundleVersion } = await import("./forge.config");
+		expect(stamped.packagerConfig?.buildVersion).toBe("0.14.8003");
+		expect(icosaBundleVersion(undefined)).toBeUndefined();
+		expect(() => icosaBundleVersion("0.14.8-icosa.3")).toThrow(/ICOSA_BUNDLE_VERSION/);
+	});
 });
 
 describe("Linux package maintainer", () => {
