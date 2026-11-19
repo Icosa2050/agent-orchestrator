@@ -17,7 +17,8 @@ import (
 const probeTimeout = 2 * time.Second
 
 type statusOptions struct {
-	json bool
+	json  bool
+	fleet bool
 }
 
 type daemonState string
@@ -64,6 +65,12 @@ func newStatusCommand(ctx *commandContext) *cobra.Command {
 		Short: "Show Orchestrator daemon status",
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.fleet {
+				return ctx.runFleetStatus(cmd, opts.json)
+			}
+			if ctx.remote != nil {
+				return ctx.runRemoteStatus(cmd, opts.json)
+			}
 			st, err := ctx.inspectDaemon(cmd.Context())
 			if err != nil {
 				return err
@@ -75,7 +82,8 @@ func newStatusCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output status as JSON")
-	return cmd
+	cmd.Flags().BoolVar(&opts.fleet, "fleet", false, "Show this machine and every saved remote (ok, offline, needs re-pair, needs update)")
+	return markRemoteReadOnly(cmd)
 }
 
 func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error) {
