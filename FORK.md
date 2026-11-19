@@ -76,6 +76,43 @@ upstream touches them.
 | sync 2026-11-01 | The `telemetry_opt_out` marker also stops daemon and Electron Sentry (upstream #7437 turned Electron Sentry on for consented users) | `backend/internal/daemon/fork_sentry_optout.go`, `daemon.go` (`SetPolicyCheck`), `frontend/src/main/sentry-main.ts` |
 | sync 2026-11-06 | The marker also stops upstream #7682 daemon background reports (`CaptureBackground`) and Electron handled main errors (`captureMain`); manual remote-host IPC stays ungated after upstream switched its errors to `ExpectedIpcError` | `frontend/src/main/sentry-main.ts`, `frontend/src/main/remotes-main.ts`, `backend/internal/daemon/fork_sentry_optout_test.go` |
 
+## Build versions (Icosa builds)
+
+**Do not bump versions by PR; build-icosa stamps them.** `frontend/package.json`
+holds only the base convention `<base>-icosa.<floor>` (currently
+`0.14.8-icosa.2`, the floor of builds made before stamping). Every
+`frontend/scripts/build-icosa-local.sh` run (via `ao-build` / `build-icosa`)
+stamps `<base>-icosa.<N>`:
+
+- `ICOSA_VERSION=<base>-icosa.<N>` pins a version; it must match the base in
+  `package.json` and N must be above the floor (pre-stamping builds such as
+  `0.14.8-icosa.1`/`.2` may live only on aofiles, which the build agent cannot
+  read).
+- Otherwise N is 1 + the highest N already built for that base in the publish
+  dir, the legacy `/Volumes/aofiles/ao-builds/icosa-orchestrator` (read-only,
+  only when readable) and `frontend/out/local`, and never at or below the floor.
+  Auto-numbering refuses to run if the publish dir cannot be listed.
+- Builds publish to `ICOSA_PUBLISH_DIR`, default
+  `~/ao-builds/icosa-orchestrator/<version>/` on the Studio's internal disk (the
+  launchd build agent has no TCC access to the external aofiles disk). The
+  fleet updater fetches from there. A version present in either place is never
+  overwritten.
+- An upstream sync that changes the base (e.g. to `0.14.9`) starts again at
+  `0.14.9-icosa.1`; the sync PR resolves the `package.json` conflict to the new
+  upstream version (with or without an `-icosa.0` suffix).
+
+The stamp goes into `package.json`/`package-lock.json` for the build only
+(restored on exit, never committed), so `CFBundleShortVersionString`,
+`app.getVersion()`, `ao version` (ldflags), artifact names and `manifest.json`
+all carry it. `CFBundleVersion` is numeric and monotonic:
+`<major>.<minor>.<patch*1000+N>` (N <= 999). Existing versions are never
+overwritten. The designated requirement must not contain the version and must
+match the previous build's (TCC retention); `verification.log` records the
+check and the build fails on a change unless `ICOSA_ALLOW_DR_CHANGE=1`.
+`verify-mac-artifact.sh` ships next to the artifacts, with `verifierSha256` in
+`manifest.json`. `frontend/scripts/icosa-version.mjs` holds the version logic;
+`build-icosa-local.node-test.mjs` tests it.
+
 ## Upstream-sync review procedure (mandatory)
 
 Never use GitHub's "Sync fork" button, `gh repo sync` or the merge-upstream

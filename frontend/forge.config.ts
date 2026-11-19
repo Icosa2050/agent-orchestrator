@@ -177,6 +177,12 @@ const macSigningOptions = process.env.APPLE_SIGNING_IDENTITY || process.env.CSC_
  ? { identity: process.env.APPLE_SIGNING_IDENTITY || undefined, continueOnError: false, optionsForFile: macSignOptionsForFile }
  : undefined;
 
+export function icosaBundleVersion(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	if (!/^\d+\.\d+\.\d+$/.test(value)) throw new Error(`ICOSA_BUNDLE_VERSION must be <major>.<minor>.<build>, got ${value}`);
+	return value;
+}
+
 const config: ForgeConfig = {
 	packagerConfig: {
 		asar: true,
@@ -187,6 +193,9 @@ const config: ForgeConfig = {
 		ignore: ignoreFromVitePackage,
 		appBundleId: FORK_IDENTITY.bundleId,
 		helperBundleId: "com.icosa2050.orchestrator.helper",
+		// Fork: build-icosa-local.sh stamps a numeric, monotonic CFBundleVersion
+		// (scripts/icosa-version.mjs); otherwise the packager uses the app version.
+		buildVersion: icosaBundleVersion(process.env.ICOSA_BUNDLE_VERSION),
 		name: PACKAGER_NAME,
 		executableName: EXECUTABLE_NAME,
 		// Match the Windows installer without changing the executable name.
