@@ -103,6 +103,11 @@ type Deps struct {
 	DoctorGitLabRESTBase string
 	Now                  func() time.Time
 	Sleep                func(time.Duration)
+	// RemotesDir replaces ~/.ao for saved CLI remotes; tests point it at a
+	// temp dir.
+	RemotesDir string
+	// RemoteSecrets replaces the keychain/file token store; tests inject a fake.
+	RemoteSecrets remoteSecretStore
 }
 
 // DefaultDeps returns production dependencies.
@@ -204,6 +209,7 @@ func (d Deps) withDefaults() Deps {
 func NewRootCommand(deps Deps) *cobra.Command {
 	deps = deps.withDefaults()
 	ctx := &commandContext{deps: deps}
+	var hostName string
 
 	root := &cobra.Command{
 		Use:           "ao",
@@ -216,9 +222,10 @@ func NewRootCommand(deps Deps) *cobra.Command {
 			if shouldEmitCLIInvocation(cmd) {
 				ctx.emitCLIInvoked(cmd.Context(), cmd)
 			}
-			return nil
+			return ctx.selectRemoteHost(cmd, hostName)
 		},
 	}
+	root.PersistentFlags().StringVar(&hostName, "host", "", "Read a saved remote host (see `ao remote ls`) instead of this machine; read-only commands only. Defaults to $AO_HOST")
 	root.SetIn(deps.In)
 	root.SetOut(deps.Out)
 	root.SetErr(deps.Err)
@@ -234,6 +241,8 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.AddCommand(newStopCommand(ctx))
 	root.AddCommand(newStatusCommand(ctx))
 	root.AddCommand(newRemoteHostCommand(ctx))
+	root.AddCommand(newRemoteCommand(ctx))
+	root.AddCommand(newUsageCommand(ctx))
 	root.AddCommand(newDoctorCommand(ctx))
 	root.AddCommand(newTriageCommand(ctx))
 	root.AddCommand(newAgentCommand(ctx))
@@ -275,6 +284,9 @@ func NewRootCommand(deps Deps) *cobra.Command {
 
 type commandContext struct {
 	deps Deps
+	// remote, when set by --host or AO_HOST, sends every daemon call to that
+	// saved host instead of the loopback daemon.
+	remote *remoteTarget
 }
 
 func shouldEmitCLIInvocation(cmd *cobra.Command) bool {

@@ -65,7 +65,7 @@ func newAccountCommand(ctx *commandContext) *cobra.Command {
 		Use:   "account",
 		Short: "List Claude Code and Codex subscription accounts, set the default, and move a session to another account",
 	}
-	cmd.AddCommand(newAccountListCommand(ctx), newAccountDefaultCommand(ctx), newAccountShowCommand(ctx), newAccountSwitchCommand(ctx))
+	cmd.AddCommand(markRemoteReadOnly(newAccountListCommand(ctx)), newAccountDefaultCommand(ctx), newAccountShowCommand(ctx), newAccountSwitchCommand(ctx))
 	return cmd
 }
 

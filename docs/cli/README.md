@@ -72,6 +72,58 @@ it again to move the machine to another account. An agent
 without a terminal runs it in the background and reads its output; see
 [Set up a VM as an agent](../self-hosted-remote.md#set-up-a-vm-as-an-agent).
 
+### Remote hosts (read-only, fork)
+
+The CLI can read other AO hosts with its **own device token**, so scripts and
+orchestrators observe the fleet without SSH or the SQLite file. Hosts are
+reached over Tailscale on their authenticated listener (`:3011`); there is no
+AO Cloud involved.
+
+| Command | Purpose |
+| ------- | ------- |
+| `ao remote add <name> <url> --code <code>` | Exchange a one-time code from `ao remote-host pair` (run on that host) at `POST /api/v1/remote-host/devices` for a device token named `<hostname> CLI`. `--force` re-pairs a saved name. |
+| `ao remote ls` / `--json` | Saved hosts with status (`ok`, `offline`, `needs re-pair`, `needs update`, `host mismatch`, `untrusted network`), host ID and API version. |
+| `ao remote rm <name>` | Forget a host and delete its local token. A device cannot manage the host's device list over the network, so revoke the printed device ID there with `ao remote-host devices revoke <id>`. |
+| `ao --host <name> <command>` / `AO_HOST=<name>` | Send a read-only command's API calls to that host with its bearer token. |
+| `ao status --fleet` / `ao session ls --fleet` | This machine plus every saved host, with a per-host status; `--json` returns `{"hosts": [...]}`. |
+| `ao usage report` / `ao usage limits` | Print the usage report or the five-hour/weekly limit windows as JSON (works with `--host`). |
+
+Rules:
+
+- **Read-only.** `--host` accepts only `status`, `session ls`, `session get`,
+  `project ls`, `project get`, `account ls`, `usage report` and
+  `usage limits`; anything else exits 2 before a request is made, and the
+  remote transport refuses every method but `GET`. A command opts in
+  explicitly (the `ao.remote` annotation), so new commands stay local until
+  reviewed. Hidden internal commands, and every command inside an AO-managed
+  agent session (`AO_SESSION_ID` set), ignore an inherited `AO_HOST`, so agents
+  keep reaching their own daemon; an explicit `--host` still applies.
+- **Own token, never the pairing password.** Agent accounts and usage refuse
+  the shared password (`DEVICE_CREDENTIAL_REQUIRED`); the CLI only ever holds
+  its device token. A revoked token (`DEVICE_REVOKED`) reports
+  `needs re-pair` with the exact commands to pair again.
+- **Identity first.** Before presenting the token, each command reads the
+  unauthenticated `GET /api/v1/identity` and refuses a host whose ID differs
+  from the paired one. Redirects are never followed.
+- **Network.** Tokens go only to loopback, Tailscale addresses
+  (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), `*.ts.net`, or names that resolve
+  only to those. Any other URL needs `--allow-untrusted-network` at
+  `ao remote add`, recorded for that host.
+- **Storage.** Both files live in the daemon's data dir, resolved as the CLI
+  resolves the daemon: `$AO_DATA_DIR` when set, otherwise the host launch
+  profile's (by default `~/.ao/dev/data`). The terminal and the agents that
+  daemon spawns (which get `AO_DATA_DIR` set to it) share one set of remotes;
+  an isolated `AO_DATA_DIR` run has its own. Names, URLs, host and device IDs live in `cli-remotes.json`
+  (0600). Tokens live in the macOS login keychain (service
+  `icosa-orchestrator-cli`, account `<name>@<hash of the data dir>`, so each
+  data dir has its own token and a scratch run cannot overwrite the real one;
+  written through `security -i`
+  so the token is never on a command line), elsewhere in
+  `cli-remote-tokens.json` (0600; refused if group/world readable).
+- **Versions.** The LAN API does not expose the daemon build, so `needs update`
+  means the host lacks the identity probe or a route the CLI reads, or reports
+  an older API contract.
+
 ### Report a problem
 
 Unreleased: `ao triage` collects bounded, redacted diagnostics and opens Claude Code
@@ -288,6 +340,7 @@ The CLI and daemon share the same environment-driven config:
 | `AO_INSTALLER_SHUTDOWN_TIMEOUT` | about `285s` | How long the daemon waits at shutdown for an agent CLI install or update it started to stop and clean up. Never less than `AO_SHUTDOWN_TIMEOUT`. A new daemon on the same data directory waits for this too. Tests set it low. |
 | `AO_KEEP_DAEMON`      | unset (off)          | Keep the desktop app's daemon running after the window closes; stop only via `ao stop`. (fork) |
 | `AO_DISABLE_GPU`      | unset (off)          | Skip Chromium hardware acceleration; escape hatch for broken Linux GPU drivers.                |
+| `AO_HOST`             | unset                | Saved remote (`ao remote ls`) that read-only commands read instead of this machine; `--host` wins; ignored inside agent sessions. (fork) |
 
 The primary daemon always binds `127.0.0.1`. Connect Mobile is a separate,
 opt-in authenticated listener; see [network boundaries](../architecture.md#multi-listener-architecture-loopback--lan).

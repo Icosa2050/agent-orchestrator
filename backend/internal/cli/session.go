@@ -31,6 +31,7 @@ type sessionListOptions struct {
 	sessionOptions
 	all               bool
 	includeTerminated bool
+	fleet             bool
 }
 
 type sessionCleanupOptions struct {
@@ -228,10 +229,12 @@ type sessionListPR struct {
 
 type sessionListOutput struct {
 	Data []sessionListEntry `json:"data"`
-	Meta struct {
-		HiddenTerminatedCount   int `json:"hiddenTerminatedCount"`
-		HiddenOrchestratorCount int `json:"hiddenOrchestratorCount"`
-	} `json:"meta"`
+	Meta sessionListMeta    `json:"meta"`
+}
+
+type sessionListMeta struct {
+	HiddenTerminatedCount   int `json:"hiddenTerminatedCount"`
+	HiddenOrchestratorCount int `json:"hiddenOrchestratorCount"`
 }
 
 func newSessionCommand(ctx *commandContext) *cobra.Command {
@@ -270,7 +273,8 @@ func newSessionListCommand(ctx *commandContext) *cobra.Command {
 	f.BoolVarP(&opts.all, "all", "a", false, "Include orchestrator sessions")
 	f.BoolVar(&opts.includeTerminated, "include-terminated", false, "Include terminated sessions")
 	f.BoolVar(&opts.json, "json", false, "Output as JSON")
-	return cmd
+	f.BoolVar(&opts.fleet, "fleet", false, "List sessions on this machine and every saved remote (`ao remote ls`)")
+	return markRemoteReadOnly(cmd)
 }
 
 func newSessionGetCommand(ctx *commandContext) *cobra.Command {
@@ -311,7 +315,7 @@ Unicode characters. The middle is omitted and the head and tail are kept.
 	f.StringVar(&opts.transcript, "transcript", "", "Newest N chat entries to include, from 1 to 500 (messages and activities)")
 	f.StringVar(&opts.before, "before", "", "Exclusive sequence cursor (entries with sequence < SEQ); requires --transcript")
 	f.StringVar(&opts.fieldCap, "cap", "1000", "Max Unicode characters kept per text field (0 = full text, otherwise 80 to 1000000); requires --transcript")
-	return cmd
+	return markRemoteReadOnly(cmd)
 }
 
 func newSessionKillCommand(ctx *commandContext) *cobra.Command {
@@ -689,6 +693,31 @@ func writeClaimPRResult(cmd *cobra.Command, res claimPRResponse, review *bool) e
 }
 
 func (c *commandContext) listSessions(ctx context.Context, cmd *cobra.Command, opts sessionListOptions) error {
+	if opts.fleet {
+		return c.runFleetSessions(cmd, opts)
+	}
+	res, err := c.collectSessions(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if opts.json {
+		out := sessionListOutput{Data: sessionListEntries(res.sessions, res.prSummaries)}
+		out.Meta.HiddenTerminatedCount = res.hiddenTerminated
+		out.Meta.HiddenOrchestratorCount = res.hiddenOrchestrators
+		return writeJSON(cmd.OutOrStdout(), out)
+	}
+	return writeSessionList(cmd, res.sessions, res.prSummaries, res.hiddenTerminated, res.hiddenOrchestrators, c.deps.Now())
+}
+
+// sessionListResult is one daemon's filtered session list.
+type sessionListResult struct {
+	sessions            []sessionDTO
+	prSummaries         map[string][]sessionPRSummaryDTO
+	hiddenTerminated    int
+	hiddenOrchestrators int
+}
+
+func (c *commandContext) collectSessions(ctx context.Context, opts sessionListOptions) (sessionListResult, error) {
 	params := url.Values{}
 	if opts.project != "" {
 		params.Set("project", opts.project)
@@ -698,7 +727,7 @@ func (c *commandContext) listSessions(ctx context.Context, cmd *cobra.Command, o
 	}
 	var res sessionListResponse
 	if err := c.getJSON(ctx, apiPath("sessions", params), &res); err != nil {
-		return err
+		return sessionListResult{}, err
 	}
 	hiddenOrchestratorCount := 0
 	if !opts.all {
@@ -713,22 +742,21 @@ func (c *commandContext) listSessions(ctx context.Context, cmd *cobra.Command, o
 	if !opts.includeTerminated {
 		terminatedCount, terminatedOrchestratorCount, err := c.countHiddenTerminated(ctx, opts.project, opts.all)
 		if err != nil {
-			return err
+			return sessionListResult{}, err
 		}
 		hiddenTerminatedCount = terminatedCount
 		hiddenOrchestratorCount += terminatedOrchestratorCount
 	}
 	prSummaries, err := c.listSessionPRSummaries(ctx, sessions)
 	if err != nil {
-		return err
+		return sessionListResult{}, err
 	}
-	if opts.json {
-		out := sessionListOutput{Data: sessionListEntries(sessions, prSummaries)}
-		out.Meta.HiddenTerminatedCount = hiddenTerminatedCount
-		out.Meta.HiddenOrchestratorCount = hiddenOrchestratorCount
-		return writeJSON(cmd.OutOrStdout(), out)
-	}
-	return writeSessionList(cmd, sessions, prSummaries, hiddenTerminatedCount, hiddenOrchestratorCount, c.deps.Now())
+	return sessionListResult{
+		sessions:            sessions,
+		prSummaries:         prSummaries,
+		hiddenTerminated:    hiddenTerminatedCount,
+		hiddenOrchestrators: hiddenOrchestratorCount,
+	}, nil
 }
 
 // listSessionPRSummaries fetches rich PR facts concurrently from the daemon.

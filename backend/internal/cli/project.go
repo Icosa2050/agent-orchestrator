@@ -190,8 +190,8 @@ func newProjectCommand(ctx *commandContext) *cobra.Command {
 		Use:   "project",
 		Short: "Manage projects",
 	}
-	cmd.AddCommand(newProjectListCommand(ctx))
-	cmd.AddCommand(newProjectGetCommand(ctx))
+	cmd.AddCommand(markRemoteReadOnly(newProjectListCommand(ctx)))
+	cmd.AddCommand(markRemoteReadOnly(newProjectGetCommand(ctx)))
 	cmd.AddCommand(newProjectAddCommand(ctx))
 	cmd.AddCommand(newProjectSetConfigCommand(ctx))
 	cmd.AddCommand(newProjectRemoveCommand(ctx))

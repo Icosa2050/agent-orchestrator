@@ -142,8 +142,10 @@ func (c *commandContext) doJSON(ctx context.Context, method, path string, body, 
 	return c.doJSONPath(ctx, method, "/api/v1/"+path, body, out)
 }
 
+// postLoopbackJSON always reaches this machine's daemon, even under --host:
+// its callers are local telemetry.
 func (c *commandContext) postLoopbackJSON(ctx context.Context, path string, body any) error {
-	return c.doJSONPath(ctx, http.MethodPost, path, body, nil)
+	return c.doLocalJSON(ctx, http.MethodPost, path, body, nil, nil, commandTimeout)
 }
 
 func (c *commandContext) doJSONPath(ctx context.Context, method, path string, body, out any) error {
@@ -160,6 +162,19 @@ func (c *commandContext) doJSONPathWithHeaders(
 }
 
 func (c *commandContext) doJSONPathWithHeadersAndTimeout(
+	ctx context.Context,
+	method, path string,
+	body, out any,
+	headers map[string]string,
+	timeout time.Duration,
+) error {
+	if c.remote != nil {
+		return c.doRemoteJSON(ctx, method, path, body, out, timeout)
+	}
+	return c.doLocalJSON(ctx, method, path, body, out, headers, timeout)
+}
+
+func (c *commandContext) doLocalJSON(
 	ctx context.Context,
 	method, path string,
 	body, out any,
@@ -217,7 +232,12 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	}
 	resp.Body = daemonResponseBody{ReadCloser: resp.Body}
 	defer func() { _ = resp.Body.Close() }()
+	return decodeDaemonResponse(resp, method, path, out)
+}
 
+// decodeDaemonResponse turns a daemon response into out or an API error. It
+// is shared by the loopback daemon and remote hosts.
+func decodeDaemonResponse(resp *http.Response, method, path string, out any) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e apiError
 		_ = json.NewDecoder(resp.Body).Decode(&e)
