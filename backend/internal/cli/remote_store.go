@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	aoprocess "github.com/aoagents/agent-orchestrator/backend/internal/process"
 )
 
@@ -51,20 +52,20 @@ func validRemoteName(name string) error {
 	return nil
 }
 
-// remotesDir is $AO_DATA_DIR when set, else ~/.ao, so an isolated run never
-// touches the real remotes. Tests may point Deps.RemotesDir elsewhere.
+// remotesDir is the daemon's data dir, resolved as the CLI resolves the
+// daemon ($AO_DATA_DIR, else the host launch profile, else ~/.ao/dev/data).
+// The user's terminal and the agents that daemon spawns (which get
+// AO_DATA_DIR set to it) then share one file, and isolated runs stay
+// isolated. Tests may point Deps.RemotesDir elsewhere.
 func (c *commandContext) remotesDir() (string, error) {
 	if c.deps.RemotesDir != "" {
 		return c.deps.RemotesDir, nil
 	}
-	if dir := strings.TrimSpace(os.Getenv("AO_DATA_DIR")); dir != "" {
-		return filepath.Abs(dir)
-	}
-	home, err := os.UserHomeDir()
+	_, dataDir, _, err := config.ResolvePaths()
 	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".ao"), nil
+	return dataDir, nil
 }
 
 func (c *commandContext) remotesFilePath() (string, error) {

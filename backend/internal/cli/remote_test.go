@@ -617,22 +617,48 @@ func TestInheritedAOHostIsIgnoredInsideAgentSessions(t *testing.T) {
 	}
 }
 
-func TestRemotesLiveInAODataDirWhenSet(t *testing.T) {
+func TestRemotesLiveInTheDaemonDataDirSharedWithAgents(t *testing.T) {
 	env := newRemoteTestEnv(t)
-	dataDir := t.TempDir()
-	t.Setenv("AO_DATA_DIR", dataDir)
 	env.deps.RemotesDir = ""
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("AO_DATA_DIR", "") // a user terminal: no override
+	profileDataDir := filepath.Join(home, ".ao", "dev", "data")
+
 	host := newFakeRemoteHost(t, "host-r")
 	env.add(t, "mini", host)
-	if _, err := os.Stat(filepath.Join(dataDir, "cli-remotes.json")); err != nil {
-		t.Fatalf("cli-remotes.json not under AO_DATA_DIR: %v", err)
-	}
-	dir, err := (&commandContext{deps: env.deps}).remotesDir()
-	if err != nil || dir != dataDir {
-		t.Fatalf("remotesDir = %q, %v; want %q", dir, err, dataDir)
+	if _, err := os.Stat(filepath.Join(profileDataDir, "cli-remotes.json")); err != nil {
+		t.Fatalf("cli-remotes.json not in the profile data dir: %v", err)
 	}
 	if store, err := (&commandContext{deps: Deps{LookPath: func(string) (string, error) { return "", errors.New("none") }}}).remoteSecrets(); err != nil ||
-		store.Describe() != filepath.Join(dataDir, "cli-remote-tokens.json")+" (0600)" {
+		store.Describe() != filepath.Join(profileDataDir, "cli-remote-tokens.json")+" (0600)" {
 		t.Fatalf("token file store = %v, %v", store, err)
+	}
+
+	names := func() []string {
+		t.Helper()
+		out, err := env.run(t, "remote", "ls", "--json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var listing struct{ Remotes []remoteHealth }
+		if err := json.Unmarshal([]byte(out), &listing); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, r := range listing.Remotes {
+			got = append(got, r.Name)
+		}
+		return got
+	}
+	// An agent of the same daemon gets AO_DATA_DIR set to that data dir.
+	t.Setenv("AO_DATA_DIR", profileDataDir)
+	if got := names(); len(got) != 1 || got[0] != "mini" {
+		t.Fatalf("agent sees remotes %v, want [mini]", got)
+	}
+	// An isolated run sees none.
+	t.Setenv("AO_DATA_DIR", t.TempDir())
+	if got := names(); len(got) != 0 {
+		t.Fatalf("isolated run sees remotes %v", got)
 	}
 }

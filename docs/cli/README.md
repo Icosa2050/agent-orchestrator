@@ -109,8 +109,11 @@ Rules:
   (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), `*.ts.net`, or names that resolve
   only to those. Any other URL needs `--allow-untrusted-network` at
   `ao remote add`, recorded for that host.
-- **Storage.** Both files live in `$AO_DATA_DIR` when it is set, otherwise
-  `~/.ao`. Names, URLs, host and device IDs live in `cli-remotes.json`
+- **Storage.** Both files live in the daemon's data dir, resolved as the CLI
+  resolves the daemon: `$AO_DATA_DIR` when set, otherwise the host launch
+  profile's (by default `~/.ao/dev/data`). The terminal and the agents that
+  daemon spawns (which get `AO_DATA_DIR` set to it) share one set of remotes;
+  an isolated `AO_DATA_DIR` run has its own. Names, URLs, host and device IDs live in `cli-remotes.json`
   (0600). Tokens live in the macOS login keychain (service
   `icosa-orchestrator-cli`, account `<name>`, written through `security -i`
   so the token is never on a command line), elsewhere in
