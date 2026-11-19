@@ -268,10 +268,21 @@ func (k keychainSecretStore) Delete(ctx context.Context, name string) error {
 }
 
 // fileSecretStore keeps tokens in one 0600 JSON file under ~/.ao, for hosts
-// without a keychain the CLI can drive.
+// without a keychain the CLI can drive. Windows has no POSIX mode bits (Go
+// reports every writable file as 0666), so there the file relies on the
+// user-profile directory's ACL and the mode check is skipped; DPAPI or the
+// Credential Manager would be the stronger store there.
 type fileSecretStore struct{ path string }
 
-func (f fileSecretStore) Describe() string { return f.path + " (0600)" }
+// fileModesEnforced reports whether 0600/0700 modes mean anything here.
+var fileModesEnforced = runtime.GOOS != "windows"
+
+func (f fileSecretStore) Describe() string {
+	if !fileModesEnforced {
+		return f.path + " (user profile)"
+	}
+	return f.path + " (0600)"
+}
 
 func (f fileSecretStore) load() (map[string]string, error) {
 	data, err := os.ReadFile(f.path) // #nosec G304 -- fixed file under ~/.ao.
@@ -281,7 +292,7 @@ func (f fileSecretStore) load() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if info, err := os.Stat(f.path); err == nil && info.Mode().Perm()&0o077 != 0 {
+	if info, err := os.Stat(f.path); err == nil && fileModesEnforced && info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("%s is readable by other users; run chmod 600 on it", f.path)
 	}
 	tokens := map[string]string{}

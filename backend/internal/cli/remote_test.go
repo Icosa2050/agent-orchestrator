@@ -189,8 +189,9 @@ func TestRemoteAddExchangesCodeForADeviceTokenKeptOutOfConfig(t *testing.T) {
 	if env.secrets.tokens["mini"] != fakeRemoteToken {
 		t.Fatalf("token not stored in the secret store: %v", env.secrets.tokens)
 	}
-	if name := host.pairBody["name"]; !strings.HasSuffix(name, " CLI") {
-		t.Fatalf("device name = %q, want '<hostname> CLI'", name)
+	hostname, _ := os.Hostname()
+	if name, want := host.pairBody["name"], cliDeviceLabel(hostname); name != want {
+		t.Fatalf("device name = %q, want %q", name, want)
 	}
 	if got := host.seen()[0]; got != "GET /api/v1/identity noauth" {
 		t.Fatalf("first request = %q; the identity probe must carry no credential", got)
@@ -204,7 +205,7 @@ func TestRemoteAddExchangesCodeForADeviceTokenKeptOutOfConfig(t *testing.T) {
 		t.Fatalf("cli-remotes.json holds a secret: %s", data)
 	}
 	info, _ := os.Stat(path)
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	if perm := info.Mode().Perm(); fileModesEnforced && perm != 0o600 {
 		t.Fatalf("cli-remotes.json mode = %o, want 600", perm)
 	}
 	var file cliRemotesFile
@@ -483,19 +484,23 @@ func TestFileSecretStoreIsPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil || (fileModesEnforced && info.Mode().Perm() != 0o600) {
 		t.Fatalf("token file mode = %v (%v)", info.Mode().Perm(), err)
 	}
 	if got, err := store.Get(ctx, "mini"); err != nil || got != fakeRemoteToken {
 		t.Fatalf("get = %q, %v", got, err)
 	}
-	if err := os.Chmod(path, 0o644); err != nil {
-		t.Fatal(err)
+	// Windows has no POSIX mode bits to loosen or check; the file relies on
+	// the user-profile ACL there.
+	if fileModesEnforced {
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Get(ctx, "mini"); err == nil {
+			t.Fatal("a world-readable token file was accepted")
+		}
+		_ = os.Chmod(path, 0o600)
 	}
-	if _, err := store.Get(ctx, "mini"); err == nil {
-		t.Fatal("a world-readable token file was accepted")
-	}
-	_ = os.Chmod(path, 0o600)
 	if err := store.Delete(ctx, "mini"); err != nil {
 		t.Fatal(err)
 	}
@@ -639,7 +644,8 @@ func TestRemotesLiveInTheDaemonDataDirSharedWithAgents(t *testing.T) {
 	env.deps.RemotesDir = ""
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("AO_DATA_DIR", "") // a user terminal: no override
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+	t.Setenv("AO_DATA_DIR", "")   // a user terminal: no override
 	profileDataDir := filepath.Join(home, ".ao", "dev", "data")
 
 	host := newFakeRemoteHost(t, "host-r")
@@ -648,7 +654,7 @@ func TestRemotesLiveInTheDaemonDataDirSharedWithAgents(t *testing.T) {
 		t.Fatalf("cli-remotes.json not in the profile data dir: %v", err)
 	}
 	if store, err := (&commandContext{deps: Deps{LookPath: func(string) (string, error) { return "", errors.New("none") }}}).remoteSecrets(); err != nil ||
-		store.Describe() != filepath.Join(profileDataDir, "cli-remote-tokens.json")+" (0600)" {
+		store.Describe() != (fileSecretStore{path: filepath.Join(profileDataDir, "cli-remote-tokens.json")}).Describe() {
 		t.Fatalf("token file store = %v, %v", store, err)
 	}
 
@@ -762,5 +768,23 @@ func TestUsageLimitsFleet(t *testing.T) {
 	}
 	if _, err := env.run(t, "--host", "good", "usage", "limits", "--fleet"); ExitCode(err) != 2 {
 		t.Fatalf("--host with --fleet: exit %d, err %v", ExitCode(err), err)
+	}
+}
+
+func TestCLIDeviceLabelUsesAShortSanitizedHostname(t *testing.T) {
+	long := strings.Repeat("a", 100)
+	for _, tc := range []struct{ host, want string }{
+		{"mini", "mini CLI"},
+		{"Bernhards-MacBook.local", "Bernhards-MacBook CLI"},
+		{"sjc22-bt145-aedfa60b-be16-4309-812f-7895c43e1bab-16C5EB835B88.local", "sjc22-bt145-aedfa60b-be16-4309-812f-7895c43e1bab-16C5EB835B8 CLI"},
+		{"WIN RUNNER (1)", "WIN-RUNNER-1 CLI"},
+		{long, long[:remoteHostLinkLabelMaxBytes-len(" CLI")] + " CLI"},
+		{"  ", "Unknown host CLI"},
+		{".local", "Unknown host CLI"},
+	} {
+		got := cliDeviceLabel(tc.host)
+		if got != tc.want || len(got) > remoteHostLinkLabelMaxBytes {
+			t.Errorf("cliDeviceLabel(%q) = %q, want %q", tc.host, got, tc.want)
+		}
 	}
 }
