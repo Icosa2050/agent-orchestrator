@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -79,25 +80,79 @@ type usageLimitPeaksResponse struct {
 	Windows []usageLimitPeakTrack `json:"windows"`
 }
 
-// usageLimitsSource reads one daemon's limit routes. The local daemon is the
-// only source today; a later --fleet can add one per paired remote host and
-// merge their answers, without changing how a single answer is rendered.
-type usageLimitsSource func(ctx context.Context, path string, out any) error
+const (
+	maxUsageLimitWeeks = 26
+	maxUsageLimitDays  = 14
+)
 
-const maxUsageLimitWeeks = 26
-
+// newUsageCommand is the single `ao usage` tree. Every subcommand only issues
+// GETs, so each opts into --host and also takes --fleet.
 func newUsageCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "usage",
-		Short: "Read subscription limit usage",
+		Short: "Read token usage and subscription limit windows",
 	}
-	cmd.AddCommand(newUsageLimitsCommand(ctx))
+	cmd.AddCommand(markRemoteReadOnly(newUsageReportCommand(ctx)), markRemoteReadOnly(newUsageLimitsCommand(ctx)))
 	return cmd
 }
 
+func newUsageReportCommand(ctx *commandContext) *cobra.Command {
+	var days, offset int
+	var tz, project string
+	var fleet bool
+	cmd := &cobra.Command{
+		Use:   "report",
+		Short: "Print token and estimated cost usage over a window as JSON",
+		Args:  noArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			params := url.Values{}
+			if days > 0 {
+				params.Set("days", strconv.Itoa(days))
+			}
+			if offset > 0 {
+				params.Set("offset", strconv.Itoa(offset))
+			}
+			if tz != "" {
+				params.Set("tz", tz)
+			}
+			if project != "" {
+				params.Set("projectId", project)
+			}
+			path := apiPath("usage/report", params)
+			if fleet {
+				hosts, err := ctx.fleetGetJSON(cmd.Context(), path)
+				if err != nil {
+					return err
+				}
+				return writeJSON(cmd.OutOrStdout(), map[string]any{"hosts": hosts})
+			}
+			var res json.RawMessage
+			if err := ctx.getJSON(cmd.Context(), path, &res); err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), res)
+		},
+	}
+	cmd.Flags().IntVar(&days, "days", 0, "Days to read, today included (1-90; default 7)")
+	cmd.Flags().IntVar(&offset, "offset", 0, "Whole windows to step back")
+	cmd.Flags().StringVar(&tz, "tz", "", "IANA time zone for day buckets (default UTC)")
+	cmd.Flags().StringVarP(&project, "project", "p", "", "Read one project only")
+	cmd.Flags().BoolVar(&fleet, "fleet", false, "Read this machine and every saved remote (ao remote ls); returns {\"hosts\": [...]}")
+	return cmd
+}
+
+// usageLimitsMode is the one limit route a `usage limits` run reads.
+type usageLimitsMode int
+
+const (
+	usageLimitsCurrent usageLimitsMode = iota
+	usageLimitsHistory
+	usageLimitsReadings
+)
+
 func newUsageLimitsCommand(ctx *commandContext) *cobra.Command {
-	var history, asJSON bool
-	var weeks int
+	var history, asJSON, fleet bool
+	var weeks, days int
 	cmd := &cobra.Command{
 		Use:   "limits",
 		Short: "Show each account's limit windows now, or with --history the peak each window reached per reset period",
@@ -109,31 +164,88 @@ func newUsageLimitsCommand(ctx *commandContext) *cobra.Command {
 			if cmd.Flags().Changed("weeks") && !history {
 				return usageError{fmt.Errorf("--weeks needs --history")}
 			}
-			source := usageLimitsSource(ctx.getJSON)
-			if history {
-				var res usageLimitPeaksResponse
-				if err := source(cmd.Context(), "usage/limit-peaks?weeks="+strconv.Itoa(weeks), &res); err != nil {
+			mode, path := usageLimitsCurrent, "agents/accounts"
+			switch {
+			case cmd.Flags().Changed("days"):
+				if history {
+					return usageError{fmt.Errorf("--days reads raw limit-window readings; do not combine it with --history")}
+				}
+				if days < 1 || days > maxUsageLimitDays {
+					return usageError{fmt.Errorf("--days must be between 1 and %d, got %d", maxUsageLimitDays, days)}
+				}
+				mode, path = usageLimitsReadings, "usage/limit-windows?days="+strconv.Itoa(days)
+			case history:
+				mode, path = usageLimitsHistory, "usage/limit-peaks?weeks="+strconv.Itoa(weeks)
+			}
+			if fleet {
+				hosts, err := ctx.fleetGetJSON(cmd.Context(), path)
+				if err != nil {
 					return err
 				}
-				if asJSON {
-					return writeJSON(cmd.OutOrStdout(), res)
+				if asJSON || mode == usageLimitsReadings {
+					return writeJSON(cmd.OutOrStdout(), map[string]any{"hosts": hosts})
 				}
-				return writeUsageLimitPeaks(cmd.OutOrStdout(), res)
+				return writeFleetUsageLimits(cmd.OutOrStdout(), hosts, mode)
 			}
-			var res usageLimitAccountsResponse
-			if err := source(cmd.Context(), "agents/accounts", &res); err != nil {
+			var res json.RawMessage
+			if err := ctx.getJSON(cmd.Context(), path, &res); err != nil {
 				return err
 			}
-			if asJSON {
+			if asJSON || mode == usageLimitsReadings {
 				return writeJSON(cmd.OutOrStdout(), res)
 			}
-			return writeUsageLimits(cmd.OutOrStdout(), res.Accounts)
+			return writeUsageLimitsData(cmd.OutOrStdout(), res, mode)
 		},
 	}
 	cmd.Flags().BoolVar(&history, "history", false, "Show the peak each window reached per reset period instead of the current level")
 	cmd.Flags().IntVar(&weeks, "weeks", 12, "With --history, the weeks of reset periods to show (1-26)")
+	cmd.Flags().IntVar(&days, "days", 0, "Print the raw five-hour and weekly limit-window readings of the last N days as JSON (1-14)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output JSON")
+	cmd.Flags().BoolVar(&fleet, "fleet", false, "Read this machine and every saved remote (ao remote ls); --json returns {\"hosts\": [...]}")
 	return cmd
+}
+
+// writeUsageLimitsData renders one host's answer for the current or history mode.
+func writeUsageLimitsData(out io.Writer, data json.RawMessage, mode usageLimitsMode) error {
+	if mode == usageLimitsHistory {
+		var res usageLimitPeaksResponse
+		if err := json.Unmarshal(data, &res); err != nil {
+			return fmt.Errorf("decode limit history: %w", err)
+		}
+		return writeUsageLimitPeaks(out, res)
+	}
+	var res usageLimitAccountsResponse
+	if err := json.Unmarshal(data, &res); err != nil {
+		return fmt.Errorf("decode accounts: %w", err)
+	}
+	return writeUsageLimits(out, res.Accounts)
+}
+
+func writeFleetUsageLimits(out io.Writer, hosts []fleetUsageHost, mode usageLimitsMode) error {
+	for i, h := range hosts {
+		if i > 0 {
+			if _, err := fmt.Fprintln(out); err != nil {
+				return err
+			}
+		}
+		label := h.Name
+		if !h.Local {
+			label += " " + h.URL
+		}
+		if _, err := fmt.Fprintf(out, "== %s: %s ==\n", label, h.Status); err != nil {
+			return err
+		}
+		if h.Status != remoteStatusOK {
+			if _, err := fmt.Fprintf(out, "  %s\n", orDash(h.Error)); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := writeUsageLimitsData(out, h.Data, mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func usageAccountName(provider, email, fallback string) string {

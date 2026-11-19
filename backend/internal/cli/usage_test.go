@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 const usagePeaksJSON = `{"since":"2026-08-27T12:00:00Z","until":"2026-11-19T12:00:00Z","windows":[` +
@@ -104,6 +106,9 @@ func TestUsageLimitsRejectsBadWeeks(t *testing.T) {
 		{"usage", "limits", "--history", "--weeks", "0"},
 		{"usage", "limits", "--history", "--weeks", "27"},
 		{"usage", "limits", "--weeks", "4"},
+		{"usage", "limits", "--days", "0"},
+		{"usage", "limits", "--days", "15"},
+		{"usage", "limits", "--history", "--days", "7"},
 	} {
 		_, requests, err := runUsageCLI(t, args...)
 		var usage usageError
@@ -111,4 +116,31 @@ func TestUsageLimitsRejectsBadWeeks(t *testing.T) {
 			t.Fatalf("%v: err %v requests %v, want a usage error before any request", args, err, requests)
 		}
 	}
+}
+
+// TestCommandTreeHasNoDuplicateNames catches two merges each registering the
+// same command: cobra accepts duplicate siblings and silently runs only one.
+func TestCommandTreeHasNoDuplicateNames(t *testing.T) {
+	root := NewRootCommand(Deps{})
+	usage := 0
+	for _, c := range root.Commands() {
+		if c.Name() == "usage" {
+			usage++
+		}
+	}
+	if usage != 1 {
+		t.Fatalf("root registers %d 'usage' commands, want exactly 1", usage)
+	}
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		seen := map[string]bool{}
+		for _, c := range cmd.Commands() {
+			if seen[c.Name()] {
+				t.Errorf("%q registers %q more than once", cmd.CommandPath(), c.Name())
+			}
+			seen[c.Name()] = true
+			walk(c)
+		}
+	}
+	walk(root)
 }

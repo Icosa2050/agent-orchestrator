@@ -131,6 +131,10 @@ func newFakeRemoteHost(t *testing.T, hostID string) *fakeRemoteHost {
 			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": sessions})
 		case "GET /api/v1/usage/limit-windows":
 			_ = json.NewEncoder(w).Encode(map[string]any{"since": "2026-11-12T00:00:00Z", "until": "2026-11-19T00:00:00Z", "logins": []any{}})
+		case "GET /api/v1/usage/limit-peaks":
+			_, _ = io.WriteString(w, usagePeaksJSON)
+		case "GET /api/v1/agents/accounts":
+			_ = json.NewEncoder(w).Encode(map[string]any{"accounts": []map[string]any{{"id": "remote-acct", "provider": "codex", "email": hostID + "@example.com", "signedIn": true}}})
 		default:
 			http.NotFound(w, r)
 		}
@@ -283,13 +287,24 @@ func TestHostFlagReadsWithTheDeviceToken(t *testing.T) {
 	}
 
 	t.Setenv("AO_HOST", "mini")
-	out, err = env.run(t, "usage", "limits")
+	out, err = env.run(t, "usage", "limits", "--days", "7")
 	if err != nil {
-		t.Fatalf("usage limits via AO_HOST: %v", err)
+		t.Fatalf("usage limits --days via AO_HOST: %v", err)
 	}
 	var limits map[string]any
 	if err := json.Unmarshal([]byte(out), &limits); err != nil || limits["logins"] == nil {
-		t.Fatalf("usage limits output = %q (%v)", out, err)
+		t.Fatalf("usage limits --days output = %q (%v)", out, err)
+	}
+	if last := host.seen()[len(host.seen())-1]; last != "GET /api/v1/usage/limit-windows Bearer "+fakeRemoteToken {
+		t.Fatalf("last request = %q", last)
+	}
+	out, err = env.run(t, "usage", "limits")
+	if err != nil || !strings.Contains(out, "codex host-r@example.com") {
+		t.Fatalf("usage limits via AO_HOST = %q (%v)", out, err)
+	}
+	out, err = env.run(t, "usage", "limits", "--history")
+	if err != nil || !strings.Contains(out, "claude me@example.com") || !strings.Contains(out, "5%*") {
+		t.Fatalf("usage limits --history via AO_HOST = %q (%v)", out, err)
 	}
 }
 
@@ -697,5 +712,55 @@ func TestKeychainAccountsAreScopedToTheDataDir(t *testing.T) {
 	}
 	if got := newKeychainSecretStore("security", "/tmp/scratch/").account("mini"); got != accounts["/tmp/scratch"] {
 		t.Fatalf("an equivalent path changed the account: %q vs %q", got, accounts["/tmp/scratch"])
+	}
+}
+
+func TestUsageLimitsFleet(t *testing.T) {
+	env := newRemoteTestEnv(t)
+	good := newFakeRemoteHost(t, "host-good")
+	gone := newFakeRemoteHost(t, "host-gone")
+	env.add(t, "good", good)
+	env.add(t, "gone", gone)
+	gone.srv.Close()
+
+	out, err := env.run(t, "usage", "limits", "--fleet", "--history", "--weeks", "4", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		Hosts []struct {
+			Name   string
+			Status string
+			Data   *usageLimitPeaksResponse
+		}
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	got := map[string]string{}
+	for _, h := range res.Hosts {
+		got[h.Name] = h.Status
+		if h.Name == "good" && (h.Data == nil || len(h.Data.Windows) != 1) {
+			t.Fatalf("good host history = %s", out)
+		}
+	}
+	if got["local"] != remoteStatusOffline || got["good"] != remoteStatusOK || got["gone"] != remoteStatusOffline {
+		t.Fatalf("fleet hosts = %v", got)
+	}
+	if last := good.seen()[len(good.seen())-1]; !strings.HasPrefix(last, "GET /api/v1/usage/limit-peaks ") {
+		t.Fatalf("last request = %q", last)
+	}
+
+	text, err := env.run(t, "usage", "limits", "--fleet")
+	if err != nil || !strings.Contains(text, "== good ") || !strings.Contains(text, "codex host-good@example.com") {
+		t.Fatalf("usage limits --fleet = %q (%v)", text, err)
+	}
+
+	out, err = env.run(t, "usage", "report", "--fleet")
+	if err != nil || !strings.Contains(out, `"hosts"`) {
+		t.Fatalf("usage report --fleet = %q (%v)", out, err)
+	}
+	if _, err := env.run(t, "--host", "good", "usage", "limits", "--fleet"); ExitCode(err) != 2 {
+		t.Fatalf("--host with --fleet: exit %d, err %v", ExitCode(err), err)
 	}
 }
