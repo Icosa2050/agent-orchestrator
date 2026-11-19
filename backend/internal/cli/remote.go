@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -417,7 +418,7 @@ func newRemoteCommand(ctx *commandContext) *cobra.Command {
 		Long: "Pair this CLI with other Orchestrator hosts over Tailscale and read them with --host <name>.\n\n" +
 			"Each host issues this CLI its own device token from a one-time code (`ao remote-host pair` on that host).\n" +
 			"Tokens live in the macOS login keychain (service " + remoteKeychainService + ", account <name>@<data dir hash>)\n" +
-			"or, elsewhere, in a 0600 file " +
+			"or, elsewhere, in a private file (0600 on macOS/Linux; the user profile on Windows) " +
 			"cli-remote-tokens.json; names and addresses live in cli-remotes.json. Both files are in the daemon's data dir\n" +
 			"($AO_DATA_DIR when set, else the host launch profile's, by default ~/.ao/dev/data), shared with its agents.",
 		Annotations: map[string]string{remoteAnnotation: remoteAnnotationLocalOnly},
@@ -485,10 +486,7 @@ func (c *commandContext) runRemoteAdd(ctx context.Context, out io.Writer, name, 
 	}
 
 	hostname, _ := os.Hostname()
-	if hostname = strings.TrimSpace(hostname); hostname == "" {
-		hostname = "Unknown host"
-	}
-	payload, err := json.Marshal(map[string]string{"name": fitHostLabel(hostname + " CLI"), "platform": runtime.GOOS})
+	payload, err := json.Marshal(map[string]string{"name": cliDeviceLabel(hostname), "platform": runtime.GOOS})
 	if err != nil {
 		return err
 	}
@@ -663,4 +661,23 @@ func newRemoteRemoveCommand(ctx *commandContext) *cobra.Command {
 			return err
 		},
 	}
+}
+
+var nonHostLabelChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+
+// cliDeviceLabel names this CLI on the paired host as "<short hostname> CLI".
+// The hostname is cut at its first dot (CI runners and some Macs report long
+// FQDN-like names), reduced to [A-Za-z0-9_-], and capped so the " CLI"
+// suffix always fits the host's label limit.
+func cliDeviceLabel(hostname string) string {
+	const suffix = " CLI"
+	short, _, _ := strings.Cut(strings.TrimSpace(hostname), ".")
+	short = strings.Trim(nonHostLabelChars.ReplaceAllString(short, "-"), "-")
+	if limit := remoteHostLinkLabelMaxBytes - len(suffix); len(short) > limit {
+		short = strings.TrimRight(short[:limit], "-")
+	}
+	if short == "" {
+		short = "Unknown host"
+	}
+	return short + suffix
 }
