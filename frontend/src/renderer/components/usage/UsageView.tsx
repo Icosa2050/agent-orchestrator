@@ -28,6 +28,8 @@ import {
 } from "../ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { UsageFleetLimits } from "./UsageFleetLimits";
+import { LIMIT_PEAK_WEEKS } from "../../lib/limit-peaks";
+import { UsageLimitPeaks } from "./UsageLimitPeaks";
 import { UsageSkeleton } from "./UsageSkeleton";
 import { UsageSpend } from "./UsageSpend";
 import { UsageWindows } from "./UsageWindows";
@@ -254,7 +256,10 @@ export function UsageView() {
 								fleet.isLoading ? (
 									loading
 								) : (
-									<UsageFleetLimits rows={fleet.rows} hosts={fleet.hosts} showHosts={remoteHosts.length > 0 && scope === ALL_HOSTS} now={now} />
+									<>
+										<UsageFleetLimits rows={fleet.rows} hosts={fleet.hosts} showHosts={remoteHosts.length > 0 && scope === ALL_HOSTS} now={now} />
+										<UsageLimitPeaks rows={fleet.history} weeks={LIMIT_PEAK_WEEKS} showHosts={remoteHosts.length > 0 && scope === ALL_HOSTS} />
+									</>
 								)
 							) : report.data && report.data.rows.length > 0 ? (
 								<>
