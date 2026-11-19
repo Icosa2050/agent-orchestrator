@@ -271,6 +271,7 @@ var shippedMigrations = map[int64]string{
 	20261115071147951: "20261115071147951_allow_docker_agent_harness.sql",
 	20261115072651599: "20261115072651599_allow_minimax_code_harness.sql",
 	20261117200107947: "20261117200107947_conversation_rate_limit_resets_at.sql",
+	20261119145415489: "20261119145415489_agent_limit_periods.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they

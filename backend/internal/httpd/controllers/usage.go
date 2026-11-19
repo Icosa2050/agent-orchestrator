@@ -32,6 +32,11 @@ type UsageLimitHistoryService interface {
 	History(ctx context.Context, days int) (domain.UsageLimitHistory, error)
 }
 
+// UsageLimitPeaksService reads how full each login's limit windows got per reset period.
+type UsageLimitPeaksService interface {
+	Peaks(ctx context.Context, weeks int) (domain.UsageLimitPeaks, error)
+}
+
 // UsageLimitHistorySetting turns keeping limit readings on and off.
 type UsageLimitHistorySetting interface {
 	SetLimitHistory(ctx context.Context, enabled bool, now time.Time) error
@@ -76,6 +81,7 @@ type UsageController struct {
 	Pressure            MemoryPressureReader
 	Report              UsageReportService
 	LimitHistory        UsageLimitHistoryService
+	LimitPeaks          UsageLimitPeaksService
 	LimitHistorySetting UsageLimitHistorySetting
 	Prices              UsagePriceService
 }
@@ -84,6 +90,7 @@ type UsageController struct {
 func (c *UsageController) Register(r chi.Router) {
 	r.Get("/usage/report", c.getReport)
 	r.Get("/usage/limit-windows", c.getLimitWindows)
+	r.Get("/usage/limit-peaks", c.getLimitPeaks)
 	r.Put("/usage/limit-history", c.setLimitHistory)
 	r.Get("/usage/prices", c.getPrices)
 	r.Put("/usage/prices", c.setPrices)
@@ -186,6 +193,29 @@ func (c *UsageController) getLimitWindows(w http.ResponseWriter, r *http.Request
 	envelope.WriteJSON(w, http.StatusOK, UsageLimitWindowsResponse{
 		Since: history.Since, Until: history.Until, FirstReadingAt: history.FirstReadingAt, Logins: history.Logins,
 	})
+}
+
+func (c *UsageController) getLimitPeaks(w http.ResponseWriter, r *http.Request) {
+	if c.LimitPeaks == nil {
+		apispec.NotImplemented(w, r, "GET", "/api/v1/usage/limit-peaks")
+		return
+	}
+	weeks := 12
+	if raw := r.URL.Query().Get("weeks"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			envelope.WriteError(w, r, apierr.Invalid("INVALID_USAGE_WINDOW", "weeks must be a whole number", nil))
+			return
+		}
+		weeks = parsed
+	}
+	peaks, err := c.LimitPeaks.Peaks(r.Context(), weeks)
+	if err != nil {
+		c.Log.WarnContext(r.Context(), "failed to read limit peaks", "error", err)
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, UsageLimitPeaksResponse{Since: peaks.Since, Until: peaks.Until, Windows: peaks.Windows})
 }
 
 func (c *UsageController) getReport(w http.ResponseWriter, r *http.Request) {

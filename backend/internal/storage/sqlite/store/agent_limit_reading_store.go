@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -34,6 +35,12 @@ func (s *Store) RecordAgentLimitReadings(ctx context.Context, readings []domain.
 			}); err != nil {
 				return fmt.Errorf("insert %s %s: %w", r.AccountID, r.WindowID, err)
 			}
+			if err := foldAgentLimitReading(ctx, q, r); err != nil {
+				return err
+			}
+		}
+		if err := deleteExpiredLimitAggregates(ctx, q, readings[0].ReadAt); err != nil {
+			return err
 		}
 		return q.DeleteAgentLimitReadingsBefore(ctx, readings[0].ReadAt.Add(-limitReadingRetention).UnixMilli())
 	})
@@ -47,17 +54,25 @@ func (s *Store) ListAgentLimitReadings(ctx context.Context, since time.Time) ([]
 	}
 	out := make([]domain.AgentLimitReading, 0, len(rows))
 	for _, row := range rows {
-		r := domain.AgentLimitReading{
-			AccountID: row.AccountID, Provider: domain.AgentAccountProvider(row.Provider), Email: row.Email, Plan: row.Plan, WindowID: row.WindowID,
-			Label: row.Label, DurationMinutes: int(row.DurationMinutes), UsedPercent: row.UsedPercent, ReadAt: time.UnixMilli(row.ReadAtMs).UTC(),
-		}
-		if row.ResetsAtMs.Valid {
-			at := time.UnixMilli(row.ResetsAtMs.Int64).UTC()
-			r.ResetsAt = &at
-		}
-		out = append(out, r)
+		out = append(out, limitReadingFromRow(row))
 	}
 	return out, nil
+}
+
+func limitReadingFromRow(row gen.AgentLimitReading) domain.AgentLimitReading {
+	r := domain.AgentLimitReading{
+		AccountID: row.AccountID, Provider: domain.AgentAccountProvider(row.Provider), Email: row.Email, Plan: row.Plan, WindowID: row.WindowID,
+		Label: row.Label, DurationMinutes: int(row.DurationMinutes), UsedPercent: row.UsedPercent, ReadAt: time.UnixMilli(row.ReadAtMs).UTC(),
+	}
+	if row.ResetsAtMs.Valid {
+		at := time.UnixMilli(row.ResetsAtMs.Int64).UTC()
+		r.ResetsAt = &at
+	}
+	return r
+}
+
+func sortLimitReadingsByTime(readings []domain.AgentLimitReading) {
+	sort.SliceStable(readings, func(i, j int) bool { return readings[i].ReadAt.Before(readings[j].ReadAt) })
 }
 
 // LimitHistoryEnabled reports whether limit readings are kept; an unreadable setting counts as off.

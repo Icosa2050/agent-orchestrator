@@ -706,6 +706,12 @@ func Run(buildVersion string) (retErr error) {
 		chatSvc.SetTerminalProviderSwitcher(switcher)
 	}
 	agentAccountSvc = newAgentAccounts(cfg, store, codexHome, agentDeps.CodexAccounts, log)
+	// Fold the kept raw readings into the long-lived per-period history the first time it exists.
+	if folded, err := store.BackfillAgentLimitPeriods(ctx); err != nil {
+		log.Warn("backfill limit periods failed", "err", err)
+	} else if folded > 0 {
+		log.Info("backfilled limit periods", "readings", folded)
+	}
 	agentAccountSvc.SetLimitLog(store)
 	go agentAccountSvc.KeepReadingLimits(ctx, time.Minute)
 	// The mode-aware messenger, so a Chat original is told as a chat message.
@@ -1291,6 +1297,7 @@ func Run(buildVersion string) (retErr error) {
 		UsageSummary:       freshUsageSummary{usagesvc.NewSummaryReader(store), usagePipeline},
 		UsageReport:        freshUsageReport{usageReportReader(store, usagePricing), usagePipeline},
 		UsageLimitHistory:  usagesvc.NewLimitHistoryReader(store, agentAccountSvc),
+		UsageLimitPeaks:    usagesvc.NewLimitPeaksReader(store),
 		UsageLimitSetting:  store,
 		UsagePrices:        usagePrices(usagePricing),
 		SessionMemory:      memoryReader,

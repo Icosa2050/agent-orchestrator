@@ -475,7 +475,7 @@ func TestForkUsageRequiresDeviceCredentials(t *testing.T) {
 	h.router.HandleFunc("/api/v1/usagex", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	id, token := h.pair(h.code(), "fork desktop")
 	h.lan.SetAccountTokenHash(mobilebridge.HashPassword("account-secret"))
-	for _, path := range []string{"/api/v1/usage", "/api/v1/usage/limit-windows", "/api/v1/usage/limit-history", "/api/v1/usage/report", "/api/v1/usage/sessions", "/api/v1/usage/prices"} {
+	for _, path := range []string{"/api/v1/usage", "/api/v1/usage/limit-windows", "/api/v1/usage/limit-peaks", "/api/v1/usage/limit-history", "/api/v1/usage/report", "/api/v1/usage/sessions", "/api/v1/usage/prices"} {
 		for _, method := range []string{http.MethodGet, http.MethodPut} {
 			for _, tc := range []struct {
 				name, credential string

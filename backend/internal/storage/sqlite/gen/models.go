@@ -39,6 +39,36 @@ type AgentInstallJob struct {
 	UpdatedAt           time.Time
 }
 
+type AgentLimitDay struct {
+	Provider        string
+	Login           string
+	WindowID        string
+	Day             string
+	Email           string
+	Label           string
+	DurationMinutes int64
+	MaxUsedPercent  float64
+	Readings        int64
+	LastReadAtMs    int64
+}
+
+type AgentLimitPeriod struct {
+	Provider        string
+	Login           string
+	WindowID        string
+	StartedAtMs     int64
+	Email           string
+	AccountID       string
+	Plan            string
+	Label           string
+	DurationMinutes int64
+	ResetsAtMs      int64
+	PeakUsedPercent float64
+	LastUsedPercent float64
+	Readings        int64
+	LastReadAtMs    int64
+}
+
 type AgentLimitReading struct {
 	AccountID       string
 	Provider        string

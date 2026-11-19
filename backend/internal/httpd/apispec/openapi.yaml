@@ -15216,6 +15216,49 @@ paths:
         on or off
       tags:
       - usage
+  /api/v1/usage/limit-peaks:
+    get:
+      operationId: getUsageLimitPeaks
+      parameters:
+      - description: Weeks of reset periods to read; they are kept for 180 days. Defaults
+          to 12.
+        in: query
+        name: weeks
+        schema:
+          description: Weeks of reset periods to read; they are kept for 180 days.
+            Defaults to 12.
+          maximum: 26
+          minimum: 1
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageLimitPeaksResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Read how full each login's limit windows got per reset period, kept
+        for 180 days
+      tags:
+      - usage
   /api/v1/usage/limit-windows:
     get:
       operationId: getUsageLimitWindows
@@ -26200,6 +26243,24 @@ components:
       required:
       - harness
       type: object
+    UsageLimitDayPeak:
+      properties:
+        day:
+          description: UTC day, YYYY-MM-DD
+          type: string
+        maxUsedPct:
+          format: double
+          maximum: 100
+          minimum: 0
+          type: number
+        readings:
+          minimum: 1
+          type: integer
+      required:
+      - day
+      - maxUsedPct
+      - readings
+      type: object
     UsageLimitHistoryRequest:
       properties:
         enabled:
@@ -26236,6 +26297,122 @@ components:
       required:
       - provider
       - accountId
+      - windows
+      type: object
+    UsageLimitPeak:
+      properties:
+        firstReadingAt:
+          format: date-time
+          type: string
+        lastReadingAt:
+          format: date-time
+          type: string
+        open:
+          type: boolean
+        peakUsedPct:
+          format: double
+          maximum: 100
+          minimum: 0
+          type: number
+        readings:
+          minimum: 1
+          type: integer
+        resetAt:
+          format: date-time
+          type: string
+      required:
+      - resetAt
+      - peakUsedPct
+      - readings
+      - firstReadingAt
+      - lastReadingAt
+      - open
+      type: object
+    UsageLimitPeakSummary:
+      properties:
+        avgPeak:
+          format: double
+          maximum: 100
+          minimum: 0
+          type: number
+        maxPeak:
+          format: double
+          maximum: 100
+          minimum: 0
+          type: number
+        periods:
+          minimum: 0
+          type: integer
+        periodsOver80:
+          minimum: 0
+          type: integer
+        periodsUnder30:
+          minimum: 0
+          type: integer
+      required:
+      - periods
+      - avgPeak
+      - maxPeak
+      - periodsOver80
+      - periodsUnder30
+      type: object
+    UsageLimitPeakTrack:
+      properties:
+        accountId:
+          type: string
+        days:
+          items:
+            $ref: '#/components/schemas/UsageLimitDayPeak'
+          type: array
+        durationMinutes:
+          minimum: 0
+          type: integer
+        email:
+          type: string
+        label:
+          type: string
+        login:
+          type: string
+        periods:
+          items:
+            $ref: '#/components/schemas/UsageLimitPeak'
+          type: array
+        plan:
+          type: string
+        provider:
+          enum:
+          - claude
+          - codex
+          type: string
+        summary:
+          $ref: '#/components/schemas/UsageLimitPeakSummary'
+        windowId:
+          type: string
+      required:
+      - provider
+      - login
+      - accountId
+      - windowId
+      - label
+      - periods
+      - days
+      - summary
+      type: object
+    UsageLimitPeaksResponse:
+      properties:
+        since:
+          format: date-time
+          type: string
+        until:
+          format: date-time
+          type: string
+        windows:
+          items:
+            $ref: '#/components/schemas/UsageLimitPeakTrack'
+          type: array
+      required:
+      - since
+      - until
       - windows
       type: object
     UsageLimitPoint:
