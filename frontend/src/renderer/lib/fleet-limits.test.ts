@@ -40,6 +40,14 @@ describe("buildFleetLimitRows", () => {
 		expect(rows[0]).toMatchObject({ usedPercent: 42, readAt: ago(1) });
 	});
 
+	it("keeps a Codex primary (5h) window as its own row next to the weekly one", () => {
+		const rows = buildFleetLimitRows([{ hostId: "local", state: ok, accounts: [account({ id: "device-codex", provider: "codex", email: "me@example.com", limits: { fetchedAt: ago(1), windows: [
+			{ id: "codex:Session (5h)", label: "Session (5h)", usedPercent: 12, resetsAt: ahead(3), durationMinutes: 300 },
+			{ id: "codex:Weekly", label: "Weekly", usedPercent: 41, resetsAt: ahead(90), durationMinutes: 10080 },
+		] } })] }], now);
+		expect(rows.map((row) => [row.window?.kind, row.usedPercent])).toEqual([["5h", 12], ["weekly", 41]]);
+	});
+
 	it("keeps accounts without an email per host and splits an email across two known orgs", () => {
 		const hosts: FleetHostInput[] = [
 			{ hostId: "local", state: ok, accounts: [account({ id: "device-claude", device: true, signedIn: false, loggedIn: false }), account({ id: "x", email: "me@example.com", orgId: "org-1" })] },
@@ -56,6 +64,7 @@ describe("buildFleetLimitRows", () => {
 describe("classifyWindow", () => {
 	it.each([
 		[{ id: "five_hour", label: "Session (5h)", durationMinutes: 300 }, "5h", null],
+		[{ id: "codex:Session (5h)", label: "Session (5h)", durationMinutes: 300 }, "5h", null],
 		[{ id: "seven_day", label: "Weekly", durationMinutes: 10080 }, "weekly", null],
 		[{ id: "model:Fable", label: "Weekly · Fable", durationMinutes: 10080 }, "weekly-model", "Fable"],
 		[{ id: "codex:Weekly", label: "Weekly", durationMinutes: 10080 }, "weekly", null],

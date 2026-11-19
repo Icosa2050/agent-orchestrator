@@ -271,11 +271,18 @@ export function AccountLimits({ account }: { account: AgentAccount }) {
 	</div>;
 }
 
+// Plan ids as Codex (planType) and Claude (subscriptionType) report them.
+const PLAN_NAMES: Record<string, string> = {
+	free: "Free", go: "Go", plus: "Plus", pro: "Pro", prolite: "Pro Lite", promax: "Pro Max", max: "Max",
+	team: "Team", business: "Business", self_serve_business_usage_based: "Business",
+	enterprise: "Enterprise", enterprise_cbp_usage_based: "Enterprise", ent26: "Enterprise", edu: "Edu",
+};
+
+/** A provider's plan id as a display name; an unknown id is shown as reported. */
 export function formatPlanName(plan: string | null | undefined): string | null {
 	const value = plan?.trim();
-	if (!value) return null;
-	const known: Record<string, string> = { free: "Free", plus: "Plus", pro: "Pro", max: "Max", team: "Team", business: "Business", enterprise: "Enterprise" };
-	return known[value.toLowerCase()] ?? value;
+	if (!value || value.toLowerCase() === "unknown") return null;
+	return PLAN_NAMES[value.toLowerCase()] ?? value;
 }
 
 function formatPercentage(value: number, locale?: string): string {
