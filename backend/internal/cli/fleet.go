@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -89,63 +87,38 @@ func (c *commandContext) selectRemoteHost(cmd *cobra.Command, flagValue string) 
 	return nil
 }
 
-func newUsageCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "usage",
-		Short: "Read token usage and limit windows (JSON)",
-	}
-	var days, offset int
-	var tz, project string
-	report := &cobra.Command{
-		Use:   "report",
-		Short: "Print token and estimated cost usage over a window as JSON",
-		Args:  noArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			params := url.Values{}
-			if days > 0 {
-				params.Set("days", strconv.Itoa(days))
-			}
-			if offset > 0 {
-				params.Set("offset", strconv.Itoa(offset))
-			}
-			if tz != "" {
-				params.Set("tz", tz)
-			}
-			if project != "" {
-				params.Set("projectId", project)
-			}
-			var res json.RawMessage
-			if err := ctx.getJSON(cmd.Context(), apiPath("usage/report", params), &res); err != nil {
-				return err
-			}
-			return writeJSON(cmd.OutOrStdout(), res)
-		},
-	}
-	report.Flags().IntVar(&days, "days", 0, "Days to read, today included (1-90; default 7)")
-	report.Flags().IntVar(&offset, "offset", 0, "Whole windows to step back")
-	report.Flags().StringVar(&tz, "tz", "", "IANA time zone for day buckets (default UTC)")
-	report.Flags().StringVarP(&project, "project", "p", "", "Read one project only")
+type fleetUsageHost struct {
+	remoteHealth
+	Data json.RawMessage `json:"data,omitempty"`
+}
 
-	var limitDays int
-	limits := &cobra.Command{
-		Use:   "limits",
-		Short: "Print each login's five-hour and weekly limit windows as JSON",
-		Args:  noArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			params := url.Values{}
-			if limitDays > 0 {
-				params.Set("days", strconv.Itoa(limitDays))
-			}
-			var res json.RawMessage
-			if err := ctx.getJSON(cmd.Context(), apiPath("usage/limit-windows", params), &res); err != nil {
-				return err
-			}
-			return writeJSON(cmd.OutOrStdout(), res)
-		},
+// fleetGetJSON reads one GET route from this machine and every saved remote.
+// A host that cannot answer keeps its status and error instead of failing the run.
+func (c *commandContext) fleetGetJSON(ctx context.Context, path string) ([]fleetUsageHost, error) {
+	health, contexts, err := c.fleetHosts(ctx)
+	if err != nil {
+		return nil, err
 	}
-	limits.Flags().IntVar(&limitDays, "days", 0, "Days of readings (1-14; default 7)")
-	cmd.AddCommand(markRemoteReadOnly(report), markRemoteReadOnly(limits))
-	return cmd
+	hosts := make([]fleetUsageHost, len(health))
+	var wg sync.WaitGroup
+	for i := range health {
+		hosts[i] = fleetUsageHost{remoteHealth: health[i]}
+		if contexts[i] == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var data json.RawMessage
+			if err := contexts[i].getJSON(ctx, path, &data); err != nil {
+				hosts[i].Status, hosts[i].Error = fleetErrorStatus(err), err.Error()
+				return
+			}
+			hosts[i].Data = data
+		}()
+	}
+	wg.Wait()
+	return hosts, nil
 }
 
 // localHealth maps the loopback daemon's state onto the fleet vocabulary.
