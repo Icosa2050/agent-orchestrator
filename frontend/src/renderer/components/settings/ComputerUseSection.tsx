@@ -4,7 +4,7 @@ import { Check, Copy, ExternalLink, LoaderCircle, Settings } from "@/components/
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { components } from "../../../api/schema";
-import { PRIVACY_PANES, type PrivacyGuideAppearance, type PrivacyGuideTarget, type PrivacyPane } from "../../../main/privacy-guide";
+import { PRIVACY_PANE_URLS, PRIVACY_PANES, type PrivacyGuideAppearance, type PrivacyGuideTarget, type PrivacyPane } from "../../../main/privacy-guide";
 import { useSettings, useUpdateComputerUse } from "../../hooks/useSettings";
 import { apiClient } from "../../lib/api-client";
 import { aoBridge } from "../../lib/bridge";
@@ -172,12 +172,11 @@ export function ComputerUseSection({ titleHidden }: { titleHidden?: boolean }) {
 		if (data.permissions) await showGuide("cuaDriver", grantedMap(data.permissions));
 	});
 	// Asks macOS for whatever Orchestrator is missing, which lists it in those
-	// panes, then docks the guide there; with everything granted it opens the
-	// guide to review them.
+	// panes, then docks the guide on the first one still missing.
 	const grantApp = () => run("appGrant", async () => {
 		const current = appPrivacy.data;
-		if (!current) return;
-		const granted = allGrantedMap(current) ? current : (await aoBridge.app.requestAppPrivacy()) ?? current;
+		if (!current || allGrantedMap(current)) return;
+		const granted = (await aoBridge.app.requestAppPrivacy()) ?? current;
 		queryClient.setQueryData(appPrivacyQueryKey, granted);
 		await showGuide("orchestrator", granted);
 	});
@@ -330,15 +329,29 @@ export function ComputerUseSection({ titleHidden }: { titleHidden?: boolean }) {
 						label={t("settings.computerUse.appPermissions")}
 						description={appPrivacy.isPending ? undefined
 							: !appPrivacy.data ? t("settings.computerUse.appPermissionsUnknown")
-							: allGrantedMap(appPrivacy.data) ? undefined
-							: `${t("settings.computerUse.accessibility")}: ${t(`settings.computerUse.permission.${appPrivacy.data.accessibility ? "granted" : "missing"}`)} · ${t("settings.computerUse.screenRecording")}: ${t(`settings.computerUse.permission.${appPrivacy.data.screenRecording ? "granted" : "missing"}`)}`}
+							: <AppPermissionStatus granted={appPrivacy.data} />}
 					>
-						<PermissionsGear
-							label={t("settings.computerUse.openAppPermissions")}
-							busy={appPrivacy.isPending || action === "appGrant"}
-							disabled={action !== null || !appPrivacy.data}
-							onClick={() => void grantApp()}
-						/>
+						{/* Missing grants: the gear asks macOS for just those. All granted or
+						    unreadable: re-read them (macOS drops Screen Recording on updates). */}
+						{appPrivacy.data && !allGrantedMap(appPrivacy.data) ? (
+							<PermissionsGear
+								label={t("settings.computerUse.openAppPermissions")}
+								busy={action === "appGrant"}
+								disabled={action !== null}
+								onClick={() => void grantApp()}
+							/>
+						) : (
+							<Button
+								type="button"
+								size="sm"
+								variant="ghost"
+								aria-busy={appPrivacy.isFetching || undefined}
+								disabled={appPrivacy.isFetching || action !== null}
+								onClick={() => void appPrivacy.refetch()}
+							>
+								{t("settings.computerUse.checkAgain")}
+							</Button>
+						)}
 					</SettingsRow>
 				</SettingsSection>
 			) : null}
@@ -378,6 +391,44 @@ function AgentAccessRow({ installed, access }: { installed: boolean; access: Ret
 
 function isMac(): boolean {
 	return document.documentElement.dataset.aoPlatform === "darwin";
+}
+
+/**
+ * Orchestrator's grants, one line per permission: "All granted" on top when
+ * nothing is missing; a missing one is emphasized and links straight to its
+ * System Settings pane.
+ */
+function AppPermissionStatus({ granted }: { granted: Record<PrivacyPane, boolean> }) {
+	const { t } = useTranslation();
+	return (
+		<div className="flex flex-col gap-0.5">
+			{allGrantedMap(granted) ? <p>{t("settings.computerUse.allGranted")}</p> : null}
+			<ul className="flex flex-col gap-0.5" aria-label={t("settings.computerUse.appPermissions")}>
+				{PRIVACY_PANES.map((pane) => {
+					const label = t(`settings.computerUse.${pane}`);
+					return (
+						<li key={pane}>
+							{label}:{" "}
+							{granted[pane] ? t("settings.computerUse.permission.granted") : (
+								<>
+									<span className="font-medium text-status-needs-you">{t("settings.computerUse.permission.missing")}</span>
+									{" · "}
+									<Button
+										type="button"
+										variant="link"
+										aria-label={t("settings.computerUse.openPane", { pane: label })}
+										onClick={() => void aoBridge.app.openExternal(PRIVACY_PANE_URLS[pane])}
+									>
+										{t("settings.computerUse.openPermissions")}
+									</Button>
+								</>
+							)}
+						</li>
+					);
+				})}
+			</ul>
+		</div>
+	);
 }
 
 /** The macOS permissions row's only control: a gear, spinning while state loads or System Settings is waited on. */

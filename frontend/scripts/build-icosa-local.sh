@@ -99,9 +99,12 @@ bash scripts/verify-mac-artifact.sh "$dmg"
 } > out/local/verification.log
 # Ship the verifier next to the artifacts so hosts never need a dev checkout.
 cp -p scripts/verify-mac-artifact.sh out/local/verify-mac-artifact.sh
-python3 - "$app" "$zip" "$dmg" "$(git rev-parse HEAD)" "$version" "$bundle_version" "$publish_dir" "$legacy_dir" <<'PY' >> out/local/verification.log
+# The DR alone, without codesign's "Executable=<per-build path>" line, so
+# builds with identical requirements store identical manifest values.
+designated=$(codesign -d -r- "$app" 2>&1 | node scripts/icosa-version.mjs designated)
+python3 - "$app" "$zip" "$dmg" "$(git rev-parse HEAD)" "$version" "$bundle_version" "$publish_dir" "$legacy_dir" "$designated" <<'PY' >> out/local/verification.log
 import hashlib,json,os,plistlib,re,sys,subprocess
-app,archive,dmg,commit,version,bundle_version,publish_dir,legacy_dir=sys.argv[1:]
+app,archive,dmg,commit,version,bundle_version,publish_dir,legacy_dir,designated=sys.argv[1:]
 def sha(path): return hashlib.file_digest(open(path,'rb'),'sha256').hexdigest()
 with open(app+'/Contents/Info.plist','rb') as f: p=plistlib.load(f)
 assert p['CFBundleIdentifier']=='com.icosa2050.orchestrator'
@@ -117,13 +120,9 @@ for root,dirs,files in os.walk(app+'/Contents'):
  if 'Info.plist' in files and root != app+'/Contents' and root.endswith('.app/Contents'):
   with open(root+'/Info.plist','rb') as f: nested=plistlib.load(f)
   assert nested['CFBundleIdentifier'].startswith('com.icosa2050.orchestrator.'),nested
-dr=subprocess.run(['codesign','-d','-r-',app],capture_output=True,text=True,check=True)
-requirement=dr.stdout+dr.stderr
 # TCC grants follow the designated requirement: it must not depend on the
 # version and must stay identical to the previous build's.
-designated=[l for l in requirement.splitlines() if l.startswith('designated => ')]
-assert len(designated)==1,requirement
-designated=designated[0]
+assert designated.startswith('designated => ') and '\n' not in designated,designated
 assert version not in designated and bundle_version not in designated,designated
 print('designated requirement: '+designated)
 print('designated requirement version-independent: ok')
@@ -141,14 +140,15 @@ for root in (publish_dir,legacy_dir):
    if previous is None or key>previous[0]: previous=(key,name,root)
 if previous:
  with open(os.path.join(previous[2],previous[1],'manifest.json')) as f: old=json.load(f).get('designatedRequirement','')
- old=[l for l in old.splitlines() if l.startswith('designated => ')]
+ # Older manifests stored the raw codesign output; take its DR line.
+ old=[l.rstrip() for l in old.splitlines() if l.startswith('designated => ')]
  same=old==[designated]
  print('designated requirement matches %s: %s'%(previous[1],'ok' if same else 'CHANGED'))
  assert same or os.environ.get('ICOSA_ALLOW_DR_CHANGE')=='1','designated requirement changed since %s; TCC grants would be lost (set ICOSA_ALLOW_DR_CHANGE=1 only for a deliberate identity change)'%previous[1]
 elif listed:
  print('designated requirement previous build: none')
 artifacts=[{'path':f,'bytes':os.path.getsize(f),'sha256':sha(f)} for f in [archive,dmg]]
-with open('out/local/manifest.json','w') as f:json.dump(dict(commit=commit,version=version,bundleVersion=bundle_version,arch='arm64',team='L98MZWWR98',identifier=p['CFBundleIdentifier'],profileVersion=1,designatedRequirement=requirement,verifier='verify-mac-artifact.sh',verifierSha256=sha('out/local/verify-mac-artifact.sh'),notaryProfileConfigured=bool(os.environ.get('AO_NOTARY_PROFILE')),artifacts=artifacts),f,indent=2)
+with open('out/local/manifest.json','w') as f:json.dump(dict(commit=commit,version=version,bundleVersion=bundle_version,arch='arm64',team='L98MZWWR98',identifier=p['CFBundleIdentifier'],profileVersion=1,designatedRequirement=designated,verifier='verify-mac-artifact.sh',verifierSha256=sha('out/local/verify-mac-artifact.sh'),notaryProfileConfigured=bool(os.environ.get('AO_NOTARY_PROFILE')),artifacts=artifacts),f,indent=2)
 PY
 # Reserve atomically before copying: another build may have finished meanwhile.
 if mkdir -p "$(dirname "$destination")" 2>/dev/null && mkdir "$destination" 2>/dev/null; then

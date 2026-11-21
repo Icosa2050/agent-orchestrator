@@ -11,6 +11,9 @@
 //     prints "<version> <bundleVersion>"
 //   icosa-version.mjs stamp --version V FILE...
 //     writes V into package.json / package-lock.json root versions
+//   codesign -d -r- APP 2>&1 | icosa-version.mjs designated
+//     prints the single "designated => ..." line (prefix kept), the value
+//     manifest.json stores as designatedRequirement
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -101,6 +104,21 @@ export function stampVersion(file, version) {
 	writeFileSync(file, `${JSON.stringify(json, null, "\t")}\n`);
 }
 
+const DESIGNATED = "designated => ";
+
+/**
+ * The designated requirement from `codesign -d -r-` output: exactly one
+ * "designated => ..." line, prefix kept. The output also carries an
+ * "Executable=<path>" line naming the per-build folder, so the raw text differs
+ * between builds whose requirements are identical; only this line is compared
+ * and stored. Also accepts an already-normalized value.
+ */
+export function designatedRequirement(text) {
+	const lines = String(text).split(/\r?\n/).filter((line) => line.startsWith(DESIGNATED));
+	if (lines.length !== 1) throw new Error(`expected one "${DESIGNATED.trim()}" line in codesign output, got ${lines.length}`);
+	return lines[0].trimEnd();
+}
+
 function option(args, name) {
 	const index = args.indexOf(name);
 	return index >= 0 ? args[index + 1] : undefined;
@@ -117,8 +135,10 @@ function main(argv) {
 		const version = option(args, "--version");
 		bundleVersion(version);
 		for (const file of args.slice(args.indexOf("--version") + 2)) stampVersion(file, version);
+	} else if (command === "designated") {
+		console.log(designatedRequirement(readFileSync(0, "utf8")));
 	} else {
-		throw new Error("usage: icosa-version.mjs resolve|stamp ...");
+		throw new Error("usage: icosa-version.mjs resolve|stamp|designated ...");
 	}
 }
 
