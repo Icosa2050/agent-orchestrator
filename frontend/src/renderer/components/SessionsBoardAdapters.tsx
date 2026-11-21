@@ -83,9 +83,18 @@ export function toBoardSessionPresentation(
 			}
 		: undefined;
 	// A worker waiting on its own background work reads as working; name what
-	// it waits on so a quiet card is not mistaken for a stalled one.
+	// it waits on so a quiet card is not mistaken for a stalled one. Only when
+	// the daemon actually reported it active: a worker that needs input or is
+	// blocked keeps that label (and its attention chip), and a finished PR keeps
+	// its Merged/Closed outcome.
 	const backgroundStatus =
-		session.backgroundWork && session.backgroundWork.items.length > 0 && !session.isTerminated
+		session.backgroundWork &&
+		session.backgroundWork.items.length > 0 &&
+		!session.isTerminated &&
+		session.activity?.state === "active" &&
+		session.displayStatus !== "Merged" &&
+		session.displayStatus !== "Closed without merge" &&
+		session.displayStatus !== "Terminated"
 			? {
 					className: "text-status-working",
 					indicatorClassName: "bg-status-working animate-status-pulse",
