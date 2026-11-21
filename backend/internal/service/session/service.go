@@ -1892,8 +1892,11 @@ func (s *Service) toSessionWithFacts(ctx context.Context, rec domain.SessionReco
 		chatBackground = s.chatBackgroundWork(rec.ID)
 	}
 	backgroundWork := deriveBackgroundWork(rec, runs, chatBackground, now)
-	rec = withBackgroundActivity(rec, backgroundWork)
+	// The Kanban reducer reads "active" as "busy on this PR right now" (Fixing
+	// CI, Addressing comments), so it gets the unmasked activity; waiting on
+	// background work is conveyed by BackgroundWork and the board badge.
 	presentation := deriveKanbanPresentation(rec, prs, runs, interrupted, now, s.harnessSignals(rec.Harness))
+	rec = withBackgroundActivity(rec, backgroundWork)
 	readiness := "ready"
 	if recovery, ok := s.manager.(interface {
 		SessionStatusReadiness(domain.SessionRecord) string

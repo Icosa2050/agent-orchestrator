@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/pkg/contract"
 )
 
 func idleWorker() domain.SessionRecord {
@@ -147,5 +148,31 @@ func TestReadModelBackgroundWorkKeepsNeedsInput(t *testing.T) {
 	work := &domain.BackgroundWork{Pending: true, Items: []domain.BackgroundWorkItem{{Kind: domain.BackgroundWorkReview}}}
 	if got := withBackgroundActivity(rec, work).Activity.State; got != domain.ActivityWaitingInput {
 		t.Fatalf("activity = %q, want waiting_input", got)
+	}
+}
+
+// Waiting on a review is not "busy on this PR": an idle worker whose head is
+// being reviewed while CI fails reads Reviewing, never Fixing CI, even though
+// its status and activity report the wait.
+func TestReadModelBackgroundWorkDoesNotDriveKanbanBusyLabels(t *testing.T) {
+	st := newFakeStore()
+	rec := idleWorker()
+	rec.AutoInjectCI = true
+	rec.AutoReviewEnabled = true
+	st.sessions["mer-1"] = rec
+	st.pr["mer-1"] = domain.PRFacts{URL: "pr1", HeadSHA: "head1", CI: domain.CIFailing}
+	st.reviewRuns["mer-1"] = []domain.CurrentHeadReviewRun{{
+		SessionID: "mer-1", PRURL: "pr1", ID: "run-1", Harness: "claude-code", Status: domain.ReviewRunRunning,
+	}}
+
+	got, err := (&Service{store: st}).Get(context.Background(), "mer-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BackgroundWork == nil || got.Activity.State != domain.ActivityActive {
+		t.Fatalf("backgroundWork=%+v activity=%q, want the review wait reported", got.BackgroundWork, got.Activity.State)
+	}
+	if got.DisplayStatus != contract.DisplayReviewing {
+		t.Fatalf("display status = %q, want %q (the worker is not fixing CI)", got.DisplayStatus, contract.DisplayReviewing)
 	}
 }

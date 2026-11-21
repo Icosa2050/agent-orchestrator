@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -92,5 +93,83 @@ func TestControllerBackgroundWorkClearedWhenControllerStops(t *testing.T) {
 	waitFor(t, func() bool { return !watching(c) })
 	if items := c.BackgroundWorkItems(); len(items) != 0 {
 		t.Fatalf("stopped controller still reports %+v", items)
+	}
+}
+
+type erroringBackgroundProbe struct {
+	mu    sync.Mutex
+	calls int
+	// answerFirst makes the first call a real pending answer.
+	answerFirst bool
+}
+
+func (p *erroringBackgroundProbe) BackgroundWorkPending(context.Context) (bool, bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	if p.answerFirst && p.calls == 1 {
+		return true, true, nil
+	}
+	return false, false, errors.New("background-terminal response is missing data")
+}
+
+func (p *erroringBackgroundProbe) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+// A provider that never answers keeps the old behavior: idle, no retry loop.
+func TestControllerBackgroundWorkProbeErrorWithoutAnswerReadsIdle(t *testing.T) {
+	c := &Controller{harness: domain.HarnessCodex, stopped: make(chan struct{})}
+	probe := &erroringBackgroundProbe{}
+	c.startBackgroundWorkWatch(probe)
+	waitFor(t, func() bool { return !watching(c) })
+	if items := c.BackgroundWorkItems(); len(items) != 0 {
+		t.Fatalf("items = %+v, want none when the provider never answered", items)
+	}
+	if probe.count() != 1 {
+		t.Fatalf("probe calls = %d, want 1 (no retry loop)", probe.count())
+	}
+}
+
+// After a real pending answer, transient failures keep it, but a provider that
+// stops answering cannot hold the session busy forever.
+func TestControllerBackgroundWorkProbeFailuresAfterAnswerAreCapped(t *testing.T) {
+	previous := backgroundWorkPollInterval
+	backgroundWorkPollInterval = time.Millisecond
+	t.Cleanup(func() { backgroundWorkPollInterval = previous })
+
+	c := &Controller{harness: domain.HarnessCodex, stopped: make(chan struct{})}
+	probe := &erroringBackgroundProbe{answerFirst: true}
+	c.startBackgroundWorkWatch(probe)
+	waitFor(t, func() bool { return !watching(c) })
+	if items := c.BackgroundWorkItems(); len(items) != 0 {
+		t.Fatalf("items = %+v, want none after repeated failures", items)
+	}
+	if want := 1 + backgroundWorkMaxProbeFailures; probe.count() != want {
+		t.Fatalf("probe calls = %d, want %d", probe.count(), want)
+	}
+}
+
+// A start racing a settling watcher must never leave pending set with no
+// watcher left to clear it.
+func TestControllerBackgroundWorkStartRacingSettleNeverStrandsPending(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		c := &Controller{harness: domain.HarnessCodex, stopped: make(chan struct{})}
+		probe := &scriptedBackgroundProbe{answers: []struct{ pending, known bool }{{false, true}}}
+		var wg sync.WaitGroup
+		for j := 0; j < 3; j++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				c.startBackgroundWorkWatch(probe)
+			}()
+		}
+		wg.Wait()
+		waitFor(t, func() bool { return !watching(c) })
+		if items := c.BackgroundWorkItems(); len(items) != 0 {
+			t.Fatalf("iteration %d: pending stranded without a watcher: %+v", i, items)
+		}
 	}
 }

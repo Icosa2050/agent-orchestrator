@@ -17,6 +17,10 @@ var backgroundWorkPollInterval = 20 * time.Second
 // backgroundWorkProbeTimeout bounds one provider inventory request.
 const backgroundWorkProbeTimeout = 5 * time.Second
 
+// backgroundWorkMaxProbeFailures is how many consecutive failed probes after a
+// real "pending" answer still keep the session waiting.
+const backgroundWorkMaxProbeFailures = 3
+
 // backgroundWorkState is the controller's in-memory view of provider work that
 // outlived its last settled turn. It never changes persisted activity: the
 // session read model reports it, so a session whose turn ended while that work
@@ -50,21 +54,36 @@ func (c *Controller) startBackgroundWorkWatch(probe ports.ChatBackgroundWorkProb
 }
 
 func (c *Controller) runBackgroundWorkWatcher(probe ports.ChatBackgroundWorkProbe) {
-	defer func() {
-		c.background.mu.Lock()
-		c.background.watching = false
-		c.background.mu.Unlock()
-	}()
+	answered := false
+	failures := 0
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), backgroundWorkProbeTimeout)
 		pending, known, err := probe.BackgroundWorkPending(ctx)
 		cancel()
 		c.background.mu.Lock()
-		if err == nil {
+		switch {
+		case err == nil:
+			answered, failures = true, 0
 			c.background.pending = known && pending
+		case !answered:
+			// Without one real answer the optimistic mark is not a provider
+			// fact: an unanswerable provider keeps the previous behavior.
+			c.background.pending = false
+		default:
+			// A transient failure keeps the last real answer, but a provider
+			// that stops answering cannot hold the session busy forever.
+			failures++
+			if failures >= backgroundWorkMaxProbeFailures {
+				c.background.pending = false
+			}
 		}
-		// A failed probe keeps the previous answer and retries.
-		settled := err == nil && !c.background.pending
+		// Decide and release the watcher in one critical section: a start that
+		// runs after this sees watching=false and launches its own watcher, so a
+		// fresh pending mark is never left without one.
+		settled := !c.background.pending
+		if settled {
+			c.background.watching = false
+		}
 		c.background.mu.Unlock()
 		if settled {
 			return
@@ -74,17 +93,14 @@ func (c *Controller) runBackgroundWorkWatcher(probe ports.ChatBackgroundWorkProb
 		}
 		select {
 		case <-c.stopped:
-			c.clearBackgroundWork()
+			c.background.mu.Lock()
+			c.background.pending = false
+			c.background.watching = false
+			c.background.mu.Unlock()
 			return
 		case <-time.After(backgroundWorkPollInterval):
 		}
 	}
-}
-
-func (c *Controller) clearBackgroundWork() {
-	c.background.mu.Lock()
-	c.background.pending = false
-	c.background.mu.Unlock()
 }
 
 // BackgroundWorkItems reports provider work this controller saw outlive its
