@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -79,6 +79,7 @@ beforeEach(() => {
 
 describe("Icosa Orchestrator's own permissions", () => {
 	const appGear = () => screen.findByRole("button", { name: "Open Icosa Orchestrator's permissions in System Settings" });
+	const appGearSync = () => screen.getByRole("button", { name: "Open Icosa Orchestrator's permissions in System Settings" });
 
 	it("are not shown off macOS", async () => {
 		daemon({ status: () => installed });
@@ -89,21 +90,81 @@ describe("Icosa Orchestrator's own permissions", () => {
 		expect(bridgeMocks.getAppPrivacy).not.toHaveBeenCalled();
 	});
 
-	it("sit under native computer use once both are granted, and open the guide to review them", async () => {
+	const statusList = () => screen.findByRole("list", { name: "Grant macOS permissions to Icosa Orchestrator" });
+	const items = async () => within(await statusList()).getAllByRole("listitem").map((item) => item.textContent);
+
+	it("say All granted, list each permission, and offer Check again instead of the gear", async () => {
 		document.documentElement.dataset.aoPlatform = "darwin";
 		daemon({ status: () => notInstalled });
 		bridgeMocks.getAppPrivacy.mockResolvedValue({ accessibility: true, screenRecording: true });
 		renderSection();
 
 		expect(await screen.findByText("Native computer use")).toBeInTheDocument();
-		expect(await screen.findByText("Grant macOS permissions to Icosa Orchestrator")).toBeInTheDocument();
-		await userEvent.click(await appGear());
+		expect(await screen.findByText("All granted")).toBeInTheDocument();
+		expect(await items()).toEqual(["Accessibility: Granted", "Screen Recording: Granted"]);
+		expect(screen.queryByRole("button", { name: "Open Icosa Orchestrator's permissions in System Settings" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: /in System Settings$/ })).not.toBeInTheDocument();
+		const reads = bridgeMocks.getAppPrivacy.mock.calls.length;
+		await userEvent.click(await screen.findByRole("button", { name: "Check again" }));
+		await waitFor(() => expect(bridgeMocks.getAppPrivacy.mock.calls.length).toBe(reads + 1));
 		expect(bridgeMocks.requestAppPrivacy).not.toHaveBeenCalled();
-		expect(bridgeMocks.showPrivacyGuide).toHaveBeenCalledWith(expect.objectContaining({
-			target: "orchestrator",
-			pane: "accessibility",
-			granted: { accessibility: true, screenRecording: true },
-		}));
+		expect(bridgeMocks.showPrivacyGuide).not.toHaveBeenCalled();
+	});
+
+	it("emphasize the one missing permission, link it through the request and guide, and update once it is granted", async () => {
+		document.documentElement.dataset.aoPlatform = "darwin";
+		daemon({ status: () => notInstalled });
+		let grants = { accessibility: true, screenRecording: false };
+		bridgeMocks.getAppPrivacy.mockImplementation(async () => grants);
+		bridgeMocks.requestAppPrivacy.mockImplementation(async () => grants);
+		renderSection();
+
+		expect(await items()).toEqual(["Accessibility: Granted", "Screen Recording: Missing · Open in System Settings"]);
+		expect(screen.queryByText("All granted")).not.toBeInTheDocument();
+		expect(screen.getByText("Missing")).toHaveClass("text-status-needs-you");
+		expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Open Accessibility in System Settings" })).not.toBeInTheDocument();
+		await userEvent.click(screen.getByRole("button", { name: "Open Screen Recording in System Settings" }));
+		// Asked first, so macOS lists Orchestrator in the pane the guide opens.
+		expect(bridgeMocks.requestAppPrivacy).toHaveBeenCalledTimes(1);
+		expect(bridgeMocks.showPrivacyGuide).toHaveBeenCalledWith(expect.objectContaining({ target: "orchestrator", pane: "screenRecording" }));
+		expect(bridgeMocks.openExternal).not.toHaveBeenCalled();
+
+		// Granted in System Settings: the open guide's polling updates the row.
+		grants = { accessibility: true, screenRecording: true };
+		expect(await screen.findByText("All granted", undefined, { timeout: 4_000 })).toBeInTheDocument();
+		expect(await items()).toEqual(["Accessibility: Granted", "Screen Recording: Granted"]);
+	});
+
+	it("dock the guide on the linked pane even when an earlier one is also missing", async () => {
+		document.documentElement.dataset.aoPlatform = "darwin";
+		daemon({ status: () => notInstalled });
+		bridgeMocks.getAppPrivacy.mockResolvedValue({ accessibility: false, screenRecording: false });
+		bridgeMocks.requestAppPrivacy.mockResolvedValue({ accessibility: false, screenRecording: false });
+		renderSection();
+
+		await userEvent.click(await screen.findByRole("button", { name: "Open Screen Recording in System Settings" }));
+		expect(bridgeMocks.requestAppPrivacy).toHaveBeenCalledTimes(1);
+		expect(bridgeMocks.showPrivacyGuide).toHaveBeenCalledWith(expect.objectContaining({ target: "orchestrator", pane: "screenRecording" }));
+		// The gear still opens on the first missing one.
+		await waitFor(() => expect(appGearSync()).toBeEnabled());
+		await userEvent.click(appGearSync());
+		expect(bridgeMocks.showPrivacyGuide).toHaveBeenLastCalledWith(expect.objectContaining({ pane: "accessibility" }));
+	});
+
+	it("say when the permissions cannot be checked, and let the user check again", async () => {
+		document.documentElement.dataset.aoPlatform = "darwin";
+		daemon({ status: () => notInstalled });
+		bridgeMocks.getAppPrivacy.mockResolvedValue(undefined);
+		renderSection();
+
+		expect(await screen.findByText("Could not check Icosa Orchestrator's permissions.")).toBeInTheDocument();
+		expect(screen.queryByRole("list", { name: "Grant macOS permissions to Icosa Orchestrator" })).not.toBeInTheDocument();
+		expect(screen.queryByText("All granted")).not.toBeInTheDocument();
+		bridgeMocks.getAppPrivacy.mockResolvedValue({ accessibility: false, screenRecording: true });
+		await userEvent.click(await screen.findByRole("button", { name: "Check again" }));
+		expect(await items()).toEqual(["Accessibility: Missing · Open in System Settings", "Screen Recording: Granted"]);
+		expect(await appGear()).toBeEnabled();
 	});
 
 	it("asks macOS for missing grants, docks the guide on Icosa Orchestrator's missing pane, and follows the grants", async () => {
@@ -114,7 +175,7 @@ describe("Icosa Orchestrator's own permissions", () => {
 		bridgeMocks.requestAppPrivacy.mockResolvedValue({ accessibility: true, screenRecording: false });
 		renderSection();
 
-		expect(await screen.findByText("Accessibility: Missing · Screen Recording: Missing")).toBeInTheDocument();
+		expect(await items()).toEqual(["Accessibility: Missing · Open in System Settings", "Screen Recording: Missing · Open in System Settings"]);
 		await userEvent.click(await appGear());
 		expect(bridgeMocks.requestAppPrivacy).toHaveBeenCalledTimes(1);
 		expect(bridgeMocks.showPrivacyGuide).toHaveBeenCalledWith(expect.objectContaining({
@@ -209,13 +270,6 @@ describe("Icosa Orchestrator's own permissions", () => {
 		expect(screen.getByText("Native computer use").compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
 	});
 
-	it("says when they cannot be checked", async () => {
-		document.documentElement.dataset.aoPlatform = "darwin";
-		daemon({ status: () => notInstalled });
-		renderSection();
-		expect(await screen.findByText("Could not check Icosa Orchestrator's permissions.")).toBeInTheDocument();
-		expect(await appGear()).toBeDisabled();
-	});
 });
 
 describe("ComputerUseSection", () => {

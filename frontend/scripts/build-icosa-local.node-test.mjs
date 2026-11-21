@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { buildNumbers, bundleVersion, existingNames, icosaBase, parseIcosaVersion, resolveIcosaVersion, stampVersion } from './icosa-version.mjs';
+import { buildNumbers, bundleVersion, designatedRequirement, existingNames, icosaBase, parseIcosaVersion, resolveIcosaVersion, stampVersion } from './icosa-version.mjs';
 
 const LEGACY = 'legacy_dir=/Volumes/aofiles/ao-builds/icosa-orchestrator';
 const helper = new URL('./icosa-version.mjs', import.meta.url);
@@ -212,7 +212,7 @@ for (const scenario of ['existing destination', 'uncreatable parent', 'copy succ
 }
 
 const DR = 'designated => identifier "com.icosa2050.orchestrator" and anchor apple generic and certificate leaf[subject.OU] = L98MZWWR98';
-for (const previous of ['none', 'same', 'changed', 'legacy']) {
+for (const previous of ['none', 'same', 'normalized', 'changed', 'legacy']) {
  test(`manifest records version, shipped verifier and DR check (previous build: ${previous})`, async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'icosa-manifest-'));
   t.after(() => rm(root, {recursive:true, force:true}));
@@ -229,12 +229,16 @@ for (const previous of ['none', 'same', 'changed', 'legacy']) {
   await writeFile(path.join(root, 'bin/codesign'), `#!/bin/sh\necho "Executable=$4/Contents/MacOS/icosa-orchestrator" >&2\necho '${DR}'\n`, {mode:0o755});
   if (previous !== 'none') {
    const old = previous !== 'changed' ? DR : DR.replace('L98MZWWR98', 'OTHERTEAM1');
-   await writeFile(path.join(root, previous === 'legacy' ? 'legacy/0.14.8-icosa.2/manifest.json' : 'published/0.14.8-icosa.2/manifest.json'), JSON.stringify({designatedRequirement: `Executable=/elsewhere\n${old}\n`}));
+   await writeFile(path.join(root, previous === 'legacy' ? 'legacy/0.14.8-icosa.2/manifest.json' : 'published/0.14.8-icosa.2/manifest.json'), JSON.stringify({designatedRequirement: previous === 'normalized' ? old : `Executable=/elsewhere\n${old}\n`}));
   }
   for (const file of ['a.zip', 'a.dmg', 'out/local/verify-mac-artifact.sh']) await writeFile(path.join(root, file), file);
   const source = await readFile(new URL('./build-icosa-local.sh', import.meta.url), 'utf8');
   const python = source.slice(source.indexOf("<<'PY' >> out/local/verification.log\n") + 37, source.indexOf('\nPY\n# Reserve'));
-  const result = spawnSync('python3', ['-', app, path.join(root, 'a.zip'), path.join(root, 'a.dmg'), 'c0ffee', '0.14.8-icosa.3', '0.14.8003', path.join(root, 'published'), path.join(root, 'legacy')], {input: python, cwd: root, encoding: 'utf8', env: {...process.env, PATH: `${root}/bin:${process.env.PATH}`, AO_NOTARY_PROFILE: 'p'}});
+  // As the recipe does: codesign's output (Executable line included) through the helper.
+  const raw = spawnSync(path.join(root, 'bin/codesign'), ['-d', '-r-', app], {encoding: 'utf8'});
+  const designated = spawnSync(process.execPath, [helper.pathname, 'designated'], {input: raw.stdout + raw.stderr, encoding: 'utf8'});
+  assert.equal(designated.status, 0, designated.stderr);
+  const result = spawnSync('python3', ['-', app, path.join(root, 'a.zip'), path.join(root, 'a.dmg'), 'c0ffee', '0.14.8-icosa.3', '0.14.8003', path.join(root, 'published'), path.join(root, 'legacy'), designated.stdout.trim()], {input: python, cwd: root, encoding: 'utf8', env: {...process.env, PATH: `${root}/bin:${process.env.PATH}`, AO_NOTARY_PROFILE: 'p'}});
   assert.match(result.stdout, /designated requirement version-independent: ok/);
   if (previous === 'changed') {
    assert.notEqual(result.status, 0);
@@ -250,6 +254,8 @@ for (const previous of ['none', 'same', 'changed', 'legacy']) {
   assert.equal(manifest.verifier, 'verify-mac-artifact.sh');
   assert.equal(manifest.verifierSha256, createHash('sha256').update('out/local/verify-mac-artifact.sh').digest('hex'));
   assert.equal(manifest.artifacts.length, 2);
+  // Only the DR line, so identical requirements give identical manifests.
+  assert.equal(manifest.designatedRequirement, DR);
  });
 }
 
@@ -259,4 +265,30 @@ test('recipe ships the verifier and restores package files', async () => {
  assert.match(source, /out\/local\/verify-mac-artifact\.sh "\$destination\/"/);
  assert.match(source, /export ICOSA_BUNDLE_VERSION="\$bundle_version"/);
  assert.match(source, /trap 'git -C "\$repo" checkout -q -- frontend\/package\.json frontend\/package-lock\.json/);
+});
+
+// `codesign -d -r-` output as macOS prints it: the Executable line names the
+// per-build folder, so it differs between builds with the same requirement.
+const codesignOutput = build => `Executable=/Users/me/ao-builds/icosa-orchestrator/0.14.8-icosa.${build}/mac-arm64/Icosa Orchestrator.app/Contents/MacOS/icosa-orchestrator\n${DR}\n`;
+
+test('designated requirement drops the per-build Executable line', () => {
+ assert.notEqual(codesignOutput(2), codesignOutput(3));
+ assert.equal(designatedRequirement(codesignOutput(2)), DR);
+ assert.equal(designatedRequirement(codesignOutput(2)), designatedRequirement(codesignOutput(3)));
+ // Idempotent: an already-normalized manifest value compares equal.
+ assert.equal(designatedRequirement(DR), DR);
+ assert.equal(designatedRequirement(codesignOutput(3).replace(/\n/g, '\r\n')), DR);
+ assert.throws(() => designatedRequirement('Executable=/x\n'), /expected one/);
+ assert.throws(() => designatedRequirement(`${DR}\n${DR}\n`), /expected one/);
+ const cli = spawnSync(process.execPath, [new URL('./icosa-version.mjs', import.meta.url).pathname, 'designated'], { input: codesignOutput(3), encoding: 'utf8' });
+ assert.equal(cli.status, 0, cli.stderr);
+ assert.equal(cli.stdout, `${DR}\n`);
+});
+
+test('recipe stores and compares only the normalized designated requirement', async () => {
+ const source = await readFile(new URL('./build-icosa-local.sh', import.meta.url), 'utf8');
+ assert.match(source, /designated=\$\(codesign -d -r- "\$app" 2>&1 \| node scripts\/icosa-version\.mjs designated\)/);
+ assert.ok(source.includes('designatedRequirement=designated,'));
+ assert.ok(!source.includes('designatedRequirement=requirement'));
+ assert.ok(source.includes("same=old==[designated]"));
 });
