@@ -4,7 +4,7 @@ import { Check, Copy, ExternalLink, LoaderCircle, Settings } from "@/components/
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { components } from "../../../api/schema";
-import { PRIVACY_PANE_URLS, PRIVACY_PANES, type PrivacyGuideAppearance, type PrivacyGuideTarget, type PrivacyPane } from "../../../main/privacy-guide";
+import { PRIVACY_PANES, type PrivacyGuideAppearance, type PrivacyGuideTarget, type PrivacyPane } from "../../../main/privacy-guide";
 import { useSettings, useUpdateComputerUse } from "../../hooks/useSettings";
 import { apiClient } from "../../lib/api-client";
 import { aoBridge } from "../../lib/bridge";
@@ -136,7 +136,8 @@ export function ComputerUseSection({ titleHidden }: { titleHidden?: boolean }) {
 		if (error || !data) throw apiErrorException(error);
 		queryClient.setQueryData(computerUseStatusQueryKey, data);
 	});
-	const showGuide = async (target: PrivacyGuideTarget, granted: Record<PrivacyPane, boolean>) => {
+	// The guide opens on `pane` while it is still missing, else the first missing one.
+	const showGuide = async (target: PrivacyGuideTarget, granted: Record<PrivacyPane, boolean>, pane?: PrivacyPane) => {
 		guideOpened.current = true;
 		// Set before awaiting: a read that fails while the guide opens must
 		// still have grants to send once the page starts following it.
@@ -144,7 +145,7 @@ export function ComputerUseSection({ titleHidden }: { titleHidden?: boolean }) {
 		const app = target === "orchestrator" ? "appGuide" : "guide";
 		await aoBridge.app.showPrivacyGuide({
 			target,
-			pane: firstMissing(granted),
+			pane: pane && !granted[pane] ? pane : firstMissing(granted),
 			granted,
 			appearance: guideAppearance(theme),
 			text: {
@@ -172,13 +173,14 @@ export function ComputerUseSection({ titleHidden }: { titleHidden?: boolean }) {
 		if (data.permissions) await showGuide("cuaDriver", grantedMap(data.permissions));
 	});
 	// Asks macOS for whatever Orchestrator is missing, which lists it in those
-	// panes, then docks the guide on the first one still missing.
-	const grantApp = () => run("appGrant", async () => {
+	// panes, then docks the guide on `pane` (a missing row's link) or the first
+	// one still missing; the open guide keeps the row's status polled.
+	const grantApp = (pane?: PrivacyPane) => run("appGrant", async () => {
 		const current = appPrivacy.data;
 		if (!current || allGrantedMap(current)) return;
 		const granted = (await aoBridge.app.requestAppPrivacy()) ?? current;
 		queryClient.setQueryData(appPrivacyQueryKey, granted);
-		await showGuide("orchestrator", granted);
+		await showGuide("orchestrator", granted, pane);
 	});
 	const copyCommand = async (command: string) => {
 		await navigator.clipboard.writeText(command);
@@ -329,7 +331,7 @@ export function ComputerUseSection({ titleHidden }: { titleHidden?: boolean }) {
 						label={t("settings.computerUse.appPermissions")}
 						description={appPrivacy.isPending ? undefined
 							: !appPrivacy.data ? t("settings.computerUse.appPermissionsUnknown")
-							: <AppPermissionStatus granted={appPrivacy.data} />}
+							: <AppPermissionStatus granted={appPrivacy.data} disabled={action !== null} onOpen={(pane) => void grantApp(pane)} />}
 					>
 						{/* Missing grants: the gear asks macOS for just those. All granted or
 						    unreadable: re-read them (macOS drops Screen Recording on updates). */}
@@ -396,9 +398,9 @@ function isMac(): boolean {
 /**
  * Orchestrator's grants, one line per permission: "All granted" on top when
  * nothing is missing; a missing one is emphasized and links straight to its
- * System Settings pane.
+ * System Settings pane, through the gear's request-and-guide flow.
  */
-function AppPermissionStatus({ granted }: { granted: Record<PrivacyPane, boolean> }) {
+function AppPermissionStatus({ granted, disabled, onOpen }: { granted: Record<PrivacyPane, boolean>; disabled: boolean; onOpen: (pane: PrivacyPane) => void }) {
 	const { t } = useTranslation();
 	return (
 		<div className="flex flex-col gap-0.5">
@@ -417,7 +419,8 @@ function AppPermissionStatus({ granted }: { granted: Record<PrivacyPane, boolean
 										type="button"
 										variant="link"
 										aria-label={t("settings.computerUse.openPane", { pane: label })}
-										onClick={() => void aoBridge.app.openExternal(PRIVACY_PANE_URLS[pane])}
+										disabled={disabled}
+										onClick={() => onOpen(pane)}
 									>
 										{t("settings.computerUse.openPermissions")}
 									</Button>
