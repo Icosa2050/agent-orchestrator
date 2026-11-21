@@ -259,6 +259,7 @@ type Service struct {
 	// normal, not a broken pipeline. nil means "unknown": never downgrade.
 	signalCapable         func(domain.AgentHarness) bool
 	chatProviderPreserved func(domain.SessionID) bool
+	chatBackgroundWork    func(domain.SessionID) []domain.BackgroundWorkItem
 	// githubIdentity optionally resolves the operator's authenticated GitHub
 	// account so the handle rides along with product telemetry. Nil disables it
 	// and the emitter degrades to anonymous.
@@ -311,6 +312,12 @@ func (s *Service) SetPRMovedNotifier(notify PRMovedNotifier) { s.prMoved = notif
 // services have been constructed. It performs no provider or filesystem probes.
 func (s *Service) SetChatProviderPreserver(preserves func(domain.SessionID) bool) {
 	s.chatProviderPreserved = preserves
+}
+
+// SetChatBackgroundWork wires the live Chat controllers' background-work
+// observation. It reads in-memory controller state only.
+func (s *Service) SetChatBackgroundWork(observe func(domain.SessionID) []domain.BackgroundWorkItem) {
+	s.chatBackgroundWork = observe
 }
 
 // New wires a controller-facing session service over an internal session Manager.
@@ -1880,6 +1887,12 @@ func (s *Service) toSessionWithFacts(ctx context.Context, rec domain.SessionReco
 	// ReconcileSessionOutputType is the sole writer); it is deliberately not
 	// recomputed here so the API and Kanban see the same durable
 	// classification rather than a value that can differ read to read.
+	var chatBackground []domain.BackgroundWorkItem
+	if rec.Mode == domain.SessionModeChat && !rec.IsTerminated && s.chatBackgroundWork != nil {
+		chatBackground = s.chatBackgroundWork(rec.ID)
+	}
+	backgroundWork := deriveBackgroundWork(rec, runs, chatBackground, now)
+	rec = withBackgroundActivity(rec, backgroundWork)
 	presentation := deriveKanbanPresentation(rec, prs, runs, interrupted, now, s.harnessSignals(rec.Harness))
 	readiness := "ready"
 	if recovery, ok := s.manager.(interface {
@@ -1896,6 +1909,7 @@ func (s *Service) toSessionWithFacts(ctx context.Context, rec domain.SessionReco
 		NeedsResume:                rec.NeedsImportResume(),
 		ChatProviderPreserved: rec.Mode == domain.SessionModeChat && !rec.IsTerminated &&
 			s.chatProviderPreserved != nil && s.chatProviderPreserved(rec.ID),
+		BackgroundWork:   backgroundWork,
 		Status:           deriveStatus(rec, prs, now, s.harnessSignals(rec.Harness)),
 		SCMStatus:        deriveSCMStatus(prs),
 		KanbanColumn:     presentation.Column,

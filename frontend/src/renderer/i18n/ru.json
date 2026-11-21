@@ -281,6 +281,8 @@
 	"session.statusChecking": "Проверка…",
 	"session.statusUnavailable": "Не удалось проверить",
 	"session.importedNotOpened": "Импортирован, ещё не открыт",
+	"session.waitingOnReview": "Ожидает ревью",
+	"session.waitingOnBackground": "Ожидает фоновую задачу",
 	"artifactLink.unavailable": "Артефакт недоступен",
 	"artifactLink.noPreview": "Предпросмотр недоступен",
 	"session.agentTerminated": "Агент завершил работу",

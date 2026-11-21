@@ -1061,6 +1061,17 @@ func (c *conversation) Terminate() error {
 // CanHibernate reads Codex's live exec registry, since a settled turn can leave
 // a terminal running and terminating app-server also terminates those commands.
 func (c *conversation) CanHibernate(ctx context.Context) (bool, error) {
+	pending, known, err := c.BackgroundWorkPending(ctx)
+	if err != nil {
+		return false, err
+	}
+	// Older builds cannot prove that background work ended.
+	return known && !pending, nil
+}
+
+// BackgroundWorkPending reports whether Codex still runs background terminals
+// for the thread. known is false for builds without the registry request.
+func (c *conversation) BackgroundWorkPending(ctx context.Context) (pending, known bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	// Subset of Codex 0.160.1's experimental background-terminal response.
@@ -1071,14 +1082,14 @@ func (c *conversation) CanHibernate(ctx context.Context) (bool, error) {
 	if err := c.conn.request(ctx, "thread/backgroundTerminals/list", map[string]any{"threadId": c.threadID, "limit": 1}, &resp); err != nil {
 		var rpcErr *rpcError
 		if errors.As(err, &rpcErr) && rpcErr.Code == -32601 {
-			return false, nil // Older builds cannot prove that background work ended.
+			return false, false, nil
 		}
-		return false, err
+		return false, false, err
 	}
 	if resp.Data == nil {
-		return false, errors.New("background-terminal response is missing data")
+		return false, false, errors.New("background-terminal response is missing data")
 	}
-	return len(resp.Data) == 0 && (resp.NextCursor == nil || *resp.NextCursor == ""), nil
+	return len(resp.Data) > 0 || (resp.NextCursor != nil && *resp.NextCursor != ""), true, nil
 }
 
 // Hibernate stops the app-server but leaves its native thread on disk for Resume.

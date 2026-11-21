@@ -82,6 +82,19 @@ export function toBoardSessionPresentation(
 				tone: "var(--color-status-idle)",
 			}
 		: undefined;
+	// A worker waiting on its own background work reads as working; name what
+	// it waits on so a quiet card is not mistaken for a stalled one.
+	const backgroundStatus =
+		session.backgroundWork && session.backgroundWork.items.length > 0 && !session.isTerminated
+			? {
+					className: "text-status-working",
+					indicatorClassName: "bg-status-working animate-status-pulse",
+					label: session.backgroundWork.items.some((item) => item.kind === "review")
+						? appI18n.t("session.waitingOnReview")
+						: appI18n.t("session.waitingOnBackground"),
+					tone: "var(--color-status-working)",
+				}
+			: undefined;
 	return {
 		activity: session.activity,
 		branch: sessionBranchPresentation(session).branch,
@@ -92,7 +105,7 @@ export function toBoardSessionPresentation(
 		provider: session.provider,
 		status: session.status,
 		statusReadiness: session.statusReadiness,
-		statusPresentation: provisioningStatus ?? failedStartStatus ?? importStatus,
+		statusPresentation: provisioningStatus ?? failedStartStatus ?? importStatus ?? backgroundStatus,
 		title: session.title,
 		trackerIssueId: canonicalTrackerIssueId(session.issueId),
 		updatedAt: session.updatedAt,

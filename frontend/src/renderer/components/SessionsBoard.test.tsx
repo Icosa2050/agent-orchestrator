@@ -481,6 +481,32 @@ describe("SessionsBoard", () => {
 		expect(presentation.lastUserMessageAt).toBe("2026-01-01T09:00:00Z");
 	});
 
+	it("names the background work a waiting worker is busy on", () => {
+		const review = toBoardSessionPresentation(
+			boardSession({
+				id: "waiting-review",
+				status: "working",
+				title: "waiting on review",
+				backgroundWork: { items: [{ kind: "review", id: "run-1" }, { kind: "agent_task", id: "bash-1" }] },
+			}),
+		);
+		expect(review.statusPresentation?.label).toBe("Waiting on review");
+		expect(review.statusPresentation?.className).toBe("text-status-working");
+
+		const task = toBoardSessionPresentation(
+			boardSession({
+				id: "waiting-task",
+				status: "working",
+				title: "waiting on a shell",
+				backgroundWork: { items: [{ kind: "agent_task", id: "bash-1", type: "local_bash" }] },
+			}),
+		);
+		expect(task.statusPresentation?.label).toBe("Waiting on background task");
+
+		const plain = toBoardSessionPresentation(boardSession({ id: "plain", status: "idle", title: "idle" }));
+		expect(plain.statusPresentation).toBeUndefined();
+	});
+
 	it("localizes dynamic card actions and pull request lifecycle labels", async () => {
 		await appI18n.changeLanguage("zh-CN");
 		workspaceQueryMock.mockReturnValue({

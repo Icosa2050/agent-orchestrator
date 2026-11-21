@@ -61,22 +61,25 @@ type sessionRenameRequest struct {
 }
 
 type sessionDTO struct {
-	ID            string               `json:"id"`
-	ProjectID     string               `json:"projectId"`
-	IssueID       string               `json:"issueId,omitempty"`
-	Kind          string               `json:"kind"`
-	Harness       string               `json:"harness,omitempty"`
-	DisplayName   string               `json:"displayName,omitempty"`
-	Activity      sessionActivity      `json:"activity"`
-	IsTerminated  bool                 `json:"isTerminated"`
-	CreatedAt     time.Time            `json:"createdAt"`
-	UpdatedAt     time.Time            `json:"updatedAt"`
-	Status        string               `json:"status"`
-	Branch        string               `json:"branch,omitempty"`
-	BranchState   *branchStateDTO      `json:"branchState,omitempty"`
-	PRs           []sessionPRDTO       `json:"prs"`
-	Mode          string               `json:"mode,omitempty"`
-	ArtifactFiles []sessionArtifactDTO `json:"artifactFiles,omitempty"`
+	ID          string          `json:"id"`
+	ProjectID   string          `json:"projectId"`
+	IssueID     string          `json:"issueId,omitempty"`
+	Kind        string          `json:"kind"`
+	Harness     string          `json:"harness,omitempty"`
+	DisplayName string          `json:"displayName,omitempty"`
+	Activity    sessionActivity `json:"activity"`
+	// BackgroundWork is present while the session waits on work it started
+	// itself; the daemon then reports its activity as active, never idle.
+	BackgroundWork *domain.BackgroundWork `json:"backgroundWork,omitempty"`
+	IsTerminated   bool                   `json:"isTerminated"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	UpdatedAt      time.Time              `json:"updatedAt"`
+	Status         string                 `json:"status"`
+	Branch         string                 `json:"branch,omitempty"`
+	BranchState    *branchStateDTO        `json:"branchState,omitempty"`
+	PRs            []sessionPRDTO         `json:"prs"`
+	Mode           string                 `json:"mode,omitempty"`
+	ArtifactFiles  []sessionArtifactDTO   `json:"artifactFiles,omitempty"`
 	// WorkspaceCleanup is the recorded teardown outcome of a terminated
 	// session's workspace, empty when none has been recorded.
 	WorkspaceCleanup string `json:"workspaceCleanup,omitempty"`
@@ -204,20 +207,23 @@ type claimPRResponse struct {
 }
 
 type sessionListEntry struct {
-	ID             string          `json:"id"`
-	ProjectID      string          `json:"projectId"`
-	Role           string          `json:"role"`
-	DisplayName    string          `json:"displayName,omitempty"`
-	Status         string          `json:"status,omitempty"`
-	Activity       string          `json:"activity,omitempty"`
-	IssueID        string          `json:"issueId,omitempty"`
-	Harness        string          `json:"harness,omitempty"`
-	Branch         string          `json:"branch,omitempty"`
-	PRs            []sessionListPR `json:"prs"`
-	IsTerminated   bool            `json:"isTerminated"`
-	LastActivityAt *time.Time      `json:"lastActivityAt,omitempty"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
+	ID          string `json:"id"`
+	ProjectID   string `json:"projectId"`
+	Role        string `json:"role"`
+	DisplayName string `json:"displayName,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Activity    string `json:"activity,omitempty"`
+	// BackgroundWork names what a session reported as active is waiting on
+	// when it is its own background work rather than a running turn.
+	BackgroundWork *domain.BackgroundWork `json:"backgroundWork,omitempty"`
+	IssueID        string                 `json:"issueId,omitempty"`
+	Harness        string                 `json:"harness,omitempty"`
+	Branch         string                 `json:"branch,omitempty"`
+	PRs            []sessionListPR        `json:"prs"`
+	IsTerminated   bool                   `json:"isTerminated"`
+	LastActivityAt *time.Time             `json:"lastActivityAt,omitempty"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	UpdatedAt      time.Time              `json:"updatedAt"`
 }
 
 type sessionListPR struct {
@@ -1156,6 +1162,7 @@ func sessionListEntries(sessions []sessionDTO, summaries map[string][]sessionPRS
 			DisplayName:    sess.DisplayName,
 			Status:         sess.Status,
 			Activity:       sess.Activity.State,
+			BackgroundWork: sess.BackgroundWork,
 			IssueID:        sess.IssueID,
 			Harness:        sess.Harness,
 			Branch:         sess.Branch,
@@ -1308,6 +1315,7 @@ func writeSessionDetails(cmd *cobra.Command, sess sessionDTO) error {
 		{"role", sessionRole(sess)},
 		{"status", sess.Status},
 		{"activity", sess.Activity.State},
+		{"waiting on", formatBackgroundWork(sess.BackgroundWork)},
 		{"harness", sess.Harness},
 		{"issue", sess.IssueID},
 		{"branch", formatBranchState(sess)},
@@ -1436,4 +1444,27 @@ func confirmTyped(cmd *cobra.Command, prompt string) (bool, error) {
 		return false, err
 	}
 	return strings.EqualFold(strings.TrimSpace(line), "yes"), nil
+}
+
+// formatBackgroundWork renders what a session waits on, for example
+// "review (claude-code), agent_task local_bash: npm test".
+func formatBackgroundWork(work *domain.BackgroundWork) string {
+	if work == nil || !work.Pending {
+		return ""
+	}
+	parts := make([]string, 0, len(work.Items))
+	for _, item := range work.Items {
+		part := item.Kind
+		if item.Type != "" {
+			part += " " + item.Type
+		}
+		if item.Description != "" {
+			part += ": " + item.Description
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) == 0 {
+		return "background work"
+	}
+	return strings.Join(parts, ", ")
 }

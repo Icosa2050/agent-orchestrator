@@ -108,6 +108,13 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 		if rec.Activity.State == domain.ActivityActive {
 			return nil
 		}
+		// Idle is not "finished" when the worker was just handed its next
+		// message (the prompt-submit hook has not flipped it active yet) or is
+		// waiting on background work it started. Tearing it down then kills
+		// the turn the message was about to start, and the sender sees nothing.
+		if mergeTeardownDeferred(rec, m.clock()) {
+			return nil
+		}
 		done, err := m.sessionComplete(ctx, id)
 		if err != nil {
 			return err
@@ -310,6 +317,21 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 		return blockedCheckErr
 	}
 	return rearmErr
+}
+
+// mergeTeardownSendGrace is how long after a delivered message a merged
+// session is kept alive for that message's turn to start.
+const mergeTeardownSendGrace = 2 * time.Minute
+
+// mergeTeardownDeferred reports an idle merged session that is not done: it
+// was just given a message, or it is waiting on its own background work.
+func mergeTeardownDeferred(rec domain.SessionRecord, now time.Time) bool {
+	for _, at := range []time.Time{rec.Metadata.LatestInteractionAt, rec.Metadata.LatestUserPromptAt} {
+		if !at.IsZero() && now.Sub(at) < mergeTeardownSendGrace {
+			return true
+		}
+	}
+	return len(domain.PendingAgentBackgroundTasks(rec, now)) > 0
 }
 
 func (m *Manager) terminateCompletedSession(ctx context.Context, id domain.SessionID) error {

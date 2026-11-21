@@ -145,6 +145,9 @@ export function toWorkspaceSession(
 		workspaceCleanup: session.workspaceCleanup,
 		workspaceCleanupReportOnly: session.workspaceCleanupReportOnly,
 		chatProviderPreserved: session.chatProviderPreserved,
+		backgroundWork: session.backgroundWork?.pending
+			? { items: (session.backgroundWork.items ?? []).map((item) => ({ ...item })) }
+			: undefined,
 		needsResume: session.needsResume,
 		terminateOnPrMerge: session.terminateOnPrMerge ?? false,
 		autoInjectReview: session.autoInjectReview ?? true,

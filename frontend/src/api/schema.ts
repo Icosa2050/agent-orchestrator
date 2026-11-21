@@ -6234,6 +6234,14 @@ export interface components {
         ContainerReapConfig: {
             disabled?: boolean;
         };
+        ControllersActivityBackgroundTask: {
+            /** @description Short provider description of the task. */
+            description?: string;
+            /** @description Provider task id. */
+            id: string;
+            /** @description Provider task type, for example local_bash or monitor. */
+            type: string;
+        };
         ControllersBrowserChromeChannel: {
             available: boolean;
             manifestPath: string;
@@ -6470,6 +6478,7 @@ export interface components {
             autoInjectCI: boolean;
             autoInjectReview: boolean;
             autoReviewEnabled: boolean;
+            backgroundWork?: components["schemas"]["DomainBackgroundWork"];
             branch?: string;
             branchNaming?: boolean;
             branchState?: components["schemas"]["SessionBranchState"];
@@ -7051,6 +7060,17 @@ export interface components {
             /** Format: date-time */
             lastActivityAt: string;
             state: string;
+        };
+        DomainBackgroundWork: {
+            items: components["schemas"]["DomainBackgroundWorkItem"][];
+            pending: boolean;
+        };
+        DomainBackgroundWorkItem: {
+            description?: string;
+            id?: string;
+            /** @enum {string} */
+            kind: "agent_task" | "provider" | "review";
+            type?: string;
         };
         DomainConversationBatchedDelivery: {
             deliveredWithTurnId: string;
@@ -8574,6 +8594,8 @@ export interface components {
         SetActivityRequest: {
             /** @description Native agent session identifier used to resume its transcript. */
             agentSessionId?: string;
+            /** @description Non-subagent background tasks (background shells, monitors) still running at a Claude parent Stop hook; empty means none, absent means no snapshot. */
+            backgroundTasks?: null | components["schemas"]["ControllersActivityBackgroundTask"][];
             /**
              * @description Whether the main-turn boundary came from a human or AO coordination.
              * @enum {string}

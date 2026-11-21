@@ -1888,6 +1888,14 @@ type ClaimPRResponse struct {
 	TakenOverFrom []domain.SessionID `json:"takenOverFrom"`
 }
 
+// ActivityBackgroundTask is one provider-native background task in a parent
+// Stop-hook snapshot.
+type ActivityBackgroundTask struct {
+	ID          string `json:"id" description:"Provider task id."`
+	Type        string `json:"type" description:"Provider task type, for example local_bash or monitor."`
+	Description string `json:"description,omitempty" description:"Short provider description of the task."`
+}
+
 // SetActivityRequest is the body of POST /api/v1/sessions/{sessionId}/activity.
 // Event/ToolName/ToolUseID are optional correlation facts: which AO hook
 // sub-command produced the state and, for tool-use hooks, which tool call it
@@ -1904,6 +1912,7 @@ type SetActivityRequest struct {
 	ToolUseID                    string                              `json:"toolUseId,omitempty" description:"Native tool-use id, for tool-use hook events."`
 	SubagentID                   string                              `json:"subagentId,omitempty" description:"Native child agent id for this hook event."`
 	RunningSubagentIDs           *[]string                           `json:"runningSubagentIds,omitempty" description:"Running Claude subagent ids observed in a parent Stop hook; empty means none, absent means no snapshot."`
+	BackgroundTasks              *[]ActivityBackgroundTask           `json:"backgroundTasks,omitempty" description:"Non-subagent background tasks (background shells, monitors) still running at a Claude parent Stop hook; empty means none, absent means no snapshot."`
 	AgentSessionID               string                              `json:"agentSessionId,omitempty" description:"Native agent session identifier used to resume its transcript."`
 	LatestUserPrompt             string                              `json:"latestUserPrompt,omitempty" maxLength:"16384" description:"Latest real user prompt exposed by the provider hook."`
 	LatestAssistantUpdate        string                              `json:"latestAssistantUpdate,omitempty" maxLength:"16384" description:"Latest assistant update exposed by the provider hook."`

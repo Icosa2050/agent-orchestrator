@@ -219,6 +219,8 @@ export type WorkspaceSession = {
 	/** Whether the cloud worker has a current control-plane connection. */
 	runtimeConnected?: boolean;
 	chatProviderPreserved?: boolean;
+	/** Work the session started itself and waits on (a review of its PR, a background task); it reads as working, not idle. */
+	backgroundWork?: SessionBackgroundWork;
 	/** An imported chat not opened yet: it has no AO workspace until it resumes. */
 	needsResume?: boolean;
 	/** User preference to tear down this session when its PR set completes through a merge. */
@@ -681,4 +683,11 @@ export function resolveNextNavigationAfterSessionKill(
 	}
 
 	return { target: "project" };
+}
+
+export type SessionBackgroundWorkKind = "agent_task" | "provider" | "review";
+
+/** What a session waits on when its own background work, not a running turn, keeps it busy. */
+export interface SessionBackgroundWork {
+	items: Array<{ kind: SessionBackgroundWorkKind; id?: string; type?: string; description?: string }>;
 }
