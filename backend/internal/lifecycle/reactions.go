@@ -324,10 +324,11 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 const mergeTeardownSendGrace = 2 * time.Minute
 
 // mergeTeardownDeferred reports an idle merged session that is not done: it
-// was just given a message, or it is waiting on its own background work.
+// was just given a message no turn has picked up yet (delivered after its last
+// activity change), or it is waiting on its own background work.
 func mergeTeardownDeferred(rec domain.SessionRecord, now time.Time) bool {
 	for _, at := range []time.Time{rec.Metadata.LatestInteractionAt, rec.Metadata.LatestUserPromptAt} {
-		if !at.IsZero() && now.Sub(at) < mergeTeardownSendGrace {
+		if !at.IsZero() && at.After(rec.Activity.LastActivityAt) && now.Sub(at) < mergeTeardownSendGrace {
 			return true
 		}
 	}

@@ -151,3 +151,23 @@ func TestPRObservation_MergedIdleWorkerWithoutPendingWorkStillTerminates(t *test
 		t.Fatalf("terminator calls = %d, want 1 for a finished merged worker", terminator.calls)
 	}
 }
+
+// A message a turn already picked up (activity changed after it, e.g. the
+// spawn prompt) does not hold a finished merged worker alive.
+func TestPRObservation_MergedHandledMessageDoesNotDeferTeardown(t *testing.T) {
+	m, st, _ := newManager()
+	terminator := &fakeCompletionTerminator{}
+	m.SetCompletionTerminator(terminator)
+	rec := idleMergedSession("mer-1")
+	rec.Metadata.LatestInteractionAt = m.clock().Add(-30 * time.Second)
+	rec.Activity.LastActivityAt = m.clock().Add(-10 * time.Second)
+	st.sessions["mer-1"] = rec
+	st.prs["mer-1"] = []domain.PullRequest{{URL: "pr1", Merged: true}}
+
+	if err := m.ApplyPRObservation(ctx, "mer-1", ports.PRObservation{Fetched: true, URL: "pr1", Merged: true}); err != nil {
+		t.Fatal(err)
+	}
+	if terminator.calls != 1 {
+		t.Fatalf("terminator calls = %d, want 1 once the message's turn ran", terminator.calls)
+	}
+}
