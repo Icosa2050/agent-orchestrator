@@ -65,7 +65,7 @@ backend_tests='
 ./internal/service/session ^TestDeleteExpired 1
 ./internal/mobilebridge . 116
 ./internal/httpd ^(TestForkFleet|TestForkOnDevicePaired|TestForkDeviceToken) 9
-./internal/service/report ^(TestCoordinator|TestForkReportRouter) 16
+./internal/service/report ^(TestCoordinator|TestForkReportRouter) 17
 ./internal/daemon ^TestForkFleetWiring 1
 ./internal/cli ^TestForkFleetWrite 3
 ./internal/adapters/telemetry (OptOut|TestFork) 5

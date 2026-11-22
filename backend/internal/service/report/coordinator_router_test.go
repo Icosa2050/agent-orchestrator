@@ -27,6 +27,7 @@ type fakeReportRouter struct {
 	store   *countingStore
 	handled func(domain.ProjectID) bool
 	err     error
+	errFor  map[domain.ProjectID]error
 	calls   []routerCall
 	mutate  bool
 }
@@ -51,6 +52,9 @@ func (r *fakeReportRouter) Route(_ context.Context, project domain.ProjectID, ba
 	r.calls = append(r.calls, call)
 	if r.err != nil {
 		return false, r.err
+	}
+	if err := r.errFor[project]; err != nil {
+		return false, err
 	}
 	return r.handled != nil && r.handled(project), nil
 }
@@ -231,9 +235,10 @@ func TestForkReportRouterHandledAcksWithoutLocalWake(t *testing.T) {
 	}
 }
 
-// U-Q4.4: a router error releases the batch for a retry: no acknowledgement,
-// no Submit, no Interrupt; the next run routes it again.
-func TestForkReportRouterErrorReleasesForRetry(t *testing.T) {
+// U-Q4.4: a router error defers the batch by the retry delay (like a busy
+// orchestrator): no acknowledgement, no Submit, no Interrupt, and no retry
+// before the delay; after it the batch is routed again.
+func TestForkReportRouterErrorDefersForRetry(t *testing.T) {
 	now := time.Date(2026, 9, 14, 13, 0, 0, 0, time.UTC)
 	base := newCoordinatorStore(now)
 	base.sessions = []domain.SessionRecord{{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat}}
@@ -244,23 +249,75 @@ func TestForkReportRouterErrorReleasesForRetry(t *testing.T) {
 	delivery := &coordinatorDelivery{}
 	c := NewCoordinator(CoordinatorDeps{Store: base, Delivery: delivery, Now: func() time.Time { return now }, RetryDelay: 7 * time.Second, Router: router})
 	delay, err := c.RunDue(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "grants unavailable") || delay != 7*time.Second {
-		t.Fatalf("delay=%v err=%v", delay, err)
+	if err != nil || delay != 7*time.Second {
+		t.Fatalf("delay=%v err=%v, want the 7s backoff", delay, err)
 	}
-	if got := base.reports[0]; got.DeliveryState != domain.ReportPending || got.ClaimToken != "" || !strings.Contains(got.LastError, "route reports: grants unavailable") {
+	if got := base.reports[0]; got.DeliveryState != domain.ReportPending || got.ClaimToken != "" || !got.AvailableAt.Equal(now.Add(7*time.Second)) || !strings.Contains(got.LastError, "route reports: grants unavailable") {
 		t.Fatalf("report after router error: %#v", got)
 	}
 	if base.acked != 0 || len(delivery.submissions) != 0 || len(delivery.interrupts) != 0 {
 		t.Fatalf("acked=%d submissions=%v interrupts=%v", base.acked, delivery.submissions, delivery.interrupts)
 	}
+	// Not retried before the backoff ends.
+	if delay, err := c.RunDue(context.Background()); err != nil || delay != 7*time.Second || len(router.calls) != 1 {
+		t.Fatalf("early run: delay=%v err=%v calls=%d", delay, err, len(router.calls))
+	}
 	router.mu.Lock()
 	router.err, router.handled = nil, always
 	router.mu.Unlock()
+	now = now.Add(7 * time.Second)
 	if _, err := c.RunDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if base.acked != 1 || len(router.calls) != 2 || len(delivery.submissions) != 0 {
 		t.Fatalf("retry: acked=%d calls=%d submissions=%v", base.acked, len(router.calls), delivery.submissions)
+	}
+}
+
+// A route that keeps failing for project A never holds up project B: B's due
+// report is delivered in the same RunDue, and A is not retried in a loop.
+func TestForkReportRouterFailingRouteDoesNotBlockOtherProjects(t *testing.T) {
+	now := time.Date(2026, 9, 14, 13, 30, 0, 0, time.UTC)
+	base := newCoordinatorStore(now)
+	base.sessions = []domain.SessionRecord{
+		{ID: "orch-a", ProjectID: "a", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat},
+		{ID: "orch-b", ProjectID: "b", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat},
+	}
+	first := reportAt("a-1", "worker-a", now, now, "routed")
+	first.ProjectID = "a"
+	second := reportAt("b-1", "worker-b", now.Add(time.Second), now.Add(time.Second), "local")
+	second.ProjectID = "b"
+	base.add(first, second)
+	router := &fakeReportRouter{handled: never, errFor: map[domain.ProjectID]error{"a": errors.New("master unreachable")}}
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: base, Delivery: delivery, Now: func() time.Time { return now.Add(time.Second) }, RetryDelay: 5 * time.Second, Router: router})
+	// A batch put back at the head would make RunDue spin on project a.
+	type result struct {
+		delay time.Duration
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() { d, e := c.RunDue(context.Background()); done <- result{d, e} }()
+	var delay time.Duration
+	var err error
+	select {
+	case r := <-done:
+		delay, err = r.delay, r.err
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunDue kept retrying the failing route (head-of-line block)")
+	}
+	if err != nil || delay != 5*time.Second {
+		t.Fatalf("delay=%v err=%v", delay, err)
+	}
+	if len(delivery.submissions) != 1 || delivery.submissions[0].target != "orch-b" {
+		t.Fatalf("submissions = %#v, want b delivered past a's failing route", delivery.submissions)
+	}
+	// One attempt for a, one consult for b: no tight retry loop on a.
+	if len(router.calls) != 2 || router.calls[0].project != "a" || router.calls[1].project != "b" {
+		t.Fatalf("router calls = %#v", router.calls)
+	}
+	if got := base.reports[0]; got.DeliveryState != domain.ReportPending || !got.AvailableAt.Equal(now.Add(6*time.Second)) {
+		t.Fatalf("a's report = %#v, want pending until the backoff ends", got)
 	}
 }
 
@@ -329,7 +386,8 @@ func TestForkReportRouterPiggyback(t *testing.T) {
 		if err != nil || len(batch.Reports) != 0 {
 			t.Fatalf("batch=%#v err=%v", batch, err)
 		}
-		if got := store.reports[0]; got.DeliveryState != domain.ReportPending || store.acked != 0 || !strings.Contains(got.LastError, "route down") {
+		// Deferred, never pulled forward to now: it keeps its later fallback time.
+		if got := store.reports[0]; got.DeliveryState != domain.ReportPending || store.acked != 0 || !strings.Contains(got.LastError, "route down") || !got.AvailableAt.Equal(now.Add(time.Hour)) {
 			t.Fatalf("report=%#v acked=%d", got, store.acked)
 		}
 	})
@@ -409,6 +467,6 @@ type failingAckStore struct{ *coordinatorStore }
 func (failingAckStore) AcknowledgeReportBatch(context.Context, domain.ProjectID, string, time.Time) (int, error) {
 	return 0, errors.New("store locked")
 }
-func (failingAckStore) ReleaseReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error) {
+func (failingAckStore) DeferReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error) {
 	return 0, errors.New("store locked")
 }

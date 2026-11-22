@@ -21,8 +21,8 @@ import (
 type Router interface {
 	// Route returns handled=true when it took the batch; the coordinator then
 	// acknowledges it with no Submit, no Interrupt and no local wake.
-	// handled=false keeps today's local delivery. An error releases the batch
-	// for a later retry.
+	// handled=false keeps today's local delivery. An error defers the batch
+	// by the retry delay, so a failing route never holds up other projects.
 	Route(ctx context.Context, projectID domain.ProjectID, batch []domain.ReportRecord) (handled bool, err error)
 }
 
@@ -36,7 +36,9 @@ func (c *Coordinator) deliverRouted(ctx context.Context, projectID domain.Projec
 	}
 	handled, err := c.router.Route(ctx, projectID, cloneReports(batch.Reports))
 	if err != nil {
-		return c.release(ctx, batch, fmt.Errorf("route reports: %w", err))
+		// Like a busy orchestrator: back off and let RunDue go on to other
+		// projects. The failure is kept as the batch's last error.
+		return c.deferRouted(ctx, batch, err)
 	}
 	if handled {
 		_, err = c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
@@ -53,7 +55,7 @@ func (c *Coordinator) deliverRouted(ctx context.Context, projectID domain.Projec
 }
 
 // routePiggyback keeps routed reports out of a local Chat turn. A routed
-// batch is acknowledged and nothing is appended. A router failure releases
+// batch is acknowledged and nothing is appended. A router failure defers
 // the batch for RunDue to retry and appends nothing. The user's message is
 // never refused because of routing: a failed release or acknowledgement only
 // leaves the batch claimed, which daemon start requeues (RequeueClaimedReports)
@@ -65,7 +67,7 @@ func (c *Coordinator) routePiggyback(ctx context.Context, batch PreparedBatch) (
 	handled, err := c.router.Route(ctx, batch.ProjectID, cloneReports(batch.Reports))
 	switch {
 	case err != nil:
-		c.releaseForRetry(ctx, batch, err)
+		_ = c.deferRouted(ctx, batch, err)
 	case handled:
 		_, _ = c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
 	default:
@@ -74,10 +76,12 @@ func (c *Coordinator) routePiggyback(ctx context.Context, batch PreparedBatch) (
 	return PreparedBatch{}, nil
 }
 
-// releaseForRetry makes a batch the router refused pending again for RunDue,
-// best effort: a failed release leaves it claimed until daemon start.
-func (c *Coordinator) releaseForRetry(ctx context.Context, batch PreparedBatch, cause error) {
-	_, _ = c.store.ReleaseReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC(), "route reports: "+cause.Error())
+// deferRouted makes a batch the router failed on pending again after the
+// retry delay, behind every report already due. A failed defer leaves it
+// claimed until daemon start.
+func (c *Coordinator) deferRouted(ctx context.Context, batch PreparedBatch, cause error) error {
+	_, err := c.store.DeferReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC().Add(c.retryDelay), "route reports: "+cause.Error())
+	return err
 }
 
 // cloneReports copies the batch, including each report's outputs, so a router
