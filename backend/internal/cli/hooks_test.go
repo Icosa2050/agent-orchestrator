@@ -781,6 +781,54 @@ func TestHooks_ClaudeStopCarriesRunningSubagents(t *testing.T) {
 	}
 }
 
+// A parent Stop that leaves background shells or monitors running reports
+// them, so the read model does not call a worker waiting on them idle.
+func TestHooks_ClaudeStopCarriesBackgroundTasks(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "ao-7")
+	t.Setenv("AO_RUNTIME_LAUNCH_ID", "launch-3")
+	cfg := setConfigEnv(t)
+	srv, capture := activityServer(t, http.StatusOK, `{"ok":true}`)
+	writeRunFileFor(t, cfg, srv)
+	send := func(event, payload string) setActivityAPIRequest {
+		t.Helper()
+		if _, _, err := executeCLI(t, Deps{
+			In: strings.NewReader(payload), ProcessAlive: func(int) bool { return true },
+		}, "hooks", "claude-code", event); err != nil {
+			t.Fatal(err)
+		}
+		var req setActivityAPIRequest
+		if err := json.Unmarshal([]byte(capture.body), &req); err != nil {
+			t.Fatal(err)
+		}
+		return req
+	}
+	req := send("stop", `{"session_id":"native-main","background_tasks":[`+
+		`{"id":"child-1","type":"subagent","status":"running"},`+
+		`{"id":"shell-1","type":"local_bash","status":"running","description":"ao review trigger"},`+
+		`{"id":"mon-1","type":"monitor"},`+
+		`{"id":"shell-0","type":"local_bash","status":"completed"}]}`)
+	if req.BackgroundTasks == nil || len(*req.BackgroundTasks) != 2 {
+		t.Fatalf("background tasks = %+v, want shell-1 and mon-1", req.BackgroundTasks)
+	}
+	got := *req.BackgroundTasks
+	if got[0].ID != "shell-1" || got[0].Type != "local_bash" || got[0].Description != "ao review trigger" || got[1].ID != "mon-1" {
+		t.Fatalf("background tasks = %+v", got)
+	}
+	if req.State != "idle" {
+		t.Fatalf("hook state = %q; the read model, not the hook, reports waiting", req.State)
+	}
+	if req = send("stop", `{"session_id":"native-main","background_tasks":[]}`); req.BackgroundTasks == nil || len(*req.BackgroundTasks) != 0 {
+		t.Fatalf("empty snapshot lost: %+v", req.BackgroundTasks)
+	}
+	if req = send("stop", `{"session_id":"native-main"}`); req.BackgroundTasks != nil {
+		t.Fatalf("missing registry became a snapshot: %+v", req.BackgroundTasks)
+	}
+	// A child's stop does not describe the parent's own background work.
+	if req = send("subagent-stop", `{"session_id":"native-main","agent_id":"child-1","background_tasks":[{"id":"shell-9","type":"local_bash"}]}`); req.BackgroundTasks != nil {
+		t.Fatalf("subagent stop reported parent background tasks: %+v", req.BackgroundTasks)
+	}
+}
+
 func TestHooks_ClaudeSubagentIdentityDoesNotBecomeMainConversation(t *testing.T) {
 	t.Setenv("AO_SESSION_ID", "ao-7")
 	t.Setenv("AO_RUNTIME_LAUNCH_ID", "launch-3")

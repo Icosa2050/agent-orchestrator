@@ -18345,6 +18345,21 @@ components:
         disabled:
           type: boolean
       type: object
+    ControllersActivityBackgroundTask:
+      properties:
+        description:
+          description: Short provider description of the task.
+          type: string
+        id:
+          description: Provider task id.
+          type: string
+        type:
+          description: Provider task type, for example local_bash or monitor.
+          type: string
+      required:
+      - id
+      - type
+      type: object
     ControllersBrowserChromeChannel:
       properties:
         available:
@@ -18885,6 +18900,8 @@ components:
           type: boolean
         autoReviewEnabled:
           type: boolean
+        backgroundWork:
+          $ref: '#/components/schemas/DomainBackgroundWork'
         branch:
           type: string
         branchNaming:
@@ -20498,6 +20515,35 @@ components:
       required:
       - state
       - lastActivityAt
+      type: object
+    DomainBackgroundWork:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/DomainBackgroundWorkItem'
+          type: array
+        pending:
+          type: boolean
+      required:
+      - pending
+      - items
+      type: object
+    DomainBackgroundWorkItem:
+      properties:
+        description:
+          type: string
+        id:
+          type: string
+        kind:
+          enum:
+          - agent_task
+          - provider
+          - review
+          type: string
+        type:
+          type: string
+      required:
+      - kind
       type: object
     DomainConversationBatchedDelivery:
       properties:
@@ -24430,6 +24476,15 @@ components:
         agentSessionId:
           description: Native agent session identifier used to resume its transcript.
           type: string
+        backgroundTasks:
+          description: Non-subagent background tasks (background shells, monitors)
+            still running at a Claude parent Stop hook; empty means none, absent means
+            no snapshot.
+          items:
+            $ref: '#/components/schemas/ControllersActivityBackgroundTask'
+          type:
+          - "null"
+          - array
         conversationCheckpointOrigin:
           description: Whether the main-turn boundary came from a human or AO coordination.
           enum:

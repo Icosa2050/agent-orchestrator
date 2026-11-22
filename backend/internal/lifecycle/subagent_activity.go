@@ -37,6 +37,13 @@ type subagentActivityFacts struct {
 	SnapshotAt      int64                        `json:"snapshotAt,omitempty"`
 	Children        map[string]subagentChildFact `json:"children,omitempty"`
 	PendingSpawns   map[string]int64             `json:"pendingSpawns,omitempty"`
+	// BackgroundTasks is the newest parent Stop snapshot of non-subagent
+	// background work (shells, monitors). It never changes the persisted
+	// activity: the read model reports it as background work, so lifecycle
+	// delivery still sees an idle agent that can take its review feedback.
+	// Field names are shared with domain.ParseActivityFactsBackground.
+	BackgroundTasks []domain.BackgroundTask `json:"backgroundTasks,omitempty"`
+	BackgroundAt    int64                   `json:"backgroundAt,omitempty"`
 }
 
 // reduceSubagentActivity combines the parent turn with native child
@@ -58,7 +65,7 @@ func reduceSubagentActivity(
 		return s, stored, nil
 	}
 	if stored == "" && s.SubagentID == "" &&
-		(s.Event != "stop" || s.RunningSubagentIDs == nil) {
+		(s.Event != "stop" || (s.RunningSubagentIDs == nil && (s.BackgroundTasks == nil || len(*s.BackgroundTasks) == 0))) {
 		return s, "", nil
 	}
 	var facts subagentActivityFacts
@@ -81,6 +88,10 @@ func reduceSubagentActivity(
 	}
 	at := timeOr(s.Timestamp, now).UnixNano()
 	pruneSubagentFacts(&facts, at)
+	if s.Event == "stop" && s.SubagentID == "" && s.BackgroundTasks != nil && at >= facts.BackgroundAt {
+		facts.BackgroundTasks = append([]domain.BackgroundTask(nil), (*s.BackgroundTasks)...)
+		facts.BackgroundAt = at
+	}
 	newerSnapshot := rec.Harness == domain.HarnessClaudeCode && (s.Event == "stop" || s.Event == "subagent-stop") &&
 		s.RunningSubagentIDs != nil && at > facts.SnapshotAt
 	if s.Event == "terminal-idle" {

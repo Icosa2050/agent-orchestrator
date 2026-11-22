@@ -2478,6 +2478,24 @@ func (c *SessionsController) activity(w http.ResponseWriter, r *http.Request) {
 			sig.RunningSubagentIDs = &running
 		}
 	}
+	if in.BackgroundTasks != nil && len(*in.BackgroundTasks) <= 128 {
+		tasks := make([]domain.BackgroundTask, 0, len(*in.BackgroundTasks))
+		for _, task := range *in.BackgroundTasks {
+			clean := domain.BackgroundTask{
+				ID:          capActivityMeta(domain.SanitizeControlChars(strings.TrimSpace(task.ID))),
+				Type:        capActivityMeta(domain.SanitizeControlChars(strings.TrimSpace(task.Type))),
+				Description: capActivityText(domain.SanitizeControlChars(strings.TrimSpace(task.Description)), domain.MaxBackgroundTaskDescription),
+			}
+			if clean.ID == "" {
+				tasks = nil
+				break
+			}
+			tasks = append(tasks, clean)
+		}
+		if tasks != nil {
+			sig.BackgroundTasks = &tasks
+		}
+	}
 	var activityErr error
 	if c.Activity != nil && (sig.Valid || sig.AgentSessionID != "" || sig.SubagentID != "") {
 		activityErr = c.Activity.ApplyActivitySignal(r.Context(), sessionID(r), sig)

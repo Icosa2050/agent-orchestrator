@@ -1282,6 +1282,14 @@ type ChatProviderHibernator interface {
 	Hibernate() error
 }
 
+// ChatBackgroundWorkProbe is optionally implemented by conversations whose
+// provider can report work that outlives a settled turn (background shells,
+// background terminals, monitors). known is false when this provider build
+// cannot answer, which callers must not read as either "pending" or "none".
+type ChatBackgroundWorkProbe interface {
+	BackgroundWorkPending(ctx context.Context) (pending, known bool, err error)
+}
+
 // ChatLiveReconnector identifies attachment to the same initialized provider
 // process, as distinct from native resume in a replacement process.
 type ChatLiveReconnector interface {

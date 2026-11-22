@@ -287,6 +287,8 @@
 	"session.statusChecking": "Checking…",
 	"session.statusUnavailable": "Unable to verify",
 	"session.importedNotOpened": "Imported, not opened yet",
+	"session.waitingOnReview": "Waiting on review",
+	"session.waitingOnBackground": "Waiting on background task",
 	"artifactLink.unavailable": "Artifact unavailable",
 	"artifactLink.noPreview": "No preview available",
 	"session.agentTerminated": "Agent terminated",

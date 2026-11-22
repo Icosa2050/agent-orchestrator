@@ -223,6 +223,7 @@ type Controller struct {
 
 	conv                   ports.ChatConversation
 	store                  Store
+	background             backgroundWorkState
 	continuationReader     SnapshotReader
 	activity               ActivityRecorder
 	log                    *slog.Logger
@@ -3890,6 +3891,9 @@ func (c *Controller) afterProject(ctx context.Context, event ports.ChatEvent, pr
 			activityEvent = "chat.account.reauth"
 		}
 		c.reportActivity(ctx, activityState, activityEvent, now)
+		if activityState == domain.ActivityIdle {
+			c.watchBackgroundWork()
+		}
 		// Only a completed turn releases queued work; a failed or recovered one holds
 		// the queue so it cannot cascade through the same outage (issue #4861). A
 		// prompt the host's watchdog failed for silence is not an outage: the
@@ -3988,6 +3992,7 @@ func (c *Controller) reportProviderState(ctx context.Context, state *ports.ChatT
 			return
 		}
 		c.reportActivity(ctx, domain.ActivityIdle, "chat.provider.idle", now)
+		c.watchBackgroundWork()
 	}
 }
 

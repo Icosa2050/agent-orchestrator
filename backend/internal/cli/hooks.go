@@ -64,6 +64,7 @@ type setActivityAPIRequest struct {
 	ToolUseID                    string                              `json:"toolUseId,omitempty"`
 	SubagentID                   string                              `json:"subagentId,omitempty"`
 	RunningSubagentIDs           *[]string                           `json:"runningSubagentIds,omitempty"`
+	BackgroundTasks              *[]domain.BackgroundTask            `json:"backgroundTasks,omitempty"`
 	AgentSessionID               string                              `json:"agentSessionId,omitempty"`
 	LatestUserPrompt             string                              `json:"latestUserPrompt,omitempty"`
 	LatestAssistantUpdate        string                              `json:"latestAssistantUpdate,omitempty"`
@@ -209,6 +210,56 @@ func claudeSubagentFacts(event string, payload []byte) (string, *[]string) {
 		running = append(running, childID)
 	}
 	return id, &running
+}
+
+// claudeBackgroundTasks mirrors the parent Stop hook's non-subagent background
+// tasks (background shells, monitors, ...). A parent that ends its turn while
+// these run is waiting on its own work, not idle. A non-nil empty slice proves
+// none remain; nil means Claude supplied no usable snapshot.
+func claudeBackgroundTasks(event string, payload []byte) *[]domain.BackgroundTask {
+	if event != "stop" {
+		return nil
+	}
+	var p struct {
+		AgentID         string          `json:"agent_id"`
+		BackgroundTasks json.RawMessage `json:"background_tasks"`
+	}
+	if json.Unmarshal(normalizeHookPayload(payload), &p) != nil || strings.TrimSpace(p.AgentID) != "" ||
+		len(p.BackgroundTasks) == 0 || p.BackgroundTasks[0] != '[' {
+		return nil
+	}
+	var tasks []struct {
+		ID          string `json:"id"`
+		Type        string `json:"type"`
+		Status      string `json:"status"`
+		Description string `json:"description"`
+	}
+	if json.Unmarshal(p.BackgroundTasks, &tasks) != nil || len(tasks) > 128 {
+		return nil
+	}
+	out := make([]domain.BackgroundTask, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Type == "subagent" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(task.Status)) {
+		case "completed", "failed", "killed", "stopped", "cancelled", "canceled":
+			// A settled entry the registry has not pruned yet is not pending work.
+			continue
+		}
+		id := validSubagentID(task.ID)
+		if id == "" {
+			return nil
+		}
+		desc := domain.SanitizeControlChars(strings.TrimSpace(task.Description))
+		if runes := []rune(desc); len(runes) > domain.MaxBackgroundTaskDescription {
+			desc = string(runes[:domain.MaxBackgroundTaskDescription])
+		}
+		out = append(out, domain.BackgroundTask{
+			ID: id, Type: validSubagentID(task.Type), Description: desc,
+		})
+	}
+	return &out
 }
 
 func validSubagentID(id string) string {
@@ -920,8 +971,10 @@ func (c *commandContext) runHook(ctx context.Context, agent, event string) error
 	usage := hookUsageMetadata(agent, payload)
 	var subagentID string
 	var runningSubagentIDs *[]string
+	var backgroundTasks *[]domain.BackgroundTask
 	if domain.AgentHarness(agent) == domain.HarnessClaudeCode {
 		subagentID, runningSubagentIDs = claudeSubagentFacts(event, payload)
+		backgroundTasks = claudeBackgroundTasks(event, payload)
 	} else if domain.AgentHarness(agent) == domain.HarnessCodex {
 		subagentID = codexSubagentID(event, payload)
 		if event == "post-tool-use" {
@@ -980,6 +1033,7 @@ func (c *commandContext) runHook(ctx context.Context, agent, event string) error
 		ToolUseID:                    toolUseID,
 		SubagentID:                   subagentID,
 		RunningSubagentIDs:           runningSubagentIDs,
+		BackgroundTasks:              backgroundTasks,
 		AgentSessionID:               agentSessionID,
 		LatestUserPrompt:             conversation.LatestUserPrompt,
 		LatestAssistantUpdate:        conversation.LatestAssistantUpdate,

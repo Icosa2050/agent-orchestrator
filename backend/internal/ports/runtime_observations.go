@@ -53,7 +53,11 @@ type ActivitySignal struct {
 	// RunningSubagentIDs is Claude's authoritative parent task snapshot.
 	// Codex provides child start/stop events instead and leaves this nil.
 	RunningSubagentIDs *[]string
-	AgentSessionID     string
+	// BackgroundTasks is Claude's parent Stop-hook snapshot of its non-subagent
+	// background tasks (background shells, monitors, ...). nil means no
+	// snapshot; a non-nil empty slice proves none remain.
+	BackgroundTasks *[]domain.BackgroundTask
+	AgentSessionID  string
 	// LatestUserPrompt and LatestAssistantUpdate are provider hook facts used
 	// to build a deterministic handoff. Lifecycle accepts them only from their
 	// main-turn event boundaries (UserPromptSubmit and Stop) under the current

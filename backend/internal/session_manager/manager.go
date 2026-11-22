@@ -5440,8 +5440,10 @@ func (m *Manager) SendSemantic(ctx context.Context, id domain.SessionID, message
 		// A pane write whose activity confirmation could not be observed is not
 		// fatal here: SendSemantic's own durable acceptance loop below is
 		// authoritative and correlates this exact message through its submission
-		// marker. Any other send error is a real failure.
-		if !errors.Is(err, ErrDeliveryUnconfirmed) {
+		// marker; it also reports a session that ended under the delivery,
+		// after honoring a receipt that landed first. Any other send error is a
+		// real failure.
+		if !errors.Is(err, ErrDeliveryUnconfirmed) && !errors.Is(err, ErrAgentExited) && !errors.Is(err, ErrTerminated) {
 			return err
 		}
 	}
@@ -5815,6 +5817,22 @@ func (m *Manager) confirmActiveWithStop(ctx context.Context, guard *sessionguard
 
 type confirmationStopCheck func(context.Context) (bool, error)
 
+// endedDuringDeliveryErr maps a nudge suppressed because the session ended to
+// the error the sender must see. Other suppressions (busy, awaiting a
+// decision, input gated) leave an already-delivered message in place.
+func endedDuringDeliveryErr(outcome sessionguard.Outcome) error {
+	switch outcome {
+	case sessionguard.SuppressedTerminated:
+		return ErrTerminated
+	case sessionguard.SuppressedExited:
+		return ErrAgentExited
+	case sessionguard.SuppressedNotFound:
+		return ErrNotFound
+	default:
+		return nil
+	}
+}
+
 func (m *Manager) confirmActiveWithNudge(ctx context.Context, id domain.SessionID, evidence deliveryEvidence, stop confirmationStopCheck, nudge func(context.Context) (sessionguard.Outcome, error)) error {
 	for attempt := 1; ; attempt++ {
 		if m.confirmationStopRequested(ctx, id, attempt, stop) {
@@ -5865,7 +5883,10 @@ func (m *Manager) confirmActiveWithNudge(ctx context.Context, id domain.SessionI
 			// terminated, or vanished since the poll — the outcome says which.
 			// The mutation-safe switch path additionally suppresses active turns.
 			m.logger.Info("send: session unavailable before nudge; skipping Enter nudge", "sessionID", id, "attempt", attempt, "outcome", nudgeOutcome.String())
-			return nil
+			// A session that ended under the delivery never ran the message.
+			// Reporting success here is the silent drop a sender cannot see
+			// (for example a merged worker torn down right after the paste).
+			return endedDuringDeliveryErr(nudgeOutcome)
 		}
 	}
 }
@@ -5914,6 +5935,14 @@ func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID, eviden
 		}
 		if evidence.accepted(rec) {
 			return waitActive, nil
+		}
+		// The message cannot start a turn in a session that ended under it;
+		// fail now instead of nudging a dead pane and reporting success.
+		if rec.IsTerminated {
+			return waitTimedOut, ErrTerminated
+		}
+		if rec.Activity.State == domain.ActivityExited {
+			return waitTimedOut, ErrAgentExited
 		}
 		if !m.clock().Before(deadlineAt) {
 			return waitTimedOut, nil
