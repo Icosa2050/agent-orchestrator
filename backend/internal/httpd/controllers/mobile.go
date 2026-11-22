@@ -388,6 +388,13 @@ type BridgeService struct {
 	// PushDevices lets revoking every device also remove its push registration.
 	PushDevices DeviceRoster
 
+	// OnDevicePaired runs after a device is stored and before its token is
+	// returned; code is empty for a password pairing. An error revokes the
+	// device and fails the pairing, so the token never leaves PairDevice. Set
+	// before the listener starts; nil does nothing. Fork: fleet seam (FORK.md);
+	// the fork binds a fleet grant to the device here.
+	OnDevicePaired func(code string, device mobilebridge.AccessDevice) error
+
 	// OnBrowserRemoteAccessDisabled synchronously revokes live streams when the
 	// desktop turns the additional browser-access gate off. It is nil until the
 	// browser-live service is wired.
@@ -1176,6 +1183,12 @@ func (b *BridgeService) PairDevice(code, name, platform string) (PairDeviceRespo
 	device, token, err := b.Devices.Issue(name, platform, time.Now())
 	if err != nil {
 		return PairDeviceResponse{}, err
+	}
+	if b.OnDevicePaired != nil { // Fork: fleet seam (FORK.md).
+		if hookErr := b.OnDevicePaired(code, device); hookErr != nil {
+			_, _, revokeErr := b.RevokeDevice(device.ID)
+			return PairDeviceResponse{}, errors.Join(fmt.Errorf("bind paired device: %w", hookErr), revokeErr)
+		}
 	}
 	return PairDeviceResponse{HostID: b.HostID, DeviceID: device.ID, Token: token, Credential: credential}, nil
 }

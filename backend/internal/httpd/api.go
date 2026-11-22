@@ -123,6 +123,11 @@ type APIDeps struct {
 	DeviceAccess controllers.DeviceAccess
 	// AccessDevices links push registrations to device tokens.
 	AccessDevices *mobilebridge.AccessDevices
+
+	// Extensions mount extra routes on the root router after the API surface.
+	// Nil mounts nothing. Fork: fleet seam (FORK.md); the fork registers its
+	// /api/v1/fleet/v1 routes here.
+	Extensions []func(chi.Router)
 }
 
 // normalizeAPIDeps closes the Presence/DeviceLive duplication trap structurally.

@@ -66,7 +66,7 @@ func newSendCommand(ctx *commandContext) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.steer, "steer", false, "Steer an active Chat turn, or start the next turn when idle")
 	cmd.Flags().StringVar(&opts.clientMessageID, "client-message-id", "", "Stable steering delivery handle")
 	cmd.Flags().BoolVar(&opts.recoverOnly, "recover-only", false, "Recover a steering result without contacting the provider")
-	return cmd
+	return markRemoteFleetWrite(cmd) // Fork: fleet seam (FORK.md).
 }
 
 func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) error {

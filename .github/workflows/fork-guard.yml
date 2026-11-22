@@ -61,6 +61,10 @@ jobs:
           esac
           echo "range=$range" >>"$GITHUB_OUTPUT"
 
+      - name: Self-test the seam check
+        # A dropped "Fork: fleet seam" marker must be flagged (FORK.md).
+        run: scripts/fork/upstream-guard.test.sh
+
       - name: Run upstream guard
         id: guard
         env:

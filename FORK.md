@@ -113,6 +113,31 @@ check and the build fails on a change unless `ICOSA_ALLOW_DR_CHANGE=1`.
 `manifest.json`. `frontend/scripts/icosa-version.mjs` holds the version logic;
 `build-icosa-local.node-test.mjs` tests it.
 
+## Fleet seams (fleet messaging and control, PR-0)
+
+Fleet messaging and control lives in fork-owned code. It attaches to
+upstream-owned files only through these small seams, each marked with a
+`Fork: fleet seam (FORK.md)` comment. Each is inert while unset, so with the
+default wiring (`backend/internal/daemon/fork_fleet_wiring.go`, all no-ops in
+PR-0) the daemon behaves exactly as upstream.
+
+| Seam | Upstream file | What plugs in | Default |
+|---|---|---|---|
+| `APIDeps.Extensions []func(chi.Router)`, mounted after `api.Register` | `backend/internal/httpd/api.go`, `router.go` | fork `/api/v1/fleet/v1/*` routes | nil: nothing mounted |
+| `BridgeService.OnDevicePaired(code, device) error`, called after the device is stored and before its token is returned; an error revokes the device and fails pairing, so no token leaves | `backend/internal/httpd/controllers/mobile.go` | binds a fleet grant to the paired device | nil: pairing unchanged |
+| LAN handler wrap: `NewMobileLAN(fleet.lanHandler(srv.Handler()), ...)`; the wrap runs inside the LAN control block and `authMiddleware`, so it only narrows access | `backend/internal/daemon/daemon.go` | fleet scope gate | identity |
+| `CoordinatorDeps.Router ReportRouter`; a handled batch is acknowledged with no Submit, Interrupt or local wake, and never piggybacked | `backend/internal/service/report/coordinator.go` (+ `coordinator_router.go`) | master-only report hand-off (Q4) | nil: local delivery unchanged |
+| `markRemoteFleetWrite(cmd)` on `spawn`, `send`, `session kill` | `backend/internal/cli/spawn.go`, `send.go`, `session.go` | fleet write client (`--host`) | still refused like any remote write |
+
+Tests: `TestForkFleet*`, `TestForkOnDevicePaired*`, `TestForkDeviceToken*`
+(`./internal/httpd`, including the issuance-path invariant that only
+`BridgeService.PairDevice` mints device tokens), `TestForkReportRouter*` with
+all `TestCoordinator*` (`./internal/service/report`), `TestForkFleetWiring*`
+(`./internal/daemon`) and `TestForkFleetWrite*` (`./internal/cli`), all in
+`protected-tests.sh`. The guard flags any `Fork: fleet seam` marker lost
+between the merge base and HEAD; `scripts/fork/upstream-guard.test.sh`
+checks that it does.
+
 ## Upstream-sync review procedure (mandatory)
 
 Never use GitHub's "Sync fork" button, `gh repo sync` or the merge-upstream
@@ -149,6 +174,8 @@ What to check in each flagged section of the report:
 
 - **DELETED protected files:** a blocker unless the PR keeps an equivalent
   local path and test.
+- **Fork fleet seam markers removed:** a blocker. Restore the seam (see Fleet
+  seams) when resolving the merge; the protected seam tests must pass.
 - **Account / sign-in gating:** any new gate on add, connect, list, the LAN
   listener or the CLI is a conflict (see below).
 - **Outbound endpoints, DSN / API-key defaults:** a new endpoint must require explicit opt-in; an absent opt-out is not consent. Dev builds must keep empty DSNs.

@@ -225,6 +225,19 @@ scan_lines "+" "" "$secrets" |
 	scan_lines "+" "" "$optout" | sed 's/^/added    /'
 } | flag "Telemetry opt-out marker / dev-build DSN guard changed"
 
+# Fork seams (FORK.md "Fleet seams"): every "Fork: fleet seam" marker present
+# at the merge base must survive in HEAD. An upstream-only range has none at
+# its merge base; a sync merge or a PR re-run against fork main has them all.
+seam_marker='Fork: fleet seam'
+seam_counts() { # $1: revision; prints "path count" per file with markers
+	git grep -c -F "$seam_marker" "$1" -- ':/' 2>/dev/null | sed "s|^$1:||" | awk -F: '{ print $1 " " $2 }' || true
+}
+seam_counts "$merge_base" >"$work/seams.base"
+seam_counts "$head_sha" >"$work/seams.head"
+awk 'FILENAME == ARGV[1] { h[$1] = $2; next } { got = ($1 in h) ? h[$1] : 0; if (got < $2) printf "%s: %d -> %d markers\n", $1, $2, got }' \
+	"$work/seams.head" "$work/seams.base" |
+	flag "Fork fleet seam markers removed (blocker: restore the seam, see FORK.md)"
+
 awk -F'\t' '$2 ~ /(^|\/)migrations\/[^\/]+\.sql$/ { print $1 "  " $2 }' "$work/files" |
 	flag "SQLite migrations (new or changed)"
 

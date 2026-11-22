@@ -54,6 +54,7 @@ type Delivery interface {
 type Coordinator struct {
 	store      DeliveryStore
 	delivery   Delivery
+	router     ReportRouter
 	now        func() time.Time
 	newToken   func() string
 	retryDelay time.Duration
@@ -68,6 +69,9 @@ type CoordinatorDeps struct {
 	Now        func() time.Time
 	NewToken   func() string
 	RetryDelay time.Duration
+	// Router may hand claimed batches elsewhere instead of to the local
+	// orchestrator. Nil keeps local delivery. Fork: fleet seam (FORK.md).
+	Router ReportRouter
 }
 
 // NewCoordinator constructs an idle report delivery coordinator.
@@ -81,7 +85,7 @@ func NewCoordinator(d CoordinatorDeps) *Coordinator {
 	if d.RetryDelay <= 0 {
 		d.RetryDelay = 5 * time.Second
 	}
-	return &Coordinator{store: d.Store, delivery: d.Delivery, now: d.Now, newToken: d.NewToken, retryDelay: d.RetryDelay, wake: make(chan struct{}, 1)}
+	return &Coordinator{store: d.Store, delivery: d.Delivery, router: d.Router, now: d.Now, newToken: d.NewToken, retryDelay: d.RetryDelay, wake: make(chan struct{}, 1)}
 }
 
 // Wake asks the coordinator to inspect durable scheduling state.
@@ -154,6 +158,9 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 }
 
 func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.ProjectID) error {
+	if c.router != nil { // Fork: fleet seam (FORK.md).
+		return c.deliverRouted(ctx, projectID)
+	}
 	target, ok, err := c.activeOrchestrator(ctx, projectID)
 	if err != nil {
 		return err
@@ -165,6 +172,10 @@ func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.Proje
 	if err != nil || len(batch.Reports) == 0 {
 		return err
 	}
+	return c.deliverClaimed(ctx, target, batch)
+}
+
+func (c *Coordinator) deliverClaimed(ctx context.Context, target domain.SessionRecord, batch PreparedBatch) error {
 	// Terminal orchestrators queue typed input during a turn, and a Ctrl-C
 	// there cancels the running turn or a prompt that was just submitted, so
 	// stuck reports are delivered to them like any other report.
@@ -199,7 +210,7 @@ func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.Proje
 		}
 		return c.retryLater(ctx, batch, err)
 	}
-	_, err = c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
+	_, err := c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
 	return err
 }
 
@@ -257,7 +268,11 @@ func (c *Coordinator) PreparePiggyback(ctx context.Context, target domain.Sessio
 	if rec.Kind != domain.KindOrchestrator || rec.IsTerminated || domain.NormalizeSessionMode(rec.Mode) != domain.SessionModeChat {
 		return PreparedBatch{}, nil
 	}
-	return c.claim(ctx, rec.ProjectID)
+	batch, err := c.claim(ctx, rec.ProjectID)
+	if err != nil || c.router == nil {
+		return batch, err
+	}
+	return c.routePiggyback(ctx, batch) // Fork: fleet seam (FORK.md).
 }
 
 // AcceptPiggyback acknowledges reports after the combined user turn is accepted.

@@ -290,7 +290,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.BoolVar(&opts.noTakeover, "no-takeover", false, "Refuse if another active session owns the claimed PR (requires --claim-pr)")
 	f.BoolVar(&opts.review, "review", false, "Claim the PR to review it, not work on it: start with automatic CI and review-comment fixing and native auto-review off; implies --no-takeover (requires --claim-pr)")
 	f.BoolVar(&opts.skipAgentCheck, "skip-agent-check", false, "Skip CLI readiness warnings (the daemon still validates launch readiness)")
-	return cmd
+	return markRemoteFleetWrite(cmd) // Fork: fleet seam (FORK.md).
 }
 
 // spawnStartPollInterval paces the wait for a session started in the background.

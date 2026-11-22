@@ -26,6 +26,18 @@ func markRemoteReadOnly(cmd *cobra.Command) *cobra.Command {
 	return cmd
 }
 
+// markRemoteFleetWrite marks cmd as a fleet-control write (spawn, send,
+// session kill). Fork: fleet seam (FORK.md). selectRemoteHost still refuses
+// such commands against a remote host; the fleet write client opts them in
+// later, with an explicit --host only.
+func markRemoteFleetWrite(cmd *cobra.Command) *cobra.Command {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[remoteAnnotation] = remoteAnnotationFleetWrite
+	return cmd
+}
+
 func remoteMode(cmd *cobra.Command) (mode string, hidden bool) {
 	for c := cmd; c != nil; c = c.Parent() {
 		hidden = hidden || c.Hidden
