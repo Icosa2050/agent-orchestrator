@@ -89,7 +89,7 @@ type coordinatorOutcome struct {
 
 // runCoordinatorScenarios replays the existing local-delivery scenarios with
 // the given router and records everything observable.
-func runCoordinatorScenarios(t *testing.T, router func(*countingStore) ReportRouter) []coordinatorOutcome {
+func runCoordinatorScenarios(t *testing.T, router func(*countingStore) Router) []coordinatorOutcome {
 	t.Helper()
 	type scenario struct {
 		setup func(*coordinatorStore, time.Time)
@@ -151,12 +151,12 @@ func runCoordinatorScenarios(t *testing.T, router func(*countingStore) ReportRou
 // U-Q4.1 / U-Q4.3: a nil router and a router that never handles leave every
 // existing local-delivery scenario byte-for-byte unchanged.
 func TestForkReportRouterUnhandledKeepsLocalDeliveryIdentical(t *testing.T) {
-	baseline := runCoordinatorScenarios(t, func(*countingStore) ReportRouter { return nil })
+	baseline := runCoordinatorScenarios(t, func(*countingStore) Router { return nil })
 	if len(baseline[0].Submissions) == 0 || len(baseline[1].Interrupts) != 1 {
 		t.Fatalf("baseline scenarios did not exercise delivery: %#v", baseline)
 	}
 	var routers []*fakeReportRouter
-	unhandled := runCoordinatorScenarios(t, func(s *countingStore) ReportRouter {
+	unhandled := runCoordinatorScenarios(t, func(s *countingStore) Router {
 		r := &fakeReportRouter{handled: never, store: s}
 		routers = append(routers, r)
 		return r
@@ -305,7 +305,7 @@ func TestForkReportRouterCannotMutateLocalBatch(t *testing.T) {
 // U-Q4.5: a local Chat turn never piggybacks routed reports.
 func TestForkReportRouterPiggyback(t *testing.T) {
 	now := time.Date(2026, 9, 14, 16, 0, 0, 0, time.UTC)
-	setup := func(router ReportRouter) (*coordinatorStore, *Coordinator) {
+	setup := func(router Router) (*coordinatorStore, *Coordinator) {
 		base := newCoordinatorStore(now)
 		base.sessions = []domain.SessionRecord{{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat}}
 		base.add(reportAt("info", "worker", now, now.Add(time.Hour), "context"))

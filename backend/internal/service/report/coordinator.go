@@ -54,7 +54,7 @@ type Delivery interface {
 type Coordinator struct {
 	store      DeliveryStore
 	delivery   Delivery
-	router     ReportRouter
+	router     Router
 	now        func() time.Time
 	newToken   func() string
 	retryDelay time.Duration
@@ -71,7 +71,7 @@ type CoordinatorDeps struct {
 	RetryDelay time.Duration
 	// Router may hand claimed batches elsewhere instead of to the local
 	// orchestrator. Nil keeps local delivery. Fork: fleet seam (FORK.md).
-	Router ReportRouter
+	Router Router
 }
 
 // NewCoordinator constructs an idle report delivery coordinator.

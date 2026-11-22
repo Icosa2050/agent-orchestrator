@@ -35,5 +35,5 @@ func (forkFleet) onDevicePaired() func(code string, device mobilebridge.AccessDe
 	return nil
 }
 
-// reportRouter is the report coordinator's ReportRouter. Nil keeps local delivery.
-func (forkFleet) reportRouter() reportsvc.ReportRouter { return nil }
+// reportRouter is the report coordinator's Router. Nil keeps local delivery.
+func (forkFleet) reportRouter() reportsvc.Router { return nil }

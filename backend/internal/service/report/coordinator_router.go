@@ -8,7 +8,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
-// ReportRouter decides, per claimed batch, whether reports go somewhere other
+// Router decides, per claimed batch, whether reports go somewhere other
 // than the project's local orchestrator. Fork: fleet seam (FORK.md); the fork
 // hands reports of fleet-routed projects to their remote master (PR-D).
 //
@@ -18,7 +18,7 @@ import (
 // and Route sees the same reports again. Route may be called concurrently
 // (the delivery loop and a Chat piggyback), so it must be safe for that. It
 // gets a copy of the batch.
-type ReportRouter interface {
+type Router interface {
 	// Route returns handled=true when it took the batch; the coordinator then
 	// acknowledges it with no Submit, no Interrupt and no local wake.
 	// handled=false keeps today's local delivery. An error releases the batch
@@ -65,13 +65,19 @@ func (c *Coordinator) routePiggyback(ctx context.Context, batch PreparedBatch) (
 	handled, err := c.router.Route(ctx, batch.ProjectID, cloneReports(batch.Reports))
 	switch {
 	case err != nil:
-		_, _ = c.store.ReleaseReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC(), "route reports: "+err.Error())
-		return PreparedBatch{}, nil
+		c.releaseForRetry(ctx, batch, err)
 	case handled:
 		_, _ = c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
-		return PreparedBatch{}, nil
+	default:
+		return batch, nil
 	}
-	return batch, nil
+	return PreparedBatch{}, nil
+}
+
+// releaseForRetry makes a batch the router refused pending again for RunDue,
+// best effort: a failed release leaves it claimed until daemon start.
+func (c *Coordinator) releaseForRetry(ctx context.Context, batch PreparedBatch, cause error) {
+	_, _ = c.store.ReleaseReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC(), "route reports: "+cause.Error())
 }
 
 // cloneReports copies the batch, including each report's outputs, so a router

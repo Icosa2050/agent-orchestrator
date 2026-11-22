@@ -126,7 +126,7 @@ PR-0) the daemon behaves exactly as upstream.
 | `APIDeps.Extensions []func(chi.Router)`, mounted after `api.Register` | `backend/internal/httpd/api.go`, `router.go` | fork `/api/v1/fleet/v1/*` routes | nil: nothing mounted |
 | `BridgeService.OnDevicePaired(code, device) error`, called after the device is stored and before its token is returned; an error revokes the device and fails pairing, so no token leaves | `backend/internal/httpd/controllers/mobile.go` | binds a fleet grant to the paired device | nil: pairing unchanged |
 | LAN handler wrap: `NewMobileLAN(fleet.lanHandler(srv.Handler()), ...)`; the wrap runs inside the LAN control block and `authMiddleware`, so it only narrows access | `backend/internal/daemon/daemon.go` | fleet scope gate | identity |
-| `CoordinatorDeps.Router ReportRouter`; a handled batch is acknowledged with no Submit, Interrupt or local wake, and never piggybacked | `backend/internal/service/report/coordinator.go` (+ `coordinator_router.go`) | master-only report hand-off (Q4) | nil: local delivery unchanged |
+| `CoordinatorDeps.Router` (`report.Router`); a handled batch is acknowledged with no Submit, Interrupt or local wake, and never piggybacked | `backend/internal/service/report/coordinator.go` (+ `coordinator_router.go`) | master-only report hand-off (Q4) | nil: local delivery unchanged |
 | `markRemoteFleetWrite(cmd)` on `spawn`, `send`, `session kill` | `backend/internal/cli/spawn.go`, `send.go`, `session.go` | fleet write client (`--host`) | still refused like any remote write |
 
 Tests: `TestForkFleet*`, `TestForkOnDevicePaired*`, `TestForkDeviceToken*`
