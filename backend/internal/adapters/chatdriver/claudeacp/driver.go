@@ -99,6 +99,7 @@ func New(plugin claudePlugin, log *slog.Logger, onAuthRejected func()) ports.Cha
 		OnAuthRejected:        claudeAuthRejected(onAuthRejected),
 		PromptResponseFailure: claudePromptResponseFailure,
 		CanHibernate:          claudeCanHibernate,
+		BackgroundWork:        claudeBackgroundWork,
 		HistoryNotice:         claudeTranscriptNotice,
 		// claude-agent-acp keeps one TaskCreate/TaskUpdate list for the session
 		// and re-sends it at the start of every prompt while a task is unfinished.
@@ -224,26 +225,37 @@ func permissionOption(options []acpsdk.PermissionOption, kind acpsdk.PermissionO
 }
 
 func claudeCanHibernate(ctx context.Context, conn *acpsdk.ClientSideConnection, id acpsdk.SessionId) (bool, error) {
+	pending, known, err := claudeBackgroundWork(ctx, conn, id)
+	if err != nil {
+		return false, err
+	}
+	// An unpatched bridge cannot prove background work ended.
+	return known && !pending, nil
+}
+
+// claudeBackgroundWork asks AO's bridge whether Claude still runs background
+// tasks for the session. known is false for a bridge without the extension.
+func claudeBackgroundWork(ctx context.Context, conn *acpsdk.ClientSideConnection, id acpsdk.SessionId) (pending, known bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	raw, err := conn.CallExtension(ctx, "_ao/session/can_hibernate", map[string]any{"sessionId": id})
 	if err != nil {
 		var requestErr *acpsdk.RequestError
 		if errors.As(err, &requestErr) && requestErr.Code == -32601 {
-			return false, nil // An unpatched bridge cannot prove background work ended.
+			return false, false, nil
 		}
-		return false, err
+		return false, false, err
 	}
 	var result struct {
 		CanHibernate *bool `json:"canHibernate"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return false, err
+		return false, false, err
 	}
 	if result.CanHibernate == nil {
-		return false, errors.New("claude background-task check is missing canHibernate")
+		return false, false, errors.New("claude background-task check is missing canHibernate")
 	}
-	return *result.CanHibernate, nil
+	return !*result.CanHibernate, true, nil
 }
 
 func validateClaudeLaunchAuth(ctx context.Context, plugin claudePlugin, workingDir string, env map[string]string, log *slog.Logger) error {

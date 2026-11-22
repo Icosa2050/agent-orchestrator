@@ -287,6 +287,8 @@
 	"session.statusChecking": "Wird geprüft…",
 	"session.statusUnavailable": "Status nicht überprüfbar",
 	"session.importedNotOpened": "Importiert, noch nicht geöffnet",
+	"session.waitingOnReview": "Wartet auf Review",
+	"session.waitingOnBackground": "Wartet auf Hintergrundaufgabe",
 	"artifactLink.unavailable": "Artefakt nicht verfügbar",
 	"artifactLink.noPreview": "Keine Vorschau verfügbar",
 	"session.agentTerminated": "Agent beendet",

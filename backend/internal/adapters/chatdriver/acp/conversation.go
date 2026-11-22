@@ -210,6 +210,7 @@ type conversation struct {
 	// sessionPromptResponseFailure is promptResponseFailure given the session.
 	sessionPromptResponseFailure func(string, acpsdk.PromptResponse, bool) error
 	hibernationCheck             func(context.Context, *acpsdk.ClientSideConnection, acpsdk.SessionId) (bool, error)
+	backgroundWorkCheck          func(context.Context, *acpsdk.ClientSideConnection, acpsdk.SessionId) (bool, bool, error)
 	historyNotice                func(string) bool
 	// promptErrorFailure: see Config.PromptErrorFailure.
 	promptErrorFailure func(error, bool) error
@@ -1395,6 +1396,17 @@ func (c *conversation) CanHibernate(ctx context.Context) (bool, error) {
 	id := c.sessionID
 	c.mu.Unlock()
 	return c.hibernationCheck(ctx, c.conn, acpsdk.SessionId(id))
+}
+
+// BackgroundWorkPending reports provider-owned work that outlives a prompt.
+func (c *conversation) BackgroundWorkPending(ctx context.Context) (pending, known bool, err error) {
+	if c.backgroundWorkCheck == nil {
+		return false, false, nil
+	}
+	c.mu.Lock()
+	id := c.sessionID
+	c.mu.Unlock()
+	return c.backgroundWorkCheck(ctx, c.conn, acpsdk.SessionId(id))
 }
 
 // Hibernate releases the bridge and its provider without closing the native

@@ -481,6 +481,68 @@ describe("SessionsBoard", () => {
 		expect(presentation.lastUserMessageAt).toBe("2026-01-01T09:00:00Z");
 	});
 
+	it("names the background work a waiting worker is busy on", () => {
+		const active = { state: "active" as const, lastActivityAt: "2026-01-01T10:00:00Z" };
+		const review = toBoardSessionPresentation(
+			boardSession({
+				id: "waiting-review",
+				status: "working",
+				title: "waiting on review",
+				activity: active,
+				backgroundWork: { items: [{ kind: "review", id: "run-1" }, { kind: "agent_task", id: "bash-1" }] },
+			}),
+		);
+		expect(review.statusPresentation?.label).toBe("Waiting on review");
+		expect(review.statusPresentation?.className).toBe("text-status-working");
+
+		const task = toBoardSessionPresentation(
+			boardSession({
+				id: "waiting-task",
+				status: "working",
+				title: "waiting on a shell",
+				activity: active,
+				backgroundWork: { items: [{ kind: "agent_task", id: "bash-1", type: "local_bash" }] },
+			}),
+		);
+		expect(task.statusPresentation?.label).toBe("Waiting on background task");
+
+		// A finished PR keeps its outcome even with a leftover task.
+		const merged = toBoardSessionPresentation(
+			boardSession({
+				id: "merged-leftover",
+				status: "merged",
+				title: "merged",
+				activity: active,
+				displayStatus: "Merged",
+				backgroundWork: { items: [{ kind: "agent_task", id: "bash-1" }] },
+			}),
+		);
+		expect(merged.statusPresentation).toBeUndefined();
+
+		const plain = toBoardSessionPresentation(boardSession({ id: "plain", status: "idle", title: "idle" }));
+		expect(plain.statusPresentation).toBeUndefined();
+	});
+
+	it.each(["waiting_input", "blocked"] as const)(
+		"keeps a %s worker's attention label while its review runs",
+		(state) => {
+			const label = state === "blocked" ? "Blocked" : "Needs input";
+			const session = boardSession({
+				id: `attention-${state}`,
+				status: "needs_input",
+				title: `${state} worker`,
+				activity: { state, lastActivityAt: "2026-01-01T10:00:00Z" },
+				displayStatus: label,
+				backgroundWork: { items: [{ kind: "review", id: "run-1" }] },
+			});
+			expect(toBoardSessionPresentation(session).statusPresentation).toBeUndefined();
+			workspaceQueryMock.mockReturnValue({ data: [workspaceWithSessions([session])], isError: false });
+			renderBoard("p1");
+			expect(screen.getByText(label)).toBeInTheDocument();
+			expect(screen.queryByText("Waiting on review")).not.toBeInTheDocument();
+		},
+	);
+
 	it("localizes dynamic card actions and pull request lifecycle labels", async () => {
 		await appI18n.changeLanguage("zh-CN");
 		workspaceQueryMock.mockReturnValue({

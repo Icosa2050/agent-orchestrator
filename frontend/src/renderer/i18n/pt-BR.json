@@ -288,6 +288,8 @@
 	"session.statusChecking": "Verificando…",
 	"session.statusUnavailable": "Não foi possível verificar",
 	"session.importedNotOpened": "Importado, ainda não aberto",
+	"session.waitingOnReview": "Aguardando revisão",
+	"session.waitingOnBackground": "Aguardando tarefa em segundo plano",
 	"artifactLink.unavailable": "Artefato indisponível",
 	"artifactLink.noPreview": "Nenhuma pré-visualização disponível",
 	"session.agentTerminated": "Agente encerrado",

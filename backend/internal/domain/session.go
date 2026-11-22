@@ -717,9 +717,14 @@ type Session struct {
 	StatusReadiness string `json:"statusReadiness" enum:"checking,ready,unavailable"`
 	// ChatProviderPreserved is a live-controller observation, never stored.
 	// False also covers recovery/unknown ownership; callers must not infer safety.
-	ChatProviderPreserved bool          `json:"chatProviderPreserved"`
-	Status                SessionStatus `json:"status" enum:"working,pr_open,draft,ci_failed,review_pending,changes_requested,commented,approved,mergeable,merged,needs_input,exited,idle,terminated,no_signal"`
-	SCMStatus             SessionStatus `json:"scmStatus,omitempty" enum:"pr_open,draft,ci_failed,review_pending,changes_requested,commented,approved,mergeable,merged"`
+	ChatProviderPreserved bool `json:"chatProviderPreserved"`
+	// BackgroundWork is present while the session waits on work it started
+	// itself (a background shell or monitor, a live provider task, an AO review
+	// of its PR whose result comes back to it). Such a session is reported as
+	// active, never idle. Derived at read time, never stored.
+	BackgroundWork *BackgroundWork `json:"backgroundWork,omitempty"`
+	Status         SessionStatus   `json:"status" enum:"working,pr_open,draft,ci_failed,review_pending,changes_requested,commented,approved,mergeable,merged,needs_input,exited,idle,terminated,no_signal"`
+	SCMStatus      SessionStatus   `json:"scmStatus,omitempty" enum:"pr_open,draft,ci_failed,review_pending,changes_requested,commented,approved,mergeable,merged"`
 	// KanbanColumn is where the session sits in its delivery lifecycle and
 	// which loop is turning it: an AO-driven one (validating) or the
 	// review-feedback loop whose next turn is a person's (needs_review). It is
