@@ -43,6 +43,9 @@ func (r *fakeReportRouter) Route(_ context.Context, project domain.ProjectID, ba
 		call.states = append(call.states, batch[i].DeliveryState)
 		if r.mutate {
 			batch[i].Note = "mutated by router"
+			for j := range batch[i].Outputs {
+				batch[i].Outputs[j].Reference = "mutated-output"
+			}
 		}
 	}
 	r.calls = append(r.calls, call)
@@ -286,13 +289,15 @@ func TestForkReportRouterCannotMutateLocalBatch(t *testing.T) {
 	now := time.Date(2026, 9, 14, 15, 0, 0, 0, time.UTC)
 	base := newCoordinatorStore(now)
 	base.sessions = []domain.SessionRecord{{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat}}
-	base.add(reportAt("info", "worker", now, now, "original note"))
+	info := reportAt("info", "worker", now, now, "original note")
+	info.Outputs = []domain.ReportOutput{{Kind: domain.ReportOutputPRCreated, Reference: "https://github.com/o/r/pull/7", Label: "pr"}}
+	base.add(info)
 	delivery := &coordinatorDelivery{}
 	c := NewCoordinator(CoordinatorDeps{Store: base, Delivery: delivery, Now: func() time.Time { return now }, Router: &fakeReportRouter{handled: never, mutate: true}})
 	if _, err := c.RunDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(delivery.submissions) != 1 || !strings.Contains(delivery.submissions[0].message, "original note") || strings.Contains(delivery.submissions[0].message, "mutated") {
+	if len(delivery.submissions) != 1 || !strings.Contains(delivery.submissions[0].message, "original note") || !strings.Contains(delivery.submissions[0].message, "pull/7") || strings.Contains(delivery.submissions[0].message, "mutated") {
 		t.Fatalf("submissions = %#v", delivery.submissions)
 	}
 }
@@ -340,6 +345,21 @@ func TestForkReportRouterPiggyback(t *testing.T) {
 			t.Fatalf("got=%#v want=%#v err=%v acked=%d", got, want, err, store.acked)
 		}
 	})
+	t.Run("store failures after routing never fail the message", func(t *testing.T) {
+		for _, router := range []*fakeReportRouter{{handled: always}, {err: errors.New("route down")}} {
+			base, _ := setup(nil)
+			store := &failingAckStore{coordinatorStore: base}
+			c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }, Router: router})
+			batch, err := c.PreparePiggyback(context.Background(), "orch")
+			if err != nil || len(batch.Reports) != 0 {
+				t.Fatalf("batch=%#v err=%v", batch, err)
+			}
+			// Left claimed for RequeueClaimedReports at daemon start; never piggybacked.
+			if base.reports[0].DeliveryState != domain.ReportClaimed || base.acked != 0 {
+				t.Fatalf("report=%#v acked=%d", base.reports[0], base.acked)
+			}
+		}
+	})
 	t.Run("empty claim skips the router", func(t *testing.T) {
 		router := &fakeReportRouter{handled: always}
 		store, c := setup(router)
@@ -381,4 +401,14 @@ func TestForkReportRouterConcurrentRunAndPiggyback(t *testing.T) {
 	if base.acked != 50 {
 		t.Fatalf("acked=%d, want every report handed off exactly once", base.acked)
 	}
+}
+
+// failingAckStore refuses acknowledgements and releases.
+type failingAckStore struct{ *coordinatorStore }
+
+func (failingAckStore) AcknowledgeReportBatch(context.Context, domain.ProjectID, string, time.Time) (int, error) {
+	return 0, errors.New("store locked")
+}
+func (failingAckStore) ReleaseReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error) {
+	return 0, errors.New("store locked")
 }

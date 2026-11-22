@@ -61,3 +61,14 @@ func TestForkFleetWriteCommandsStillRefuseRemoteHosts(t *testing.T) {
 		}
 	}
 }
+
+// markRemoteFleetWrite never widens a command already marked local-only.
+func TestForkFleetWriteNeverWidensLocalOnly(t *testing.T) {
+	cmd := &cobra.Command{Use: "x", Annotations: map[string]string{remoteAnnotation: remoteAnnotationLocalOnly}}
+	if got := markRemoteFleetWrite(cmd).Annotations[remoteAnnotation]; got != remoteAnnotationLocalOnly {
+		t.Fatalf("annotation = %q, want local-only kept", got)
+	}
+	if got := markRemoteFleetWrite(&cobra.Command{Use: "y"}).Annotations[remoteAnnotation]; got != remoteAnnotationFleetWrite {
+		t.Fatalf("annotation = %q, want fleet-write", got)
+	}
+}

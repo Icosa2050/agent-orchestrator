@@ -34,6 +34,9 @@ func markRemoteFleetWrite(cmd *cobra.Command) *cobra.Command {
 	if cmd.Annotations == nil {
 		cmd.Annotations = map[string]string{}
 	}
+	if cmd.Annotations[remoteAnnotation] == remoteAnnotationLocalOnly {
+		return cmd // never widen a local-only command
+	}
 	cmd.Annotations[remoteAnnotation] = remoteAnnotationFleetWrite
 	return cmd
 }

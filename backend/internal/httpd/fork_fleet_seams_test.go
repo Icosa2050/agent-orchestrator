@@ -188,6 +188,7 @@ func TestForkOnDevicePairedHookArgumentsAndTiming(t *testing.T) {
 // token is returned, and the spent code cannot be retried.
 func TestForkOnDevicePairedFailureRevokesAndReturnsNoToken(t *testing.T) {
 	h := newPairingHost(t)
+	keptID, _ := h.pair(h.code(), "Kept")
 	hook := &pairedHook{err: errors.New("grant store down")}
 	hook.install(h.bridge)
 	before := len(h.bridge.AccessDevices())
@@ -212,10 +213,12 @@ func TestForkOnDevicePairedFailureRevokesAndReturnsNoToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	onDisk := map[string]bool{}
 	for _, d := range reloaded.List() {
-		if d.ID == hook.calls[0].device.ID {
-			t.Fatal("revoked device persisted on disk")
-		}
+		onDisk[d.ID] = true
+	}
+	if !onDisk[keptID] || onDisk[hook.calls[0].device.ID] {
+		t.Fatalf("registry on disk = %v, want %s kept and %s revoked", onDisk, keptID, hook.calls[0].device.ID)
 	}
 	if status, _ := h.remote(http.MethodPost, devicePairPath, code, nil); status != http.StatusUnauthorized {
 		t.Fatalf("spent code after a hook failure: %d", status)
@@ -272,12 +275,12 @@ func TestForkOnDevicePairedFailureWithFailedRevokeStillWithholdsToken(t *testing
 // BridgeService.PairDevice, only MobileController.PairDevice calls PairDevice,
 // and only the router mounts that handler. A new minting path fails here.
 func TestForkDeviceTokenIssuancePathInvariant(t *testing.T) {
-	root, err := filepath.Abs("..")
+	root, err := filepath.Abs(filepath.Join("..", "..")) // the backend module
 	if err != nil {
 		t.Fatal(err)
 	}
 	type site struct{ file, fn string }
-	var issue, pair, pairHandler []site
+	var issue, issueValue, pair, pairHandler []site
 	fset := token.NewFileSet()
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -297,6 +300,12 @@ func TestForkDeviceTokenIssuancePathInvariant(t *testing.T) {
 			return err
 		}
 		rel, _ := filepath.Rel(root, path)
+		// Only these files can name an *AccessDevices; elsewhere Issue is
+		// usually a struct field (tracker issues).
+		devicesInScope := file.Name.Name == "mobilebridge"
+		for _, imp := range file.Imports {
+			devicesInScope = devicesInScope || strings.HasSuffix(strings.Trim(imp.Path.Value, `"`), "/internal/mobilebridge")
+		}
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
@@ -327,10 +336,19 @@ func TestForkDeviceTokenIssuancePathInvariant(t *testing.T) {
 				}
 				return true
 			})
-			// Method values (handler registrations), not calls.
+			// Method values (handler registrations, or an Issue taken as a
+			// value to call later), not calls.
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "PairDevice" && !calls[sel] {
-					pairHandler = append(pairHandler, site{rel, name})
+				if sel, ok := n.(*ast.SelectorExpr); ok && !calls[sel] {
+					switch sel.Sel.Name {
+					case "PairDevice":
+						pairHandler = append(pairHandler, site{rel, name})
+					case "Issue":
+						if !devicesInScope {
+							return true
+						}
+						issueValue = append(issueValue, site{rel, name})
+					}
 				}
 				return true
 			})
@@ -346,9 +364,11 @@ func TestForkDeviceTokenIssuancePathInvariant(t *testing.T) {
 			t.Fatalf("%s sites = %v, want exactly %v (a new device-token path must go through BridgeService.PairDevice and OnDevicePaired)", label, got, allowed)
 		}
 	}
-	want("AccessDevices.Issue", issue, site{filepath.Join("httpd", "controllers", "mobile.go"), "BridgeService.PairDevice"})
-	want("PairDevice call", pair, site{filepath.Join("httpd", "controllers", "mobile.go"), "MobileController.PairDevice"})
-	want("PairDevice handler", pairHandler, site{filepath.Join("httpd", "router.go"), "mountMobile"})
+	in := func(parts ...string) string { return filepath.Join(append([]string{"internal", "httpd"}, parts...)...) }
+	want("AccessDevices.Issue", issue, site{in("controllers", "mobile.go"), "BridgeService.PairDevice"})
+	want("Issue method value", issueValue)
+	want("PairDevice call", pair, site{in("controllers", "mobile.go"), "MobileController.PairDevice"})
+	want("PairDevice handler", pairHandler, site{in("router.go"), "mountMobile"})
 }
 
 // The same invariant at runtime through the real router and LAN listener: the

@@ -67,7 +67,7 @@ backend_tests='
 ./internal/httpd ^(TestForkFleet|TestForkOnDevicePaired|TestForkDeviceToken) 9
 ./internal/service/report ^(TestCoordinator|TestForkReportRouter) 16
 ./internal/daemon ^TestForkFleetWiring 1
-./internal/cli ^TestForkFleetWrite 2
+./internal/cli ^TestForkFleetWrite 3
 ./internal/adapters/telemetry (OptOut|TestFork) 5
 ./internal/adapters/telemetry/policyauthority . 4
 '

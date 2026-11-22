@@ -391,7 +391,8 @@ type BridgeService struct {
 	// OnDevicePaired runs after a device is stored and before its token is
 	// returned; code is empty for a password pairing. An error revokes the
 	// device and fails the pairing, so the token never leaves PairDevice. Set
-	// before the listener starts; nil does nothing. Fork: fleet seam (FORK.md);
+	// before the listener starts; nil does nothing. Concurrent pairings call
+	// it concurrently. Fork: fleet seam (FORK.md);
 	// the fork binds a fleet grant to the device here.
 	OnDevicePaired func(code string, device mobilebridge.AccessDevice) error
 
