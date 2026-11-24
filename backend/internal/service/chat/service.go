@@ -2160,8 +2160,10 @@ func (s *Service) Snapshot(ctx context.Context, id domain.SessionID) (Snapshot, 
 	}
 	var caps ports.ChatCapabilities
 	var dispatching []string
+	var rateLimits *domain.ConversationRateLimits
 	if controller, err := s.Controller(id); err == nil {
 		dispatching = controller.DispatchingTurnIDs()
+		rateLimits = liveRateLimits(controller, rows.Conversation.RateLimits)
 		if live := controller.State(); (record.HibernatedAt == nil && !waking) || live != ports.ChatControllerStopped {
 			state = live
 			caps = controller.Capabilities()
@@ -2171,6 +2173,7 @@ func (s *Service) Snapshot(ctx context.Context, id domain.SessionID) (Snapshot, 
 		rows.Conversation.Settings.FastMode, rows.Conversation.Settings.PlanMode = live.FastMode, live.PlanMode
 	}
 
+	rows.Conversation.RateLimits = rateLimits
 	return Snapshot{
 		Conversation:                     rows.Conversation,
 		ActiveBranch:                     rows.ActiveBranch,
@@ -2188,7 +2191,7 @@ func (s *Service) Snapshot(ctx context.Context, id domain.SessionID) (Snapshot, 
 		BatchedDeliveries:                rows.BatchedDeliveries,
 		Capabilities:                     caps,
 		Usage:                            rows.Conversation.Usage,
-		RateLimits:                       rows.Conversation.RateLimits,
+		RateLimits:                       rateLimits,
 	}, nil
 }
 
@@ -2223,15 +2226,30 @@ func (s *Service) SnapshotForReview(ctx context.Context, reviewID string) (Snaps
 	return s.snapshotForReviewRows(review, rows), nil
 }
 
+// liveRateLimits is the stored quota position when a running controller owns
+// it. A reading describes the provider process that sent it, which may have
+// been signed in to another account. Without a running controller that process
+// is gone, and a controller that has not yet cleared what an earlier process
+// left must not present it either: no meter beats another process's meter.
+func liveRateLimits(controller *Controller, stored *domain.ConversationRateLimits) *domain.ConversationRateLimits {
+	if controller == nil || controller.State() == ports.ChatControllerStopped {
+		return nil
+	}
+	return controller.CurrentRateLimits(stored)
+}
+
 func (s *Service) snapshotForReviewRows(review domain.Review, rows ConversationRows) Snapshot {
 	state := ports.ChatControllerStopped
 	var caps ports.ChatCapabilities
 	var dispatching []string
+	rateLimits := (*domain.ConversationRateLimits)(nil)
 	if controller, err := s.ControllerForOwner(domain.ReviewConversationOwner(review.ID)); err == nil {
 		state, caps = controller.State(), controller.Capabilities()
 		dispatching = controller.DispatchingTurnIDs()
+		rateLimits = liveRateLimits(controller, rows.Conversation.RateLimits)
 	}
-	return Snapshot{Conversation: rows.Conversation, ActiveBranch: rows.ActiveBranch, EditFloorSequence: rows.EditFloorSequence, NativeForkAvailableAfterSequence: rows.NativeForkAvailableAfterSequence, SessionID: review.SessionID, Harness: domain.AgentHarness(review.Harness), Mode: domain.SessionModeChat, Controller: state, Turns: withDispatchingTurnRunning(rows.Turns, dispatching...), Messages: rows.Messages, Activities: rows.Activities, BranchPoints: rows.BranchPoints, BranchedFromEarlierMessage: rows.BranchedFromEarlierMessage, OldestSequence: rows.OldestSequence, HasMoreBefore: rows.HasMoreBefore, BatchedDeliveries: rows.BatchedDeliveries, Capabilities: caps, Usage: rows.Conversation.Usage, RateLimits: rows.Conversation.RateLimits}
+	rows.Conversation.RateLimits = rateLimits
+	return Snapshot{Conversation: rows.Conversation, ActiveBranch: rows.ActiveBranch, EditFloorSequence: rows.EditFloorSequence, NativeForkAvailableAfterSequence: rows.NativeForkAvailableAfterSequence, SessionID: review.SessionID, Harness: domain.AgentHarness(review.Harness), Mode: domain.SessionModeChat, Controller: state, Turns: withDispatchingTurnRunning(rows.Turns, dispatching...), Messages: rows.Messages, Activities: rows.Activities, BranchPoints: rows.BranchPoints, BranchedFromEarlierMessage: rows.BranchedFromEarlierMessage, OldestSequence: rows.OldestSequence, HasMoreBefore: rows.HasMoreBefore, BatchedDeliveries: rows.BatchedDeliveries, Capabilities: caps, Usage: rows.Conversation.Usage, RateLimits: rateLimits}
 }
 
 // SnapshotPage reads one bounded timeline page. The live conversation metadata
@@ -2281,8 +2299,10 @@ func (s *Service) SnapshotPage(ctx context.Context, id domain.SessionID, beforeS
 	}
 	var caps ports.ChatCapabilities
 	var dispatching []string
+	var rateLimits *domain.ConversationRateLimits
 	if controller, err := s.Controller(id); err == nil {
 		dispatching = controller.DispatchingTurnIDs()
+		rateLimits = liveRateLimits(controller, rows.Conversation.RateLimits)
 		if live := controller.State(); (record.HibernatedAt == nil && !waking) || live != ports.ChatControllerStopped {
 			state = live
 			caps = controller.Capabilities()
@@ -2291,6 +2311,7 @@ func (s *Service) SnapshotPage(ctx context.Context, id domain.SessionID, beforeS
 		live := controller.Settings()
 		rows.Conversation.Settings.FastMode, rows.Conversation.Settings.PlanMode = live.FastMode, live.PlanMode
 	}
+	rows.Conversation.RateLimits = rateLimits
 	return Snapshot{
 		Conversation:                     rows.Conversation,
 		ActiveBranch:                     rows.ActiveBranch,
@@ -2311,7 +2332,7 @@ func (s *Service) SnapshotPage(ctx context.Context, id domain.SessionID, beforeS
 		BatchedDeliveries:                rows.BatchedDeliveries,
 		Capabilities:                     caps,
 		Usage:                            rows.Conversation.Usage,
-		RateLimits:                       rows.Conversation.RateLimits,
+		RateLimits:                       rateLimits,
 	}, nil
 }
 

@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -221,8 +222,13 @@ type Controller struct {
 	// and restored by a rollback.
 	workspacePath string
 
-	conv                   ports.ChatConversation
-	store                  Store
+	conv  ports.ChatConversation
+	store Store
+	// rateLimitsCurrent is set once the stored quota position is this
+	// controller's own: after forgetRateLimits cleared what an earlier process
+	// left, or after this controller recorded a reading. Until then the stored
+	// row may describe another process, possibly another account.
+	rateLimitsCurrent      atomic.Bool
 	background             backgroundWorkState
 	continuationReader     SnapshotReader
 	activity               ActivityRecorder
@@ -1551,7 +1557,18 @@ func (c *Controller) forgetRateLimits(ctx context.Context) {
 		SecondaryUsedPercent: -1,
 	}); err != nil {
 		c.log.Debug("failed to clear chat rate limits", "session", c.sessionID, "error", err)
+		return
 	}
+	c.rateLimitsCurrent.Store(true)
+}
+
+// CurrentRateLimits is the stored quota position when it is this controller's
+// own reading, otherwise nil. stored is the conversation row's value.
+func (c *Controller) CurrentRateLimits(stored *domain.ConversationRateLimits) *domain.ConversationRateLimits {
+	if c == nil || !c.rateLimitsCurrent.Load() {
+		return nil
+	}
+	return stored
 }
 
 // rateLimitReadTimeout bounds the startup quota read. It is a local IPC call, and
@@ -1593,7 +1610,9 @@ func (c *Controller) readRateLimits() {
 		PlanLabel:            limits.PlanLabel,
 	}); err != nil {
 		c.log.Debug("failed to record chat rate limits", "session", c.sessionID, "error", err)
+		return
 	}
+	c.rateLimitsCurrent.Store(true)
 }
 
 // resetInstant is when a quota window refills: the provider's absolute instant
@@ -3835,13 +3854,17 @@ func (c *Controller) apply(ctx context.Context, event ports.ChatEvent) error {
 			}
 			return nil
 		}
-		return c.store.RecordRateLimits(ctx, c.conversation.ID, domain.ConversationRateLimits{
+		if err := c.store.RecordRateLimits(ctx, c.conversation.ID, domain.ConversationRateLimits{
 			PrimaryUsedPercent:   event.RateLimits.PrimaryUsedPercent,
 			SecondaryUsedPercent: event.RateLimits.SecondaryUsedPercent,
 			PrimaryResetsAt:      resetInstant(event.RateLimits.PrimaryResetsAt, event.RateLimits.PrimaryResetsInSeconds, now),
 			SecondaryResetsAt:    resetInstant(event.RateLimits.SecondaryResetsAt, event.RateLimits.SecondaryResetsInSeconds, now),
 			PlanLabel:            event.RateLimits.PlanLabel,
-		})
+		}); err != nil {
+			return err
+		}
+		c.rateLimitsCurrent.Store(true)
+		return nil
 
 	case ports.ChatEventControllerState:
 		if event.ControllerState == ports.ChatControllerStopped {
