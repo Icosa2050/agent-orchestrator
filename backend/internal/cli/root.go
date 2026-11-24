@@ -75,6 +75,11 @@ func ExitCode(err error) int {
 	if errors.Is(err, datadirlock.ErrLocked) {
 		return exitDataDirLocked
 	}
+	// Fork: usage seam (FORK.md). A command may choose its own exit code.
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) {
+		return coded.ExitCode()
+	}
 	return 1
 }
 

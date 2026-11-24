@@ -225,12 +225,13 @@ scan_lines "+" "" "$secrets" |
 	scan_lines "+" "" "$optout" | sed 's/^/added    /'
 } | flag "Telemetry opt-out marker / dev-build DSN guard changed"
 
-# Fork seams (FORK.md "Fleet seams"): every "Fork: fleet seam" marker present
+# Fork seams (FORK.md "Fleet seams", "Usage seams"): every "Fork: fleet seam"
+# or "Fork: usage seam" marker line present
 # at the merge base must survive in HEAD. An upstream-only range has none at
 # its merge base; a sync merge or a PR re-run against fork main has them all.
-seam_marker='Fork: fleet seam'
+seam_marker='Fork: (fleet|usage) seam'
 seam_counts() { # $1: revision; prints "path count" per file with markers
-	git grep -c -F "$seam_marker" "$1" -- ':/' 2>/dev/null | sed "s|^$1:||" | awk -F: '{ print $1 " " $2 }' || true
+	git grep -c -E "$seam_marker" "$1" -- ':/' 2>/dev/null | sed "s|^$1:||" | awk -F: '{ print $1 " " $2 }' || true
 }
 seam_counts "$merge_base" >"$work/seams.base"
 seam_counts "$head_sha" >"$work/seams.head"

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "provider": "deepseek",
+  "currency": "USD",
+  "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing/",
+  "routes": {
+    "deepseek": "api",
+    "deepseek-account": "api",
+    "deepseek-official": "api"
+  },
+  "versions": [
+    {
+      "version": "deepseek-2026-08-16",
+      "effectiveFrom": "2026-08-16T16:00:00Z",
+      "source": "embedded",
+      "evidence": "DeepSeek change log 2026-08-13 and https://api-docs.deepseek.com/news/news260813.md: price table image v4_260813_price_en.png ('DeepSeek-V4 API New Pricing', 'Effective from: 16:00, August 16, 2026 (UTC)'), read 2026-11-24",
+      "checkedAt": "2026-11-24",
+      "models": {
+        "deepseek-v4-flash": {"peakPerM": {"cacheHit": "0.014", "cacheMiss": "0.44", "output": "1.32"}},
+        "deepseek-v4-pro": {"peakPerM": {"cacheHit": "0.044", "cacheMiss": "1.32", "output": "3.96"}}
+      },
+      "aliases": {},
+      "offPeakMultiplier": "0.5",
+      "peak": {
+        "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "utcRanges": [["01:00", "04:00"], ["06:00", "10:00"]],
+        "excludeHolidays": ""
+      },
+      "assumptions": [
+        "the 2026-08-13 announcement states only the peak hours ('all other hours are off-peak'), not a weekday or holiday rule; the peak hours are applied on every day (upper bound)",
+        "deepseek-v4-flash-vision-exp (released 2026-08-21) has no published price before 2026-09-10 and stays unpriced"
+      ]
+    },
+    {
+      "version": "deepseek-2026-09-10",
+      "effectiveFrom": "2026-09-10T04:00:00Z",
+      "source": "embedded",
+      "evidence": "DeepSeek change log 2026-09-10 and https://api-docs.deepseek.com/news/news260910.md: price table image v4.1_260910_price_en.jpeg ('Effective from: 04:00 UTC, September 10, 2026') for deepseek-flash; the change log says V4 Pro billing stays unchanged after 2026-09-14; the change log of 2026-10-17 says Flash pricing is unchanged; https://api-docs.deepseek.com/quick_start/pricing.md (Last-Modified 2026-11-20, sha256 d4b1ee6901fac9285311cd23ad70626eaddbfc84b51aaf181a3659c35a8e44f6) lists the same prices, read 2026-11-24",
+      "checkedAt": "2026-11-24",
+      "models": {
+        "deepseek-flash": {"peakPerM": {"cacheHit": "0.006", "cacheMiss": "0.3", "output": "1.2"}},
+        "deepseek-v4-pro": {"peakPerM": {"cacheHit": "0.044", "cacheMiss": "1.32", "output": "3.96"}}
+      },
+      "aliases": {
+        "deepseek-v4-flash": "deepseek-flash",
+        "deepseek-v4-flash-vision-exp": "deepseek-flash"
+      },
+      "offPeakMultiplier": "0.5",
+      "peak": {
+        "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+        "utcRanges": [["01:00", "04:00"], ["06:00", "10:00"]],
+        "excludeHolidays": "cn"
+      },
+      "assumptions": []
+    }
+  ]
+}
