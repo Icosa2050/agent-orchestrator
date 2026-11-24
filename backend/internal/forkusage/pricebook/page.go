@@ -406,17 +406,29 @@ func Compare(current Version, page *Page, fetchedAt time.Time, pageSHA string) (
 	if active > 0 && len(d.Removed)*2 > active {
 		d.Suspicious = append(d.Suspicious, "more than half of the models vanished from the page")
 	}
-	// Aliases must point at a priced model; a legacy name the page drops
-	// keeps its old target when that model is still kept.
-	for alias, target := range current.Aliases {
+	// Aliases must point at a priced model. A legacy name the page drops
+	// keeps its old target when that model is still kept, follows it when the
+	// target itself was renamed to a legacy alias, and is reported when it
+	// cannot be priced any more.
+	var aliasNotes []string
+	for _, alias := range sortedKeys(current.Aliases) {
+		target := current.Aliases[alias]
 		if _, ok := cand.Aliases[alias]; ok {
 			continue
 		}
 		if _, listed := page.Models[alias]; listed {
 			continue
 		}
-		if _, ok := cand.Models[target]; ok {
+		if _, ok := cand.Models[target]; !ok {
+			if renamed, ok := page.Aliases[target]; ok {
+				aliasNotes = append(aliasNotes, "legacy name "+alias+" follows "+target+" to "+renamed)
+				target = renamed
+			}
+		}
+		if _, ok := cand.Models[target]; ok && target != alias {
 			cand.Aliases[alias] = target
+		} else {
+			aliasNotes = append(aliasNotes, "legacy name "+alias+" is no longer priced")
 		}
 	}
 	candC, err := compileVersion(withName(cand, "candidate"))
@@ -430,6 +442,7 @@ func Compare(current Version, page *Page, fetchedAt time.Time, pageSHA string) (
 	sort.Strings(d.Removed)
 	sort.Strings(d.Renamed)
 	d.Changes = append(describeChanges(cur, candC), prefixed("model ", d.Renamed)...)
+	d.Changes = append(d.Changes, aliasNotes...)
 	for _, name := range sortedKeys(page.Models) {
 		if old, ok := cur.models[name]; ok && !old.retired {
 			if ratesOf(old.peak) != cand.Models[name].PeakPerM {

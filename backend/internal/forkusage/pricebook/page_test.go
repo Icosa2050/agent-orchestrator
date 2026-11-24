@@ -306,4 +306,35 @@ func TestCompareModelRenamedToAlias(t *testing.T) {
 	if after.BilledAs != "deepseek-pro" || after.TotalNanos != 3_600_000_000 {
 		t.Errorf("after: %+v", after)
 	}
+
+	// The renamed model is itself an alias target: deepseek-v4-flash ->
+	// deepseek-flash, and the page renames deepseek-flash to deepseek-flash-2
+	// without mentioning deepseek-v4-flash. The old alias follows the rename.
+	flashRename := "(1) Use `deepseek-flash-2` as the model name. The legacy name `deepseek-flash` is still accepted and billed at the Flash 2 price."
+	flash2 := pageModel{"deepseek-flash-2(1)", [3]string{"$0.005", "$0.25", "$1"}, [3]string{"$0.0025", "$0.125", "$0.5"}}
+	p, err = ParsePage([]byte(mkPage([]pageModel{flash2, proCol()}, flashRename, realPeakNote)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, cand, err = Compare(latest, p, at, "sha2")
+	if err != nil || d.Outcome != OutcomeChanged || cand == nil {
+		t.Fatalf("flash rename: %+v %v %v", d, cand, err)
+	}
+	for _, alias := range []string{"deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"} {
+		if cand.Aliases[alias] != "deepseek-flash-2" {
+			t.Errorf("alias %s -> %q, want deepseek-flash-2 (aliases %v)", alias, cand.Aliases[alias], cand.Aliases)
+		}
+	}
+	if !containsString(d.Changes, "legacy name deepseek-v4-flash follows deepseek-flash to deepseek-flash-2") {
+		t.Errorf("changes: %v", d.Changes)
+	}
+	cand.Version = "deepseek-auto-2026-12-03"
+	nb, err = Load([]Version{*cand})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, _ := nb.Price(Usage{Route: "deepseek", Model: "deepseek-v4-flash", At: at, OutputTokens: 1_000_000})
+	if legacy.Status != StatusPriced || legacy.BilledAs != "deepseek-flash-2" || legacy.TotalNanos != 1_000_000_000 {
+		t.Errorf("legacy alias after rename: %+v", legacy)
+	}
 }
