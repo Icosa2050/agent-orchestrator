@@ -9430,15 +9430,24 @@ export interface components {
         };
         UsageReportResponse: {
             days: number;
+            /**
+             * @description Set to session when sessionRows carries the usage.
+             * @enum {string}
+             */
+            groupBy?: "session";
             /** @description Every bucket in the window, oldest first: 2006-01-02 by day, 2006-01-02T15:00 by hour. */
             periods: string[];
             /** @enum {string} */
             resolution: "day" | "hour";
             rows: components["schemas"]["UsageReportRowResponse"][];
+            /** @description With groupBy=session: usage over the whole window per session, harness, model and speed tier, costliest first. */
+            sessionRows?: components["schemas"]["UsageReportSessionRowResponse"][];
             sessions: components["schemas"]["UsageReportSessionResponse"][];
             /** Format: date-time */
             since: string;
             timeZone: string;
+            /** @description The top limit that was applied. A daemon that predates top leaves it out. */
+            top?: number;
             /** Format: date-time */
             until: string;
         };
@@ -9499,6 +9508,49 @@ export interface components {
             title: string;
             /** Format: int64 */
             tokens: number;
+        };
+        UsageReportSessionRowResponse: {
+            /** Format: int64 */
+            cacheReadCostNanos: number;
+            /** Format: int64 */
+            cacheReadTokens: number;
+            /**
+             * Format: int64
+             * @description What cache reads saved against paying input rates for those tokens.
+             */
+            cacheSavingsNanos: number;
+            /** Format: int64 */
+            cacheWriteCostNanos: number;
+            /** Format: int64 */
+            cacheWriteTokens: number;
+            /** Format: int64 */
+            costNanos: number;
+            /** Format: int64 */
+            events: number;
+            harness: string;
+            /** Format: int64 */
+            inputCostNanos: number;
+            /**
+             * Format: int64
+             * @description Uncached input that was not written to the cache.
+             */
+            inputTokens: number;
+            model: string;
+            /** Format: int64 */
+            outputCostNanos: number;
+            /** Format: int64 */
+            outputTokens: number;
+            /**
+             * Format: int64
+             * @description Part of costNanos above standard rates, from priority, fast or ultrafast processing.
+             */
+            premiumNanos: number;
+            /** Format: int64 */
+            pricedEvents: number;
+            projectId?: string;
+            sessionId: string;
+            /** @description standard, priority, fast, flex, ultrafast, or unknown. */
+            speed: string;
         };
         VerifyAgentAccountLoginResponse: {
             account?: components["schemas"]["AgentAccountResponse"];
@@ -28606,6 +28658,10 @@ export interface operations {
                 tz?: string;
                 /** @description Read one project only. */
                 projectId?: string;
+                /** @description period (default) buckets rows by day or hour. session returns sessionRows, one per session, harness, model and speed tier over the whole window, and leaves rows and sessions empty. */
+                groupBy?: "period" | "session";
+                /** @description Keep only the costliest N rows, costliest first. Omit for all rows. */
+                top?: number;
             };
             header?: never;
             path?: never;

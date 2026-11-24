@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -97,15 +98,31 @@ func newUsageCommand(ctx *commandContext) *cobra.Command {
 }
 
 func newUsageReportCommand(ctx *commandContext) *cobra.Command {
-	var days, offset int
-	var tz, project string
+	var days, offset, top int
+	var tz, project, by string
 	var fleet bool
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Print token and estimated cost usage over a window as JSON",
-		Args:  noArgs,
+		Long: "Print token and estimated cost usage over a window as JSON.\n\n" +
+			"By default rows are per period, harness, model and speed tier. --by session reads one row per session, harness,\n" +
+			"model and speed tier over the whole window, under \"sessionRows\" with the session and project id, costliest first.\n" +
+			"--top N keeps only the N costliest rows.",
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if by != "" && by != "period" && by != "session" {
+				return usageError{fmt.Errorf("--by must be period or session, got %q", by)}
+			}
+			if cmd.Flags().Changed("top") && top < 1 {
+				return usageError{fmt.Errorf("--top must be at least 1, got %d", top)}
+			}
 			params := url.Values{}
+			if by == "session" {
+				params.Set("groupBy", by)
+			}
+			if top > 0 {
+				params.Set("top", strconv.Itoa(top))
+			}
 			if days > 0 {
 				params.Set("days", strconv.Itoa(days))
 			}
@@ -124,10 +141,20 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				for i := range hosts {
+					if hosts[i].Status == remoteStatusOK {
+						if err := checkReportAnswer(hosts[i].Data, by, top); err != nil {
+							hosts[i].Status, hosts[i].Error, hosts[i].Data = remoteStatusError, err.Error(), nil
+						}
+					}
+				}
 				return writeJSON(cmd.OutOrStdout(), map[string]any{"hosts": hosts})
 			}
 			var res json.RawMessage
 			if err := ctx.getJSON(cmd.Context(), path, &res); err != nil {
+				return err
+			}
+			if err := checkReportAnswer(res, by, top); err != nil {
 				return err
 			}
 			return writeJSON(cmd.OutOrStdout(), res)
@@ -137,8 +164,29 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 	cmd.Flags().IntVar(&offset, "offset", 0, "Whole windows to step back")
 	cmd.Flags().StringVar(&tz, "tz", "", "IANA time zone for day buckets (default UTC)")
 	cmd.Flags().StringVarP(&project, "project", "p", "", "Read one project only")
+	cmd.Flags().StringVar(&by, "by", "", "Group rows by period (default) or session")
+	cmd.Flags().IntVar(&top, "top", 0, "Keep only the N costliest rows (default: all)")
 	cmd.Flags().BoolVar(&fleet, "fleet", false, "Read this machine and every saved remote (ao remote ls); returns {\"hosts\": [...]}")
 	return cmd
+}
+
+// checkReportAnswer catches a daemon that predates --by session or --top: it ignores the parameter and answers
+// with period rows in full, which would pass for the asked-for answer. Current daemons echo what they applied.
+func checkReportAnswer(data json.RawMessage, by string, top int) error {
+	var probe struct {
+		GroupBy string `json:"groupBy"`
+		Top     int    `json:"top"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return fmt.Errorf("decode usage report: %w", err)
+	}
+	if by == "session" && probe.GroupBy != "session" {
+		return errors.New("this daemon does not support --by session; update it")
+	}
+	if top > 0 && probe.Top != top {
+		return errors.New("this daemon does not support --top; update it")
+	}
+	return nil
 }
 
 // usageLimitsMode is the one limit route a `usage limits` run reads.

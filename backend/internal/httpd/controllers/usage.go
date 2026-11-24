@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -235,6 +236,20 @@ func (c *UsageController) getReport(w http.ResponseWriter, r *http.Request) {
 			*target = parsed
 		}
 	}
+	groupBy := query.Get("groupBy")
+	if groupBy != "" && groupBy != "period" && groupBy != "session" {
+		envelope.WriteError(w, r, apierr.Invalid("INVALID_USAGE_GROUP", "groupBy must be period or session", nil))
+		return
+	}
+	top := 0
+	if raw := query.Get("top"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			envelope.WriteError(w, r, apierr.Invalid("INVALID_USAGE_TOP", "top must be a whole number of at least 1", nil))
+			return
+		}
+		top = parsed
+	}
 	report, err := c.Report.Report(r.Context(), days, offset, query.Get("tz"), domain.ProjectID(query.Get("projectId")))
 	if err != nil {
 		c.Log.WarnContext(r.Context(), "failed to read usage report", "error", err)
@@ -249,7 +264,37 @@ func (c *UsageController) getReport(w http.ResponseWriter, r *http.Request) {
 	if out.Periods == nil {
 		out.Periods = []string{}
 	}
-	for _, row := range report.Rows {
+	out.Top = top
+	if groupBy == "session" {
+		out.GroupBy = "session"
+		out.Rows, out.Sessions = []UsageReportRowResponse{}, []UsageReportSessionResponse{}
+		rows := report.SessionRows
+		if top > 0 && len(rows) > top {
+			rows = rows[:top]
+		}
+		out.SessionRows = make([]UsageReportSessionRowResponse, 0, len(rows))
+		for _, row := range rows {
+			out.SessionRows = append(out.SessionRows, UsageReportSessionRowResponse{
+				SessionID: string(row.SessionID), ProjectID: string(row.ProjectID), Harness: string(row.Harness), Model: row.ModelID, Speed: row.Speed,
+				Events: row.Events, PricedEvents: row.PricedEvents,
+				InputTokens: row.InputTokens, CacheReadTokens: row.CacheReadTokens, CacheWriteTokens: row.CacheWriteTokens, OutputTokens: row.OutputTokens,
+				InputCostNanos: row.InputCostNanos, CacheReadCostNanos: row.CacheReadCostNanos, CacheWriteCostNanos: row.CacheWriteCostNanos,
+				OutputCostNanos: row.OutputCostNanos, CostNanos: row.CostNanos, PremiumNanos: row.PremiumNanos, CacheSavingsNanos: row.CacheSavingsNanos,
+			})
+		}
+		envelope.WriteJSON(w, http.StatusOK, out)
+		return
+	}
+	reportRows := report.Rows
+	if top > 0 {
+		// Costliest first; the stable sort keeps period order among equal costs.
+		reportRows = append([]domain.UsageReportRow(nil), reportRows...)
+		sort.SliceStable(reportRows, func(i, j int) bool { return reportRows[i].CostNanos > reportRows[j].CostNanos })
+		if len(reportRows) > top {
+			reportRows = reportRows[:top]
+		}
+	}
+	for _, row := range reportRows {
 		out.Rows = append(out.Rows, UsageReportRowResponse{
 			Period: row.Period, Harness: string(row.Harness), Model: row.ModelID, Speed: row.Speed,
 			Events: row.Events, PricedEvents: row.PricedEvents,

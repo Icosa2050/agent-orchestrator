@@ -86,7 +86,7 @@ AO Cloud involved.
 | `ao remote rm <name>` | Forget a host and delete its local token. A device cannot manage the host's device list over the network, so revoke the printed device ID there with `ao remote-host devices revoke <id>`. |
 | `ao --host <name> <command>` / `AO_HOST=<name>` | Send a read-only command's API calls to that host with its bearer token. |
 | `ao status --fleet` / `ao session ls --fleet` | This machine plus every saved host, with a per-host status; `--json` returns `{"hosts": [...]}`. |
-| `ao usage report` / `ao usage limits` | Print the usage report (JSON) or each account's limit windows; `limits --history [--weeks N]` shows per-period peaks and `limits --days N` the raw readings as JSON. Both work with `--host`, and `--fleet` reads this machine plus every saved host (`--json` returns `{"hosts": [...]}`). |
+| `ao usage report` / `ao usage limits` | Print the usage report (JSON; `report --by session` groups it per session, harness and model under `sessionRows`, and `--top N` keeps the N costliest rows) or each account's limit windows; `limits --history [--weeks N]` shows per-period peaks and `limits --days N` the raw readings as JSON. Both work with `--host`, and `--fleet` reads this machine plus every saved host (`--json` returns `{"hosts": [...]}`). |
 
 Rules:
 
@@ -148,7 +148,7 @@ See the [command reference](../../backend/internal/skillassets/using-ao/commands
 | `ao account show [<session-id>]`    | `GET /api/v1/agents/accounts/sessions/{id}`    |
 | `ao account switch <session-id> <account-id>` | `PUT /api/v1/agents/accounts/sessions/{id}`; `--wait` polls `GET /api/v1/sessions/{id}/interface-transition` |
 | `ao usage limits [--history] [--weeks N] [--days N] [--fleet]` | `GET /api/v1/agents/accounts`; `--history` reads `GET /api/v1/usage/limit-peaks?weeks=N`; `--days` reads `GET /api/v1/usage/limit-windows?days=N` |
-| `ao usage report [--fleet]` | `GET /api/v1/usage/report` |
+| `ao usage report [--by session] [--top N] [--fleet]` | `GET /api/v1/usage/report` (`groupBy=session`, `top`) |
 | `ao automation create/list/get/update/delete/runs` | `POST/GET/PATCH/DELETE /api/v1/automations` |
 | `ao cue create/list`                | `POST/GET /api/v1/projects/{id}/cues`         |
 | `ao spawn`                          | Targeted launch ensure, then `POST /api/v1/sessions` |

@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -243,5 +244,137 @@ func TestReportCacheSavingsIgnoreSummedLongContext(t *testing.T) {
 	}
 	if got := report.Rows[0].CacheSavingsNanos; got < 2*saved-2 || got > 2*saved+2 {
 		t.Fatalf("cache savings = %d, want %d at the base row's rates", got, 2*saved)
+	}
+}
+
+func TestReportGroupsSessionRows(t *testing.T) {
+	snapshot := testCatalog(t)
+	now := time.Date(2026, 10, 25, 20, 40, 0, 0, time.UTC)
+	at := func(day, hour int) time.Time { return time.Date(2026, 10, day, hour, 0, 0, 0, time.UTC) }
+	codex := func(session domain.SessionID, project domain.ProjectID, when time.Time, model string, cached, uncached, output int64) domain.UsageReportEvent {
+		return pricedEvent(t, snapshot, domain.UsageReportEvent{
+			CreatedAt: when, ProviderID: domain.UsageProviderOpenAI, BillingProviderID: "openai", ModelID: model,
+			Tokens:  domain.UsageTokenMetrics{CachedInputTokens: int64p(cached), UncachedInputTokens: int64p(uncached), OutputTokens: int64p(output)},
+			Harness: domain.HarnessCodex, SessionID: session, ProjectID: project, SessionTitle: string(session),
+			CacheWriteTokens: int64p(0),
+		}, `{"last_token_usage":{"cache_write_input_tokens":0}}`)
+	}
+	events := []domain.UsageReportEvent{
+		// app-1 spans two days and two models; its two gpt-6.1-sol events fold into one row.
+		codex("app-1", "app", at(24, 9), "gpt-6.1-sol", 9000, 1000, 100),
+		codex("app-1", "app", at(25, 9), "gpt-6.1-sol", 1000, 1000, 100),
+		codex("app-1", "app", at(25, 10), "gpt-5.5", 0, 500, 50),
+		codex("app-2", "app", at(25, 11), "gpt-5.5", 0, 200, 20),
+		codex("web-1", "web", at(25, 12), "gpt-6.1-sol", 90000, 10000, 1000),
+		{ // unpriced: counted in tokens and events, not in cost
+			CreatedAt: at(25, 13), ProviderID: domain.UsageProviderOpenAI, BillingProviderID: "openai", ModelID: "glm-unknown",
+			Tokens:  domain.UsageTokenMetrics{CachedInputTokens: int64p(0), UncachedInputTokens: int64p(300), OutputTokens: int64p(20)},
+			Harness: domain.HarnessCodex, SessionID: "app-2", ProjectID: "app",
+		},
+	}
+	reader := NewReportReader(&reportStoreStub{events: events}, snapshotStub{snapshot})
+	reader.now = func() time.Time { return now }
+
+	all, err := reader.Report(context.Background(), 7, 0, "UTC", "")
+	if err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	type key struct{ session, model string }
+	got := map[key]domain.UsageReportSessionRow{}
+	for _, row := range all.SessionRows {
+		got[key{string(row.SessionID), row.ModelID}] = row
+	}
+	if len(all.SessionRows) != 5 || len(got) != 5 {
+		t.Fatalf("session rows = %+v, want one per session and model", all.SessionRows)
+	}
+	merged := got[key{"app-1", "gpt-6.1-sol"}]
+	if merged.ProjectID != "app" || merged.Harness != domain.HarnessCodex || merged.Period != "" || merged.Events != 2 ||
+		merged.CacheReadTokens != 10000 || merged.InputTokens != 2000 || merged.OutputTokens != 200 ||
+		merged.CostNanos != *events[0].Costs.EstimatedCostNanos+*events[1].Costs.EstimatedCostNanos {
+		t.Fatalf("app-1 gpt-6.1-sol row = %+v, want both days summed into one row", merged)
+	}
+	if free := got[key{"app-2", "glm-unknown"}]; free.Events != 1 || free.PricedEvents != 0 || free.CostNanos != 0 || free.InputTokens != 300 {
+		t.Fatalf("unpriced row = %+v", free)
+	}
+	for i := 1; i < len(all.SessionRows); i++ {
+		if all.SessionRows[i-1].CostNanos < all.SessionRows[i].CostNanos {
+			t.Fatalf("rows not costliest first at %d: %+v", i, all.SessionRows)
+		}
+	}
+	if first := all.SessionRows[0]; first.SessionID != "web-1" || first.ProjectID != "web" {
+		t.Fatalf("costliest row = %+v, want web-1", first)
+	}
+
+	// Both groupings take the same events, so their column totals agree.
+	var periodTotal, sessionTotal domain.UsageReportRow
+	for _, row := range all.Rows {
+		periodTotal.CostNanos += row.CostNanos
+		periodTotal.CacheReadTokens += row.CacheReadTokens
+		periodTotal.InputTokens += row.InputTokens
+		periodTotal.OutputTokens += row.OutputTokens
+		periodTotal.Events += row.Events
+		periodTotal.PricedEvents += row.PricedEvents
+		periodTotal.CacheSavingsNanos += row.CacheSavingsNanos
+	}
+	for _, row := range all.SessionRows {
+		sessionTotal.CostNanos += row.CostNanos
+		sessionTotal.CacheReadTokens += row.CacheReadTokens
+		sessionTotal.InputTokens += row.InputTokens
+		sessionTotal.OutputTokens += row.OutputTokens
+		sessionTotal.Events += row.Events
+		sessionTotal.PricedEvents += row.PricedEvents
+		sessionTotal.CacheSavingsNanos += row.CacheSavingsNanos
+	}
+	if periodTotal != sessionTotal {
+		t.Fatalf("period rows total %+v, session rows total %+v", periodTotal, sessionTotal)
+	}
+
+	inApp, err := reader.Report(context.Background(), 7, 0, "UTC", "app")
+	if err != nil {
+		t.Fatalf("Report app: %v", err)
+	}
+	if len(inApp.SessionRows) != 4 {
+		t.Fatalf("project filter left %+v, want app sessions only", inApp.SessionRows)
+	}
+	for _, row := range inApp.SessionRows {
+		if row.ProjectID != "app" {
+			t.Fatalf("project filter kept %+v", row)
+		}
+	}
+}
+
+// A session's cache-write cost comes from its own cache writes, not from the window's blend over every session.
+func TestReportSessionRowsSplitCacheWritesPerSession(t *testing.T) {
+	snapshot := testCatalog(t)
+	now := time.Date(2026, 10, 25, 20, 40, 0, 0, time.UTC)
+	claude := func(session domain.SessionID, write int64) domain.UsageReportEvent {
+		providerUsage := fmt.Sprintf(`{"cache_creation_input_tokens":%d,"cache_creation":{"ephemeral_5m_input_tokens":%d,"ephemeral_1h_input_tokens":0}}`, write, write)
+		return pricedEvent(t, snapshot, domain.UsageReportEvent{
+			CreatedAt: now.Add(-time.Hour), ProviderID: domain.UsageProviderAnthropic, BillingProviderID: "anthropic", ModelID: "claude-opus-5-5",
+			Tokens:  domain.UsageTokenMetrics{CachedInputTokens: int64p(0), UncachedInputTokens: int64p(1000), OutputTokens: int64p(10)},
+			Harness: domain.HarnessClaudeCode, SessionID: session, ProjectID: "app", CacheWriteTokens: int64p(write),
+		}, providerUsage)
+	}
+	reader := NewReportReader(&reportStoreStub{events: []domain.UsageReportEvent{claude("app-a", 0), claude("app-b", 1000)}}, snapshotStub{snapshot})
+	reader.now = func() time.Time { return now }
+	report, err := reader.Report(context.Background(), 7, 0, "UTC", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[domain.SessionID]domain.UsageReportSessionRow{}
+	for _, row := range report.SessionRows {
+		rows[row.SessionID] = row
+	}
+	a, b := rows["app-a"], rows["app-b"]
+	if a.CacheWriteTokens != 0 || a.CacheWriteCostNanos != 0 {
+		t.Fatalf("app-a wrote nothing to the cache but carries cache-write cost: %+v", a)
+	}
+	if b.CacheWriteTokens != 1000 || b.CacheWriteCostNanos <= 0 || b.InputCostNanos != 0 {
+		t.Fatalf("app-b wrote all its input to the cache: %+v", b)
+	}
+	for _, row := range []domain.UsageReportSessionRow{a, b} {
+		if row.InputCostNanos+row.CacheWriteCostNanos+row.CacheReadCostNanos+row.OutputCostNanos != row.CostNanos {
+			t.Fatalf("categories do not add up to the cost: %+v", row)
+		}
 	}
 }
