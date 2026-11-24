@@ -1,6 +1,8 @@
 package acp
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 	"time"
 )
@@ -63,5 +65,102 @@ func TestClaudeRateLimitTypesFillTheirOwnWindow(t *testing.T) {
 	}
 	if got := (&conversation{}).claudeRateLimits(claudeLimitMeta("overage", 0.5, weekly), now); got != nil {
 		t.Fatalf("only an unslotted window = %#v, want nil", got)
+	}
+}
+
+func percentIs(got, want float64) bool { return math.Abs(got-want) < 1e-9 }
+
+func decodeClaudeMeta(t *testing.T, raw string) map[string]any {
+	t.Helper()
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+		t.Fatal(err)
+	}
+	return meta
+}
+
+// The current Claude SDK sends no top-level utilization; the level lives in
+// unifiedWindows. This is the exact payload a live chat-host journaled.
+func TestClaudeRateLimitsReadUnifiedWindows(t *testing.T) {
+	meta := decodeClaudeMeta(t, `{"_claude/rateLimit":{"status":"allowed","resetsAt":1795845600,"rateLimitType":"seven_day","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":false,"unifiedWindows":{"seven_day":{"utilization":0.29,"resetsAt":1795845600,"status":"allowed"}}}}`)
+	reset := time.Unix(1795845600, 0).UTC()
+	now := reset.Add(-48 * time.Hour)
+	c := &conversation{}
+	limits := c.claudeRateLimits(meta, now)
+	if limits == nil || !percentIs(limits.SecondaryUsedPercent, 29) || !limits.SecondaryResetsAt.Equal(reset) || limits.PrimaryUsedPercent != -1 {
+		t.Fatalf("unified seven_day = %#v", limits)
+	}
+	// The same payload after the window has refilled has no known level.
+	if got := (&conversation{}).claudeRateLimits(meta, reset.Add(time.Second)); got != nil {
+		t.Fatalf("unified reading past its reset = %#v, want nil", got)
+	}
+}
+
+func TestClaudeRateLimitsUnifiedSessionAndWeeklyWindows(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	session := now.Add(2 * time.Hour)
+	weekly := now.Add(48 * time.Hour)
+	model := now.Add(24 * time.Hour)
+	meta := map[string]any{"_claude/rateLimit": map[string]any{
+		"status": "allowed", "rateLimitType": "five_hour", "resetsAt": float64(session.Unix()),
+		"unifiedWindows": map[string]any{
+			"five_hour":      map[string]any{"utilization": 0.4, "resetsAt": float64(session.Unix()), "status": "allowed"},
+			"seven_day":      map[string]any{"utilization": 0.29, "resetsAt": float64(weekly.Unix()), "status": "allowed"},
+			"seven_day_opus": map[string]any{"utilization": 0.61, "resetsAt": float64(model.Unix()), "status": "allowed"},
+			"overage":        map[string]any{"utilization": 0.99},
+			"not_a_window":   "ignored",
+		},
+	}}
+	c := &conversation{}
+	limits := c.claudeRateLimits(meta, now)
+	if limits == nil || !percentIs(limits.PrimaryUsedPercent, 40) || !limits.PrimaryResetsAt.Equal(session) {
+		t.Fatalf("five_hour slot = %#v", limits)
+	}
+	// The tighter weekly window wins the weekly slot.
+	if !percentIs(limits.SecondaryUsedPercent, 61) || !limits.SecondaryResetsAt.Equal(model) {
+		t.Fatalf("weekly slot = %#v", limits)
+	}
+	// Once the session window has refilled only the weekly level remains.
+	if got := c.claudeRateLimits(map[string]any{}, session.Add(time.Minute)); got != nil {
+		t.Fatalf("meta without a rate limit = %#v, want nil", got)
+	}
+	afterSession := c.claudeRateLimits(meta, session.Add(time.Minute))
+	if afterSession == nil || afterSession.PrimaryUsedPercent != -1 || !percentIs(afterSession.SecondaryUsedPercent, 61) {
+		t.Fatalf("after session reset = %#v", afterSession)
+	}
+}
+
+// A unified window wins over the same window's top-level fields, and a
+// top-level window absent from unifiedWindows is still read (legacy shape).
+func TestClaudeRateLimitsMixedUnifiedAndTopLevel(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	session := now.Add(2 * time.Hour)
+	weekly := now.Add(48 * time.Hour)
+	same := map[string]any{"_claude/rateLimit": map[string]any{
+		"rateLimitType": "seven_day", "utilization": 0.85, "resetsAt": float64(weekly.Unix()),
+		"unifiedWindows": map[string]any{"seven_day": map[string]any{"utilization": 0.29, "resetsAt": float64(weekly.Unix())}},
+	}}
+	if got := (&conversation{}).claudeRateLimits(same, now); got == nil || !percentIs(got.SecondaryUsedPercent, 29) {
+		t.Fatalf("unified wins = %#v", got)
+	}
+	other := map[string]any{"_claude/rateLimit": map[string]any{
+		"rateLimitType": "five_hour", "utilization": 0.5, "resetsAt": float64(session.Unix()),
+		"unifiedWindows": map[string]any{"seven_day": map[string]any{"utilization": 0.29, "resetsAt": float64(weekly.Unix())}},
+	}}
+	got := (&conversation{}).claudeRateLimits(other, now)
+	if got == nil || !percentIs(got.PrimaryUsedPercent, 50) || !percentIs(got.SecondaryUsedPercent, 29) {
+		t.Fatalf("top-level five_hour plus unified seven_day = %#v", got)
+	}
+	// The legacy shape alone still reads.
+	if legacy := (&conversation{}).claudeRateLimits(claudeLimitMeta("seven_day", 0.85, weekly), now); legacy == nil || !percentIs(legacy.SecondaryUsedPercent, 85) {
+		t.Fatalf("legacy = %#v", legacy)
+	}
+	// A unified window without utilization is unknown, not zero.
+	unknown := map[string]any{"_claude/rateLimit": map[string]any{
+		"rateLimitType": "seven_day", "resetsAt": float64(weekly.Unix()),
+		"unifiedWindows": map[string]any{"seven_day": map[string]any{"resetsAt": float64(weekly.Unix()), "status": "allowed"}},
+	}}
+	if got := (&conversation{}).claudeRateLimits(unknown, now); got != nil {
+		t.Fatalf("unified window without utilization = %#v, want nil", got)
 	}
 }

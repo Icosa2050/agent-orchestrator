@@ -1429,34 +1429,28 @@ func claudeWindowSlot(kind string) string {
 // claudeRateLimits folds one Claude rate-limit update into the per-window
 // readings and returns the whole quota position, or nil when no window with a
 // slot has been read. Resets are absolute instants.
+//
+// Current Claude SDKs report every window's level under unifiedWindows and no
+// longer send a top-level utilization; older ones named a single window with
+// top-level fields. Both are read, and a window present in unifiedWindows wins
+// over the same window's top-level fields.
 func (c *conversation) claudeRateLimits(meta map[string]any, now time.Time) *ports.ChatRateLimits {
 	value := nestedMap(meta, "_claude/rateLimit")
 	if value == nil {
 		return nil
 	}
-	kind, _ := value["rateLimitType"].(string)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if slot := claudeWindowSlot(kind); slot != "" {
-		if c.claudeWindows == nil {
-			c.claudeWindows = make(map[string]claudeWindowReading)
+	windows, _ := value["unifiedWindows"].(map[string]any)
+	for kind, raw := range windows {
+		if window, ok := raw.(map[string]any); ok {
+			c.foldClaudeWindowLocked(kind, window)
 		}
-		reading := c.claudeWindows[kind]
-		utilization, hasUtilization := number(value["utilization"])
-		if seconds, ok := number(value["resetsAt"]); ok && seconds > 0 {
-			resetsAt := time.Unix(int64(seconds), 0).UTC()
-			// A different reset is a new window: without a utilization of its
-			// own its level is unknown, not the previous window's.
-			if !hasUtilization && !resetsAt.Equal(reading.resetsAt) {
-				reading.known = false
-			}
-			reading.resetsAt = resetsAt
+	}
+	if kind, _ := value["rateLimitType"].(string); kind != "" {
+		if _, unified := windows[kind]; !unified {
+			c.foldClaudeWindowLocked(kind, value)
 		}
-		if hasUtilization {
-			// The Claude SDK reports utilization as 0..1.
-			reading.usedPercent, reading.known = utilization*100, true
-		}
-		c.claudeWindows[kind] = reading
 	}
 	limits := &ports.ChatRateLimits{PrimaryUsedPercent: -1, SecondaryUsedPercent: -1}
 	found := false
@@ -1481,6 +1475,33 @@ func (c *conversation) claudeRateLimits(meta map[string]any, now time.Time) *por
 		return nil
 	}
 	return limits
+}
+
+// foldClaudeWindowLocked records one window's utilization and reset. The
+// caller holds c.mu.
+func (c *conversation) foldClaudeWindowLocked(kind string, window map[string]any) {
+	if claudeWindowSlot(kind) == "" {
+		return
+	}
+	if c.claudeWindows == nil {
+		c.claudeWindows = make(map[string]claudeWindowReading)
+	}
+	reading := c.claudeWindows[kind]
+	utilization, hasUtilization := number(window["utilization"])
+	if seconds, ok := number(window["resetsAt"]); ok && seconds > 0 {
+		resetsAt := time.Unix(int64(seconds), 0).UTC()
+		// A different reset is a new window: without a utilization of its
+		// own its level is unknown, not the previous window's.
+		if !hasUtilization && !resetsAt.Equal(reading.resetsAt) {
+			reading.known = false
+		}
+		reading.resetsAt = resetsAt
+	}
+	if hasUtilization {
+		// The Claude SDK reports utilization as 0..1.
+		reading.usedPercent, reading.known = utilization*100, true
+	}
+	c.claudeWindows[kind] = reading
 }
 
 const claudeUsageLimitMaxWait = 31 * 24 * time.Hour
