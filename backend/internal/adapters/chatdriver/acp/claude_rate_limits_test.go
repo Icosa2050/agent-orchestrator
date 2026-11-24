@@ -5,6 +5,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
 func claudeLimitMeta(kind string, utilization float64, resetsAt time.Time) map[string]any {
@@ -57,11 +59,12 @@ func TestClaudeRateLimitTypesFillTheirOwnWindow(t *testing.T) {
 	if got := sameWindow.claudeRateLimits(statusSame, now); got == nil || got.PrimaryUsedPercent != 85 {
 		t.Fatalf("status-only same window = %#v", got)
 	}
-	// When it was the only slot, the quota position is unknown.
+	// When it was the only slot, the quota position is reported as unknown so
+	// the stored level is replaced instead of left standing.
 	alone := &conversation{}
 	alone.claudeRateLimits(claudeLimitMeta("five_hour", 0.85, session), now)
-	if got := alone.claudeRateLimits(statusOnly, session.Add(time.Minute)); got != nil {
-		t.Fatalf("status-only new window, only slot = %#v, want nil", got)
+	if got := alone.claudeRateLimits(statusOnly, session.Add(time.Minute)); !allUnknown(got) {
+		t.Fatalf("status-only new window, only slot = %#v, want all unknown", got)
 	}
 	if got := (&conversation{}).claudeRateLimits(claudeLimitMeta("overage", 0.5, weekly), now); got != nil {
 		t.Fatalf("only an unslotted window = %#v, want nil", got)
@@ -69,6 +72,10 @@ func TestClaudeRateLimitTypesFillTheirOwnWindow(t *testing.T) {
 }
 
 func percentIs(got, want float64) bool { return math.Abs(got-want) < 1e-9 }
+
+func allUnknown(l *ports.ChatRateLimits) bool {
+	return l != nil && l.PrimaryUsedPercent == -1 && l.SecondaryUsedPercent == -1
+}
 
 func decodeClaudeMeta(t *testing.T, raw string) map[string]any {
 	t.Helper()
@@ -90,9 +97,10 @@ func TestClaudeRateLimitsReadUnifiedWindows(t *testing.T) {
 	if limits == nil || !percentIs(limits.SecondaryUsedPercent, 29) || !limits.SecondaryResetsAt.Equal(reset) || limits.PrimaryUsedPercent != -1 {
 		t.Fatalf("unified seven_day = %#v", limits)
 	}
-	// The same payload after the window has refilled has no known level.
-	if got := (&conversation{}).claudeRateLimits(meta, reset.Add(time.Second)); got != nil {
-		t.Fatalf("unified reading past its reset = %#v, want nil", got)
+	// After the window has refilled its level is unknown, and that is reported
+	// so the stored 29% does not outlive the window.
+	if got := c.claudeRateLimits(meta, reset.Add(time.Second)); !allUnknown(got) {
+		t.Fatalf("unified reading past its reset = %#v, want all unknown", got)
 	}
 }
 
@@ -160,7 +168,33 @@ func TestClaudeRateLimitsMixedUnifiedAndTopLevel(t *testing.T) {
 		"rateLimitType": "seven_day", "resetsAt": float64(weekly.Unix()),
 		"unifiedWindows": map[string]any{"seven_day": map[string]any{"resetsAt": float64(weekly.Unix()), "status": "allowed"}},
 	}}
-	if got := (&conversation{}).claudeRateLimits(unknown, now); got != nil {
-		t.Fatalf("unified window without utilization = %#v, want nil", got)
+	if got := (&conversation{}).claudeRateLimits(unknown, now); !allUnknown(got) {
+		t.Fatalf("unified window without utilization = %#v, want all unknown", got)
+	}
+	// A malformed unified entry does not hide a valid top-level reading.
+	malformed := map[string]any{"_claude/rateLimit": map[string]any{
+		"rateLimitType": "seven_day", "utilization": 0.85, "resetsAt": float64(weekly.Unix()),
+		"unifiedWindows": map[string]any{"seven_day": nil},
+	}}
+	if got := (&conversation{}).claudeRateLimits(malformed, now); got == nil || !percentIs(got.SecondaryUsedPercent, 85) {
+		t.Fatalf("malformed unified entry = %#v, want the top-level 85", got)
+	}
+}
+
+// Two equally tight weekly windows resolve to the one that refills first,
+// whatever the map order.
+func TestClaudeRateLimitsEqualWeeklyWindowsPreferEarlierReset(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	early, late := now.Add(24*time.Hour), now.Add(72*time.Hour)
+	meta := map[string]any{"_claude/rateLimit": map[string]any{"unifiedWindows": map[string]any{
+		"seven_day":        map[string]any{"utilization": 0.5, "resetsAt": float64(late.Unix())},
+		"seven_day_opus":   map[string]any{"utilization": 0.5, "resetsAt": float64(early.Unix())},
+		"seven_day_sonnet": map[string]any{"utilization": 0.5, "resetsAt": float64(late.Unix())},
+	}}}
+	for range 20 {
+		got := (&conversation{}).claudeRateLimits(meta, now)
+		if got == nil || !percentIs(got.SecondaryUsedPercent, 50) || !got.SecondaryResetsAt.Equal(early) {
+			t.Fatalf("equal weekly windows = %#v, want 50 resetting at %v", got, early)
+		}
 	}
 }

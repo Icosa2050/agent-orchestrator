@@ -1428,7 +1428,7 @@ func claudeWindowSlot(kind string) string {
 
 // claudeRateLimits folds one Claude rate-limit update into the per-window
 // readings and returns the whole quota position, or nil when no window with a
-// slot has been read. Resets are absolute instants.
+// slot has ever been read. Resets are absolute instants.
 //
 // Current Claude SDKs report every window's level under unifiedWindows and no
 // longer send a top-level utilization; older ones named a single window with
@@ -1442,18 +1442,23 @@ func (c *conversation) claudeRateLimits(meta map[string]any, now time.Time) *por
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	windows, _ := value["unifiedWindows"].(map[string]any)
+	folded := make(map[string]bool, len(windows))
 	for kind, raw := range windows {
 		if window, ok := raw.(map[string]any); ok {
 			c.foldClaudeWindowLocked(kind, window)
+			folded[kind] = true
 		}
 	}
-	if kind, _ := value["rateLimitType"].(string); kind != "" {
-		if _, unified := windows[kind]; !unified {
-			c.foldClaudeWindowLocked(kind, value)
-		}
+	if kind, _ := value["rateLimitType"].(string); kind != "" && !folded[kind] {
+		c.foldClaudeWindowLocked(kind, value)
 	}
+	if len(c.claudeWindows) == 0 {
+		return nil
+	}
+	// Once a window has been read the position is always reported, with an
+	// unknown slot as -1: a window that refilled or moved on must replace the
+	// stored level, not leave the last one standing.
 	limits := &ports.ChatRateLimits{PrimaryUsedPercent: -1, SecondaryUsedPercent: -1}
-	found := false
 	for windowKind, reading := range c.claudeWindows {
 		// A window that has refilled no longer has a known level.
 		if !reading.known || (!reading.resetsAt.IsZero() && !reading.resetsAt.After(now)) {
@@ -1462,17 +1467,14 @@ func (c *conversation) claudeRateLimits(meta map[string]any, now time.Time) *por
 		switch claudeWindowSlot(windowKind) {
 		case "session":
 			limits.PrimaryUsedPercent, limits.PrimaryResetsAt = reading.usedPercent, reading.resetsAt
-			found = true
 		case "weekly":
-			// The tighter weekly window is the one that stops the next turn.
-			if reading.usedPercent > limits.SecondaryUsedPercent {
+			// The tighter weekly window is the one that stops the next turn; of
+			// two equally tight ones, the one that refills first.
+			if reading.usedPercent > limits.SecondaryUsedPercent ||
+				(reading.usedPercent == limits.SecondaryUsedPercent && reading.resetsAt.Before(limits.SecondaryResetsAt)) {
 				limits.SecondaryUsedPercent, limits.SecondaryResetsAt = reading.usedPercent, reading.resetsAt
 			}
-			found = true
 		}
-	}
-	if !found {
-		return nil
 	}
 	return limits
 }
