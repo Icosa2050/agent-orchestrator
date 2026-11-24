@@ -830,6 +830,11 @@ func Run(buildVersion string) (retErr error) {
 		}
 	}})
 	fleet := newForkFleet() // Fork: fleet seam (FORK.md); inert in PR-0.
+
+	// Fork: usage seam (FORK.md): the DeepSeek price book and its daily page check.
+	forkUsage := startForkUsage(ctx, forkUsageConfig{DataDir: cfg.DataDir, Logger: log})
+	defer forkUsage.stop()
+
 	reportCoordinator = reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{
 		Store:    store,
 		Delivery: reportSemanticDelivery{chat: chatSvc, sessions: reportSessions, store: store},
@@ -1281,7 +1286,7 @@ func Run(buildVersion string) (retErr error) {
 		DeviceLive:         presenceTracker,
 		DeviceAccess:       bs,
 		AccessDevices:      accessDevices,
-		Extensions:         fleet.routes(), // Fork: fleet seam (FORK.md).
+		Extensions:         append(fleet.routes(), forkUsage.routes()...), // Fork: fleet seam, usage seam (FORK.md).
 		Import:             importsvc.New(importsvc.Deps{Store: store}),
 		SessionImport:      sessionImportSvc,
 		Directories:        fsbrowsersvc.New(),

@@ -94,6 +94,8 @@ func newUsageCommand(ctx *commandContext) *cobra.Command {
 		Short: "Read token usage and subscription limit windows",
 	}
 	cmd.AddCommand(markRemoteReadOnly(newUsageReportCommand(ctx)), markRemoteReadOnly(newUsageLimitsCommand(ctx)))
+	// Fork: usage seam (FORK.md). `prices` writes (check, accept, auto), so it stays local; `window` only reads.
+	cmd.AddCommand(newForkUsagePricesCommand(ctx), markRemoteReadOnly(newForkUsageWindowCommand(ctx)))
 	return cmd
 }
 
