@@ -228,7 +228,11 @@ type Controller struct {
 	// controller's own: after forgetRateLimits cleared what an earlier process
 	// left, or after this controller recorded a reading. Until then the stored
 	// row may describe another process, possibly another account.
-	rateLimitsCurrent      atomic.Bool
+	rateLimitsCurrent atomic.Bool
+	// projecting is set when live provider consumption begins. Native history
+	// replayed before it describes an earlier process, so a quota reading it
+	// carries never makes the stored row this controller's own.
+	projecting             atomic.Bool
 	background             backgroundWorkState
 	continuationReader     SnapshotReader
 	activity               ActivityRecorder
@@ -3195,6 +3199,7 @@ func (c *Controller) project(flushInterval time.Duration) {
 
 	// Forget the previous provider process's quota reading before applying any
 	// event from this one, so the clear can never overwrite a fresh reading.
+	c.projecting.Store(true)
 	c.forgetRateLimits(ctx)
 	if c.harness != domain.HarnessCodex {
 		go c.readRateLimits()
@@ -3863,7 +3868,9 @@ func (c *Controller) apply(ctx context.Context, event ports.ChatEvent) error {
 		}); err != nil {
 			return err
 		}
-		c.rateLimitsCurrent.Store(true)
+		if c.projecting.Load() {
+			c.rateLimitsCurrent.Store(true)
+		}
 		return nil
 
 	case ports.ChatEventControllerState:

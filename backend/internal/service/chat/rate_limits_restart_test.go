@@ -226,3 +226,59 @@ func TestSnapshotWithholdsRateLimitsUntilTheControllerOwnsThem(t *testing.T) {
 		return l != nil && l.SecondaryUsedPercent == 29
 	})
 }
+
+// Native history replayed on resume describes the earlier process. A quota
+// reading it carries lands in the row, but is not this controller's own, even
+// when the open-time clear fails.
+func TestReplayedHistoryRateLimitsAreNotServedAsCurrent(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+	record, found, err := st.GetSession(ctx, testSession)
+	if err != nil || !found {
+		t.Fatalf("read seeded session: found=%v, err=%v", found, err)
+	}
+	record.Harness = domain.HarnessClaudeCode
+	if err := st.UpdateSession(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	weekly := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
+	conv := &nativeHistoryConversation{
+		fakeConversation: newFakeConversation(),
+		events: []ports.ChatEvent{{
+			Kind: ports.ChatEventRateLimits, ProviderEventID: "history-rate-limits",
+			RateLimits: &ports.ChatRateLimits{PrimaryUsedPercent: -1, SecondaryUsedPercent: 94, SecondaryResetsAt: weekly},
+		}},
+	}
+	conv.providerConversationID = "native-thread"
+	svc := chatsvc.New(chatsvc.Options{
+		Store: failingRateLimitClearStore{Store: st}, Sessions: st, Reader: fullSnapshotReader(st),
+		PageReader: boundedSnapshotReader(st),
+		Drivers:    fakeRegistry{driver: fakeDriver{conv: conv}},
+		Log:        slog.New(slog.DiscardHandler),
+		NewID:      func() string { return uuid.NewString() },
+	})
+	t.Cleanup(func() { svc.StopAll(ctx) })
+	controller, err := svc.Start(ctx, chatsvc.StartConfig{
+		SessionID: testSession, ProjectID: testProject, Harness: domain.HarnessClaudeCode,
+		WorkspacePath: t.TempDir(), ProviderConversationID: "native-thread", HistoryMode: ports.ChatHistoryImport,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	rows, err := st.LoadConversationSnapshot(ctx, controller.ConversationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows.Conversation.RateLimits == nil || rows.Conversation.RateLimits.SecondaryUsedPercent != 94 {
+		t.Fatalf("history import did not store its reading: %#v", rows.Conversation.RateLimits)
+	}
+	if full, page := snapshotRateLimits(t, svc, testSession); full != nil || page != nil {
+		t.Fatalf("replayed reading served as current: %#v / %#v", full, page)
+	}
+	conv.emit(ports.ChatEvent{Kind: ports.ChatEventRateLimits, RateLimits: &ports.ChatRateLimits{
+		PrimaryUsedPercent: -1, SecondaryUsedPercent: 29, SecondaryResetsAt: weekly,
+	}})
+	awaitServedRateLimits(t, svc, testSession, func(l *domain.ConversationRateLimits) bool {
+		return l != nil && l.SecondaryUsedPercent == 29
+	})
+}
