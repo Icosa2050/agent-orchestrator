@@ -110,6 +110,12 @@ func (r *ReportReader) Report(ctx context.Context, days, offset int, timeZone st
 	}
 	rows := map[rowKey]*domain.UsageReportRow{}
 	sessions := map[domain.SessionID]*domain.UsageReportSession{}
+	type sessionRowKey struct {
+		session      domain.SessionID
+		harness      domain.AgentHarness
+		model, speed string
+	}
+	sessionRows := map[sessionRowKey]*domain.UsageReportSessionRow{}
 	for _, event := range events {
 		cached, uncached, output := tokenValue(event.Tokens.CachedInputTokens), tokenValue(event.Tokens.UncachedInputTokens), tokenValue(event.Tokens.OutputTokens)
 		write := min(max(tokenValue(event.CacheWriteTokens), 0), uncached)
@@ -122,11 +128,24 @@ func (r *ReportReader) Report(ctx context.Context, days, offset int, timeZone st
 			row = &domain.UsageReportRow{Period: key.period, Harness: key.harness, ModelID: key.model, Speed: key.speed}
 			rows[key] = row
 		}
-		row.Events++
-		row.InputTokens += uncached - write
-		row.CacheReadTokens += cached
-		row.CacheWriteTokens += write
-		row.OutputTokens += output
+		sessionKey := sessionRowKey{session: event.SessionID, harness: key.harness, model: key.model, speed: key.speed}
+		sessionRow := sessionRows[sessionKey]
+		if sessionRow == nil {
+			sessionRow = &domain.UsageReportSessionRow{
+				SessionID: event.SessionID, ProjectID: event.ProjectID,
+				UsageReportRow: domain.UsageReportRow{Harness: key.harness, ModelID: key.model, Speed: key.speed},
+			}
+			sessionRows[sessionKey] = sessionRow
+		}
+		// Both groupings take every event the same way, so they always agree on a total.
+		targets := [2]*domain.UsageReportRow{row, &sessionRow.UsageReportRow}
+		for _, target := range targets {
+			target.Events++
+			target.InputTokens += uncached - write
+			target.CacheReadTokens += cached
+			target.CacheWriteTokens += write
+			target.OutputTokens += output
+		}
 
 		session := sessions[event.SessionID]
 		if session == nil {
@@ -147,18 +166,22 @@ func (r *ReportReader) Report(ctx context.Context, days, offset int, timeZone st
 		}
 		split := splits[priceKeyOf(event)]
 		total := *costs.EstimatedCostNanos
-		row.PricedEvents++
-		if costs.InputCostNanos != nil && costs.CachedInputCostNanos != nil && costs.OutputCostNanos != nil {
-			input := *costs.InputCostNanos
-			writeCost := min(roundNanos(float64(input)*split.writeShare), input)
-			row.InputCostNanos += input - writeCost
-			row.CacheWriteCostNanos += writeCost
-			row.CacheReadCostNanos += *costs.CachedInputCostNanos
-			row.OutputCostNanos += *costs.OutputCostNanos
+		premium := roundNanos(float64(total) * split.premiumShare)
+		savings := roundNanos(float64(cached) * split.savingsPerCachedToken)
+		for _, target := range targets {
+			target.PricedEvents++
+			if costs.InputCostNanos != nil && costs.CachedInputCostNanos != nil && costs.OutputCostNanos != nil {
+				input := *costs.InputCostNanos
+				writeCost := min(roundNanos(float64(input)*split.writeShare), input)
+				target.InputCostNanos += input - writeCost
+				target.CacheWriteCostNanos += writeCost
+				target.CacheReadCostNanos += *costs.CachedInputCostNanos
+				target.OutputCostNanos += *costs.OutputCostNanos
+			}
+			target.CostNanos += total
+			target.PremiumNanos += premium
+			target.CacheSavingsNanos += savings
 		}
-		row.CostNanos += total
-		row.PremiumNanos += roundNanos(float64(total) * split.premiumShare)
-		row.CacheSavingsNanos += roundNanos(float64(cached) * split.savingsPerCachedToken)
 		session.PricedEvents++
 		session.CostNanos += total
 	}
@@ -171,6 +194,26 @@ func (r *ReportReader) Report(ctx context.Context, days, offset int, timeZone st
 		a, b := report.Rows[i], report.Rows[j]
 		if a.Period != b.Period {
 			return a.Period < b.Period
+		}
+		if a.Harness != b.Harness {
+			return a.Harness < b.Harness
+		}
+		if a.ModelID != b.ModelID {
+			return a.ModelID < b.ModelID
+		}
+		return a.Speed < b.Speed
+	})
+	report.SessionRows = make([]domain.UsageReportSessionRow, 0, len(sessionRows))
+	for _, row := range sessionRows {
+		report.SessionRows = append(report.SessionRows, *row)
+	}
+	sort.Slice(report.SessionRows, func(i, j int) bool {
+		a, b := report.SessionRows[i], report.SessionRows[j]
+		if a.CostNanos != b.CostNanos {
+			return a.CostNanos > b.CostNanos
+		}
+		if a.SessionID != b.SessionID {
+			return a.SessionID < b.SessionID
 		}
 		if a.Harness != b.Harness {
 			return a.Harness < b.Harness

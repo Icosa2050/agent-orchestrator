@@ -2286,6 +2286,8 @@ type UsageReportQuery struct {
 	Offset    int              `query:"offset,omitempty" minimum:"0" description:"Whole windows to step back: 1 with days=7 reads the week before this one. Defaults to 0."`
 	TimeZone  string           `query:"tz,omitempty" description:"IANA time zone that days and hours are bucketed in. Defaults to UTC."`
 	ProjectID domain.ProjectID `query:"projectId,omitempty" description:"Read one project only."`
+	GroupBy   string           `query:"groupBy,omitempty" enum:"period,session" description:"period (default) buckets rows by day or hour. session returns sessionRows, one per session, harness, model and speed tier over the whole window, and leaves rows and sessions empty."`
+	Top       int              `query:"top,omitempty" minimum:"1" description:"Keep only the costliest N rows, costliest first. Omit for all rows."`
 }
 
 // UsagePriceOverride is the user's own price for one stored model ID: rates in USD per million tokens, or a catalog model to price as.
@@ -2354,11 +2356,36 @@ type UsageReportResponse struct {
 	Periods    []string                     `json:"periods" description:"Every bucket in the window, oldest first: 2006-01-02 by day, 2006-01-02T15:00 by hour."`
 	Rows       []UsageReportRowResponse     `json:"rows"`
 	Sessions   []UsageReportSessionResponse `json:"sessions"`
+	// GroupBy and SessionRows are set only when the request asked for groupBy=session, so the default response stays as it was.
+	GroupBy     string                          `json:"groupBy,omitempty" enum:"session" description:"Set to session when sessionRows carries the usage."`
+	SessionRows []UsageReportSessionRowResponse `json:"sessionRows,omitempty" description:"With groupBy=session: usage over the whole window per session, harness, model and speed tier, costliest first."`
 }
 
 // UsageReportRowResponse is one period's usage for one harness, model and speed tier.
 type UsageReportRowResponse struct {
 	Period              string `json:"period"`
+	Harness             string `json:"harness"`
+	Model               string `json:"model"`
+	Speed               string `json:"speed" description:"standard, priority, fast, flex, ultrafast, or unknown."`
+	Events              int64  `json:"events"`
+	PricedEvents        int64  `json:"pricedEvents"`
+	InputTokens         int64  `json:"inputTokens" description:"Uncached input that was not written to the cache."`
+	CacheReadTokens     int64  `json:"cacheReadTokens"`
+	CacheWriteTokens    int64  `json:"cacheWriteTokens"`
+	OutputTokens        int64  `json:"outputTokens"`
+	InputCostNanos      int64  `json:"inputCostNanos"`
+	CacheReadCostNanos  int64  `json:"cacheReadCostNanos"`
+	CacheWriteCostNanos int64  `json:"cacheWriteCostNanos"`
+	OutputCostNanos     int64  `json:"outputCostNanos"`
+	CostNanos           int64  `json:"costNanos"`
+	PremiumNanos        int64  `json:"premiumNanos" description:"Part of costNanos above standard rates, from priority, fast or ultrafast processing."`
+	CacheSavingsNanos   int64  `json:"cacheSavingsNanos" description:"What cache reads saved against paying input rates for those tokens."`
+}
+
+// UsageReportSessionRowResponse is the whole window's usage for one session, harness, model and speed tier.
+type UsageReportSessionRowResponse struct {
+	SessionID           string `json:"sessionId"`
+	ProjectID           string `json:"projectId,omitempty"`
 	Harness             string `json:"harness"`
 	Model               string `json:"model"`
 	Speed               string `json:"speed" description:"standard, priority, fast, flex, ultrafast, or unknown."`

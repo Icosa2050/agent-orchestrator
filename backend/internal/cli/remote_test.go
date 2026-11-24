@@ -133,6 +133,13 @@ func newFakeRemoteHost(t *testing.T, hostID string) *fakeRemoteHost {
 			_ = json.NewEncoder(w).Encode(map[string]any{"since": "2026-11-12T00:00:00Z", "until": "2026-11-19T00:00:00Z", "logins": []any{}})
 		case "GET /api/v1/usage/limit-peaks":
 			_, _ = io.WriteString(w, usagePeaksJSON)
+		case "GET /api/v1/usage/report":
+			// host-old stands for a daemon that predates groupBy: it ignores the parameter.
+			groupBy := r.URL.Query().Get("groupBy")
+			if hostID == "host-old" {
+				groupBy = ""
+			}
+			_, _ = io.WriteString(w, usageReportJSON(groupBy))
 		case "GET /api/v1/agents/accounts":
 			_ = json.NewEncoder(w).Encode(map[string]any{"accounts": []map[string]any{{"id": "remote-acct", "provider": "codex", "email": hostID + "@example.com", "signedIn": true}}})
 		default:
@@ -768,6 +775,55 @@ func TestUsageLimitsFleet(t *testing.T) {
 	}
 	if _, err := env.run(t, "--host", "good", "usage", "limits", "--fleet"); ExitCode(err) != 2 {
 		t.Fatalf("--host with --fleet: exit %d, err %v", ExitCode(err), err)
+	}
+}
+
+func TestUsageReportBySessionFleet(t *testing.T) {
+	env := newRemoteTestEnv(t)
+	good := newFakeRemoteHost(t, "host-good")
+	old := newFakeRemoteHost(t, "host-old")
+	gone := newFakeRemoteHost(t, "host-gone")
+	env.add(t, "good", good)
+	env.add(t, "old", old)
+	env.add(t, "gone", gone)
+	gone.srv.Close()
+
+	out, err := env.run(t, "usage", "report", "--fleet", "--by", "session", "--top", "5", "--days", "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		Hosts []struct {
+			Name   string
+			Status string
+			Error  string
+			Data   *struct {
+				GroupBy     string `json:"groupBy"`
+				SessionRows []struct {
+					SessionID string `json:"sessionId"`
+				} `json:"sessionRows"`
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	status := map[string]string{}
+	for _, h := range res.Hosts {
+		status[h.Name] = h.Status
+		switch h.Name {
+		case "good":
+			if h.Data == nil || h.Data.GroupBy != "session" || len(h.Data.SessionRows) != 1 || h.Data.SessionRows[0].SessionID != "nebrivo-215" {
+				t.Fatalf("good host = %s", out)
+			}
+		case "old":
+			if h.Data != nil || !strings.Contains(h.Error, "does not support --by session") {
+				t.Fatalf("old host should be reported as unsupported, not shown with period rows: %s", out)
+			}
+		}
+	}
+	if status["good"] != remoteStatusOK || status["old"] != remoteStatusError || status["gone"] != remoteStatusOffline {
+		t.Fatalf("fleet statuses = %v", status)
 	}
 }
 

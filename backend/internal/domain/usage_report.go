@@ -29,6 +29,8 @@ type UsageReport struct {
 	Periods    []string
 	Rows       []UsageReportRow
 	Sessions   []UsageReportSession
+	// SessionRows is the window's usage per session, harness, model and speed tier, costliest first.
+	SessionRows []UsageReportSessionRow
 }
 
 // UsageReportRow is one period's usage for one harness, model and speed tier.
@@ -50,6 +52,14 @@ type UsageReportRow struct {
 	CostNanos           int64
 	PremiumNanos        int64
 	CacheSavingsNanos   int64
+}
+
+// UsageReportSessionRow is a whole window's usage for one session, harness, model and speed tier.
+// Its embedded row has no Period: the window is not split by day or hour.
+type UsageReportSessionRow struct {
+	SessionID SessionID
+	ProjectID ProjectID
+	UsageReportRow
 }
 
 // UsageReportSession is one session's usage over the report window.
