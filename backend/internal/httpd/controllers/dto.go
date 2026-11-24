@@ -2356,8 +2356,9 @@ type UsageReportResponse struct {
 	Periods    []string                     `json:"periods" description:"Every bucket in the window, oldest first: 2006-01-02 by day, 2006-01-02T15:00 by hour."`
 	Rows       []UsageReportRowResponse     `json:"rows"`
 	Sessions   []UsageReportSessionResponse `json:"sessions"`
-	// GroupBy and SessionRows are set only when the request asked for groupBy=session, so the default response stays as it was.
+	// GroupBy, SessionRows and Top are set only when the request asked for them, so the default response stays as it was.
 	GroupBy     string                          `json:"groupBy,omitempty" enum:"session" description:"Set to session when sessionRows carries the usage."`
+	Top         int                             `json:"top,omitempty" description:"The top limit that was applied. A daemon that predates top leaves it out."`
 	SessionRows []UsageReportSessionRowResponse `json:"sessionRows,omitempty" description:"With groupBy=session: usage over the whole window per session, harness, model and speed tier, costliest first."`
 }
 

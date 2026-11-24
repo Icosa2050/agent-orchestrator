@@ -141,10 +141,10 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if by == "session" {
-					for i := range hosts {
-						if hosts[i].Status == remoteStatusOK && !answeredBySession(hosts[i].Data) {
-							hosts[i].Status, hosts[i].Error, hosts[i].Data = remoteStatusError, errSessionGroupingUnsupported.Error(), nil
+				for i := range hosts {
+					if hosts[i].Status == remoteStatusOK {
+						if err := checkReportAnswer(hosts[i].Data, by, top); err != nil {
+							hosts[i].Status, hosts[i].Error, hosts[i].Data = remoteStatusError, err.Error(), nil
 						}
 					}
 				}
@@ -154,8 +154,8 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 			if err := ctx.getJSON(cmd.Context(), path, &res); err != nil {
 				return err
 			}
-			if by == "session" && !answeredBySession(res) {
-				return errSessionGroupingUnsupported
+			if err := checkReportAnswer(res, by, top); err != nil {
+				return err
 			}
 			return writeJSON(cmd.OutOrStdout(), res)
 		},
@@ -170,14 +170,23 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 	return cmd
 }
 
-// errSessionGroupingUnsupported is what a daemon that predates --by session looks like: it ignores groupBy and answers with period rows.
-var errSessionGroupingUnsupported = errors.New("this daemon does not support --by session; update it")
-
-func answeredBySession(data json.RawMessage) bool {
+// checkReportAnswer catches a daemon that predates --by session or --top: it ignores the parameter and answers
+// with period rows in full, which would pass for the asked-for answer. Current daemons echo what they applied.
+func checkReportAnswer(data json.RawMessage, by string, top int) error {
 	var probe struct {
 		GroupBy string `json:"groupBy"`
+		Top     int    `json:"top"`
 	}
-	return json.Unmarshal(data, &probe) == nil && probe.GroupBy == "session"
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return fmt.Errorf("decode usage report: %w", err)
+	}
+	if by == "session" && probe.GroupBy != "session" {
+		return errors.New("this daemon does not support --by session; update it")
+	}
+	if top > 0 && probe.Top != top {
+		return errors.New("this daemon does not support --top; update it")
+	}
+	return nil
 }
 
 // usageLimitsMode is the one limit route a `usage limits` run reads.

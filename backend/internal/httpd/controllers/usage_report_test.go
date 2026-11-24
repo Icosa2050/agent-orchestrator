@@ -100,6 +100,7 @@ func TestUsageReportDefaultJSONIsUnchanged(t *testing.T) {
 
 type usageReportBody struct {
 	GroupBy     string            `json:"groupBy"`
+	Top         int               `json:"top"`
 	Rows        []json.RawMessage `json:"rows"`
 	Sessions    []json.RawMessage `json:"sessions"`
 	SessionRows []struct {
@@ -136,7 +137,7 @@ func TestUsageReportGroupsBySessionAndKeepsTop(t *testing.T) {
 
 	body, _ = getUsageReport(t, svc, "?groupBy=session&top=2")
 	got = usageReportBody{}
-	if err := json.Unmarshal([]byte(body), &got); err != nil || len(got.SessionRows) != 2 || got.SessionRows[1].SessionID != "nebrivo-203" {
+	if err := json.Unmarshal([]byte(body), &got); err != nil || len(got.SessionRows) != 2 || got.SessionRows[1].SessionID != "nebrivo-203" || got.Top != 2 {
 		t.Fatalf("top=2 = %s (%v)", body, err)
 	}
 	body, _ = getUsageReport(t, svc, "?groupBy=session&top=50")
@@ -153,6 +154,7 @@ func TestUsageReportTopKeepsCostliestPeriodRows(t *testing.T) {
 		t.Fatalf("status %d: %s", status, body)
 	}
 	var got struct {
+		Top  int `json:"top"`
 		Rows []struct {
 			Period    string `json:"period"`
 			Model     string `json:"model"`
@@ -163,7 +165,7 @@ func TestUsageReportTopKeepsCostliestPeriodRows(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Rows) != 2 || got.Rows[0].CostNanos != 700 || got.Rows[1].CostNanos != 300 || got.SessionRows != nil {
+	if len(got.Rows) != 2 || got.Rows[0].CostNanos != 700 || got.Rows[1].CostNanos != 300 || got.SessionRows != nil || got.Top != 2 {
 		t.Fatalf("top=2 default grouping = %s", body)
 	}
 	if svc.report.Rows[0].CostNanos != 100 {

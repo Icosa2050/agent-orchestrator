@@ -21,13 +21,17 @@ const usagePeaksJSON = `{"since":"2026-08-27T12:00:00Z","until":"2026-11-19T12:0
 	`"summary":{"periods":2,"avgPeak":56.5,"maxPeak":91,"periodsOver80":1,"periodsUnder30":1}}]}`
 
 // usageReportJSON is what a current daemon answers: the period rows by default, the session rows for groupBy=session.
-func usageReportJSON(groupBy string) string {
+func usageReportJSON(groupBy, top string) string {
+	topField := ""
+	if top != "" {
+		topField = `"top":` + top + `,`
+	}
 	if groupBy == "session" {
-		return `{"days":7,"timeZone":"UTC","resolution":"day","since":"2026-11-18T00:00:00Z","until":"2026-11-25T00:00:00Z","periods":["2026-11-24"],"rows":[],"sessions":[],"groupBy":"session",` +
+		return `{"days":7,"timeZone":"UTC","resolution":"day","since":"2026-11-18T00:00:00Z","until":"2026-11-25T00:00:00Z","periods":["2026-11-24"],"rows":[],"sessions":[],` + topField + `"groupBy":"session",` +
 			`"sessionRows":[{"sessionId":"nebrivo-215","projectId":"nebrivo","harness":"codex","model":"gpt-6.1-sol","speed":"standard","events":9,"pricedEvents":9,"inputTokens":10,` +
 			`"cacheReadTokens":90,"cacheWriteTokens":0,"outputTokens":5,"inputCostNanos":1,"cacheReadCostNanos":1,"cacheWriteCostNanos":0,"outputCostNanos":1,"costNanos":3,"premiumNanos":0,"cacheSavingsNanos":0}]}`
 	}
-	return `{"days":7,"timeZone":"UTC","resolution":"day","since":"2026-11-18T00:00:00Z","until":"2026-11-25T00:00:00Z","periods":["2026-11-24"],"rows":[],"sessions":[]}`
+	return `{"days":7,"timeZone":"UTC","resolution":"day","since":"2026-11-18T00:00:00Z","until":"2026-11-25T00:00:00Z","periods":["2026-11-24"],"rows":[],"sessions":[]` + strings.TrimSuffix(","+topField, ",") + `}`
 }
 
 func runUsageCLI(t *testing.T, args ...string) (string, []string, error) {
@@ -45,7 +49,7 @@ func runUsageCLI(t *testing.T, args ...string) (string, []string, error) {
 		case "/api/v1/usage/limit-peaks":
 			_, _ = io.WriteString(w, usagePeaksJSON)
 		case "/api/v1/usage/report":
-			_, _ = io.WriteString(w, usageReportJSON(r.URL.Query().Get("groupBy")))
+			_, _ = io.WriteString(w, usageReportJSON(r.URL.Query().Get("groupBy"), r.URL.Query().Get("top")))
 		case "/api/v1/agents/accounts":
 			_, _ = io.WriteString(w, `{"accounts":[{"id":"device-claude","provider":"claude","email":"me@example.com","plan":"max","signedIn":true,`+
 				`"limits":{"windows":[{"id":"seven_day","label":"Weekly","usedPercent":42,"resetsAt":"2026-11-26T08:00:00Z"}],"fetchedAt":"2026-11-19T11:59:00Z"}},`+
@@ -142,7 +146,7 @@ func TestUsageReportDefaultSendsNoGrouping(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out)
 	}
-	_ = json.Unmarshal([]byte(usageReportJSON("")), &want)
+	_ = json.Unmarshal([]byte(usageReportJSON("", "")), &want)
 	if gotJSON, _ := json.Marshal(got); string(gotJSON) != mustMarshalJSON(t, want) {
 		t.Fatalf("default output changed:\n%s", out)
 	}
@@ -214,12 +218,26 @@ func TestUsageReportRejectsBadByAndTop(t *testing.T) {
 	}
 }
 
-func TestUsageReportBySessionNeedsACurrentDaemon(t *testing.T) {
-	if answeredBySession(json.RawMessage(usageReportJSON(""))) || !answeredBySession(json.RawMessage(usageReportJSON("session"))) {
-		t.Fatal("answeredBySession cannot tell a period answer from a session answer")
-	}
-	if answeredBySession(json.RawMessage(`not json`)) {
-		t.Fatal("answeredBySession accepted a body that is not JSON")
+func TestCheckReportAnswerCatchesAnOldDaemon(t *testing.T) {
+	period, sessionTop := json.RawMessage(usageReportJSON("", "")), json.RawMessage(usageReportJSON("session", "5"))
+	for _, tc := range []struct {
+		name string
+		data json.RawMessage
+		by   string
+		top  int
+		want string
+	}{
+		{"default asks nothing", period, "", 0, ""},
+		{"current daemon answers by session and top", sessionTop, "session", 5, ""},
+		{"old daemon ignores groupBy", period, "session", 0, "--by session"},
+		{"old daemon ignores top", period, "", 3, "--top"},
+		{"top applied differently than asked", sessionTop, "session", 2, "--top"},
+		{"not JSON", json.RawMessage(`not json`), "session", 0, "decode usage report"},
+	} {
+		err := checkReportAnswer(tc.data, tc.by, tc.top)
+		if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+			t.Fatalf("%s: err = %v, want %q", tc.name, err, tc.want)
+		}
 	}
 }
 

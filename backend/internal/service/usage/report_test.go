@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -338,6 +339,42 @@ func TestReportGroupsSessionRows(t *testing.T) {
 	for _, row := range inApp.SessionRows {
 		if row.ProjectID != "app" {
 			t.Fatalf("project filter kept %+v", row)
+		}
+	}
+}
+
+// A session's cache-write cost comes from its own cache writes, not from the window's blend over every session.
+func TestReportSessionRowsSplitCacheWritesPerSession(t *testing.T) {
+	snapshot := testCatalog(t)
+	now := time.Date(2026, 10, 25, 20, 40, 0, 0, time.UTC)
+	claude := func(session domain.SessionID, write int64) domain.UsageReportEvent {
+		providerUsage := fmt.Sprintf(`{"cache_creation_input_tokens":%d,"cache_creation":{"ephemeral_5m_input_tokens":%d,"ephemeral_1h_input_tokens":0}}`, write, write)
+		return pricedEvent(t, snapshot, domain.UsageReportEvent{
+			CreatedAt: now.Add(-time.Hour), ProviderID: domain.UsageProviderAnthropic, BillingProviderID: "anthropic", ModelID: "claude-opus-5-5",
+			Tokens:  domain.UsageTokenMetrics{CachedInputTokens: int64p(0), UncachedInputTokens: int64p(1000), OutputTokens: int64p(10)},
+			Harness: domain.HarnessClaudeCode, SessionID: session, ProjectID: "app", CacheWriteTokens: int64p(write),
+		}, providerUsage)
+	}
+	reader := NewReportReader(&reportStoreStub{events: []domain.UsageReportEvent{claude("app-a", 0), claude("app-b", 1000)}}, snapshotStub{snapshot})
+	reader.now = func() time.Time { return now }
+	report, err := reader.Report(context.Background(), 7, 0, "UTC", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[domain.SessionID]domain.UsageReportSessionRow{}
+	for _, row := range report.SessionRows {
+		rows[row.SessionID] = row
+	}
+	a, b := rows["app-a"], rows["app-b"]
+	if a.CacheWriteTokens != 0 || a.CacheWriteCostNanos != 0 {
+		t.Fatalf("app-a wrote nothing to the cache but carries cache-write cost: %+v", a)
+	}
+	if b.CacheWriteTokens != 1000 || b.CacheWriteCostNanos <= 0 || b.InputCostNanos != 0 {
+		t.Fatalf("app-b wrote all its input to the cache: %+v", b)
+	}
+	for _, row := range []domain.UsageReportSessionRow{a, b} {
+		if row.InputCostNanos+row.CacheWriteCostNanos+row.CacheReadCostNanos+row.OutputCostNanos != row.CostNanos {
+			t.Fatalf("categories do not add up to the cost: %+v", row)
 		}
 	}
 }

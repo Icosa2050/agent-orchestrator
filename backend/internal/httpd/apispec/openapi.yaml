@@ -26669,6 +26669,10 @@ components:
           type: string
         timeZone:
           type: string
+        top:
+          description: The top limit that was applied. A daemon that predates top
+            leaves it out.
+          type: integer
         until:
           format: date-time
           type: string

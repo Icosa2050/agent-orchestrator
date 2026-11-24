@@ -264,6 +264,7 @@ func (c *UsageController) getReport(w http.ResponseWriter, r *http.Request) {
 	if out.Periods == nil {
 		out.Periods = []string{}
 	}
+	out.Top = top
 	if groupBy == "session" {
 		out.GroupBy = "session"
 		out.Rows, out.Sessions = []UsageReportRowResponse{}, []UsageReportSessionResponse{}

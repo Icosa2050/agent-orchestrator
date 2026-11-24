@@ -103,6 +103,15 @@ func (r *ReportReader) Report(ctx context.Context, days, offset int, timeZone st
 		snapshot = r.pricing.Snapshot()
 	}
 	splits := costSplits(snapshot, events)
+	// A session's cache-write mix, premium and cache savings are its own, not the window's blend over every session.
+	eventsBySession := map[domain.SessionID][]domain.UsageReportEvent{}
+	for _, event := range events {
+		eventsBySession[event.SessionID] = append(eventsBySession[event.SessionID], event)
+	}
+	sessionSplits := make(map[domain.SessionID]map[priceKey]costSplit, len(eventsBySession))
+	for id, sessionEvents := range eventsBySession {
+		sessionSplits[id] = costSplits(snapshot, sessionEvents)
+	}
 
 	type rowKey struct {
 		period, model, speed string
@@ -166,21 +175,20 @@ func (r *ReportReader) Report(ctx context.Context, days, offset int, timeZone st
 		}
 		split := splits[priceKeyOf(event)]
 		total := *costs.EstimatedCostNanos
-		premium := roundNanos(float64(total) * split.premiumShare)
-		savings := roundNanos(float64(cached) * split.savingsPerCachedToken)
-		for _, target := range targets {
+		splitFor := [2]costSplit{split, sessionSplits[event.SessionID][priceKeyOf(event)]}
+		for i, target := range targets {
 			target.PricedEvents++
 			if costs.InputCostNanos != nil && costs.CachedInputCostNanos != nil && costs.OutputCostNanos != nil {
 				input := *costs.InputCostNanos
-				writeCost := min(roundNanos(float64(input)*split.writeShare), input)
+				writeCost := min(roundNanos(float64(input)*splitFor[i].writeShare), input)
 				target.InputCostNanos += input - writeCost
 				target.CacheWriteCostNanos += writeCost
 				target.CacheReadCostNanos += *costs.CachedInputCostNanos
 				target.OutputCostNanos += *costs.OutputCostNanos
 			}
 			target.CostNanos += total
-			target.PremiumNanos += premium
-			target.CacheSavingsNanos += savings
+			target.PremiumNanos += roundNanos(float64(total) * splitFor[i].premiumShare)
+			target.CacheSavingsNanos += roundNanos(float64(cached) * splitFor[i].savingsPerCachedToken)
 		}
 		session.PricedEvents++
 		session.CostNanos += total

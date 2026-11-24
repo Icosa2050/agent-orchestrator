@@ -135,11 +135,11 @@ func newFakeRemoteHost(t *testing.T, hostID string) *fakeRemoteHost {
 			_, _ = io.WriteString(w, usagePeaksJSON)
 		case "GET /api/v1/usage/report":
 			// host-old stands for a daemon that predates groupBy: it ignores the parameter.
-			groupBy := r.URL.Query().Get("groupBy")
+			groupBy, top := r.URL.Query().Get("groupBy"), r.URL.Query().Get("top")
 			if hostID == "host-old" {
-				groupBy = ""
+				groupBy, top = "", ""
 			}
-			_, _ = io.WriteString(w, usageReportJSON(groupBy))
+			_, _ = io.WriteString(w, usageReportJSON(groupBy, top))
 		case "GET /api/v1/agents/accounts":
 			_ = json.NewEncoder(w).Encode(map[string]any{"accounts": []map[string]any{{"id": "remote-acct", "provider": "codex", "email": hostID + "@example.com", "signedIn": true}}})
 		default:
@@ -824,6 +824,23 @@ func TestUsageReportBySessionFleet(t *testing.T) {
 	}
 	if status["good"] != remoteStatusOK || status["old"] != remoteStatusError || status["gone"] != remoteStatusOffline {
 		t.Fatalf("fleet statuses = %v", status)
+	}
+
+	// --top alone: the old host ignores it and would otherwise pass for a truncated answer.
+	out, err = env.run(t, "usage", "report", "--fleet", "--top", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	for _, h := range res.Hosts {
+		if h.Name == "old" && (h.Status != remoteStatusError || !strings.Contains(h.Error, "--top")) {
+			t.Fatalf("old host with --top = %+v", h)
+		}
+		if h.Name == "good" && h.Status != remoteStatusOK {
+			t.Fatalf("good host with --top = %+v", h)
+		}
 	}
 }
 

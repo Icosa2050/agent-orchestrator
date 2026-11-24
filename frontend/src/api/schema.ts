@@ -9446,6 +9446,8 @@ export interface components {
             /** Format: date-time */
             since: string;
             timeZone: string;
+            /** @description The top limit that was applied. A daemon that predates top leaves it out. */
+            top?: number;
             /** Format: date-time */
             until: string;
         };
