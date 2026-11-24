@@ -501,9 +501,6 @@ func (c *Controller) restoreLiveTurnOwnership(turns []domain.ConversationTurn) s
 // notification from racing ahead of the older turns it follows.
 func (c *Controller) start() {
 	go c.project(deltaFlushInterval)
-	if c.harness != domain.HarnessCodex {
-		go c.readRateLimits()
-	}
 }
 
 type nativeHistoryHighWater struct {
@@ -1536,6 +1533,24 @@ func knownTurnOutcome(state domain.TurnState) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// forgetRateLimits clears the stored quota position when a controller opens.
+//
+// A quota reading describes the account the provider process that sent it was
+// signed in to. A new controller means a new provider process, which can be on
+// another account (an account switch, or a re-login before a restart), and its
+// own readings start empty. Showing the previous process's last reading until
+// the new one reports would present another account's quota as current, and
+// nothing ages it out: its window may not reset for days. No meter until the new
+// process reports is the honest state.
+func (c *Controller) forgetRateLimits(ctx context.Context) {
+	if err := c.store.RecordRateLimits(ctx, c.conversation.ID, domain.ConversationRateLimits{
+		PrimaryUsedPercent:   -1,
+		SecondaryUsedPercent: -1,
+	}); err != nil {
+		c.log.Debug("failed to clear chat rate limits", "session", c.sessionID, "error", err)
 	}
 }
 
@@ -3158,6 +3173,13 @@ func (c *Controller) project(flushInterval time.Duration) {
 	// controller, and must keep persisting until the provider stream ends.
 	ctx := context.WithoutCancel(context.Background())
 	acknowledger, persistent := c.conv.(ports.ChatProviderEventAcknowledger)
+
+	// Forget the previous provider process's quota reading before applying any
+	// event from this one, so the clear can never overwrite a fresh reading.
+	c.forgetRateLimits(ctx)
+	if c.harness != domain.HarnessCodex {
+		go c.readRateLimits()
+	}
 
 	if !pumpProviderEvents(c.conv.Events(), c.flushRequests, flushInterval, func(unit []ports.ChatEvent) bool {
 		return c.projectUnit(ctx, unit, acknowledger, persistent)
