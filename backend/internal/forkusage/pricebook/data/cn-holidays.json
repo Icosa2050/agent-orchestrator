@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "dayBoundary": "Beijing time (UTC+8)",
+  "years": [
+    {
+      "year": 2026,
+      "notice": "国务院办公厅关于2026年部分节假日安排的通知",
+      "sourceUrl": "https://www.news.cn/politics/20251104/88bcffd88ae249e58c699b8772548e3d/c.html",
+      "publishedAt": "2025-11-04",
+      "transcribedAt": "2026-11-24",
+      "holidays": [
+        {"name": "元旦 New Year's Day", "from": "2026-01-01", "to": "2026-01-03"},
+        {"name": "春节 Spring Festival", "from": "2026-02-15", "to": "2026-02-23"},
+        {"name": "清明节 Qingming", "from": "2026-04-04", "to": "2026-04-06"},
+        {"name": "劳动节 Labour Day", "from": "2026-05-01", "to": "2026-05-05"},
+        {"name": "端午节 Dragon Boat", "from": "2026-06-19", "to": "2026-06-21"},
+        {"name": "中秋节 Mid-Autumn", "from": "2026-09-25", "to": "2026-09-27"},
+        {"name": "国庆节 National Day", "from": "2026-10-01", "to": "2026-10-07"}
+      ],
+      "makeUpWorkdays": ["2026-01-04", "2026-02-14", "2026-02-28", "2026-05-09", "2026-09-20", "2026-10-10"]
+    },
+    {
+      "year": 2027,
+      "notice": "国务院办公厅关于2027年部分节假日安排的通知 (国办发明电〔2026〕10号)",
+      "sourceUrl": "https://www.news.cn/politics/20261105/f90cd6ad4df94ab4833b141e52ccfc13/c.html",
+      "publishedAt": "2026-11-05",
+      "transcribedAt": "2026-11-24",
+      "holidays": [
+        {"name": "元旦 New Year's Day", "from": "2027-01-01", "to": "2027-01-03"},
+        {"name": "春节 Spring Festival", "from": "2027-02-05", "to": "2027-02-13"},
+        {"name": "清明节 Qingming", "from": "2027-04-03", "to": "2027-04-05"},
+        {"name": "劳动节 Labour Day", "from": "2027-05-01", "to": "2027-05-05"},
+        {"name": "端午节 Dragon Boat", "from": "2027-06-09", "to": "2027-06-09"},
+        {"name": "中秋节 Mid-Autumn", "from": "2027-09-15", "to": "2027-09-15"},
+        {"name": "国庆节 National Day", "from": "2027-10-01", "to": "2027-10-07"}
+      ],
+      "makeUpWorkdays": ["2027-01-31", "2027-02-14", "2027-05-08", "2027-09-26", "2027-10-09"]
+    }
+  ]
+}

@@ -138,6 +138,65 @@ all `TestCoordinator*` (`./internal/service/report`), `TestForkFleetWiring*`
 between the merge base and HEAD; `scripts/fork/upstream-guard.test.sh`
 checks that it does.
 
+## Usage seams (API-billed usage, PR A: DeepSeek price book)
+
+The DeepSeek price book lives in fork-owned code:
+`backend/internal/forkusage/pricebook` (embedded price versions with evidence,
+the 2026 and 2027 Chinese public holiday calendars from the State Council
+notices, the peak/off-peak window engine, the read-time pricer and the
+automatic price-page check), `backend/internal/daemon/fork_usage_wiring.go`
+and `backend/internal/cli/fork_usage_prices.go` (`ao usage prices`,
+`ao usage prices --check`, `--accept`, `ao usage prices auto on|off`,
+`ao usage window`). It attaches to upstream-owned files only through these
+seams, each marked with a `Fork: usage seam (FORK.md)` comment; the guard
+counts them together with the fleet seam markers.
+
+| Seam | Upstream file | What plugs in |
+|---|---|---|
+| `startForkUsage` / `defer forkUsage.stop()` next to `newForkFleet()`, and `forkUsage.routes()` appended to `APIDeps.Extensions` | `backend/internal/daemon/daemon.go` | the price book, its daily check loop and the `/api/v1/usage/fork/*` routes |
+| `prices` and `window` added to the `ao usage` tree | `backend/internal/cli/usage.go` | fork CLI commands; `prices` writes and stays local, `window` is remote read-only |
+| `ExitCode` honours an error's own `ExitCode() int` | `backend/internal/cli/root.go` | `ao usage prices --check` exit codes 3 (changed) and 4 (cannot verify) |
+
+The routes sit under `/api/v1/usage/fork/` (not `/api/v1/fork/usage/` as the
+design sketched) so the LAN listener's device-credential gate for
+`/api/v1/usage` covers them. Prices are computed at read time; nothing is
+stored in SQLite and no upstream pricing, DTO, OpenAPI or migration changes.
+
+State, all under `$AO_DATA_DIR/provider-usage/` (files 0600):
+`config.json` (`pricebook.autoCheck`, default true; unknown keys are kept for
+later provider settings), `pricebook/deepseek-auto.json` (versions recorded
+from the page, append-only) and `pricebook/check-state.json`.
+
+Price-page check rules: at most once per 24 h (first run 5-30 min after
+start), keyless, no cookies, redirects refused, HTTPS only, body at most
+512 KB, 10 s timeout. A parsed change is recorded as a new version labelled
+"auto-updated from page", effective from the fetch instant; earlier versions
+are never edited. A price moving more than 10x either way, a currency other
+than `$`, or more than half the models vanishing is held as suspicious until
+`ao usage prices --accept <pageSha256>`. A failed fetch or unrecognized page
+keeps the last version and warns; prices turn stale 7 days after the last good
+check (30 days with the check off).
+
+### Default outbound endpoints
+
+Requests the daemon sends by default, with no opt-in. Every new default
+destination must be added here and to `TestForkDefaultOutboundHosts`
+(`./internal/daemon`), which runs the price fetchers with default settings
+against a recording transport and fails on any other host, a non-HTTPS
+request, or a request carrying an `Authorization` header or cookies. The
+packaged signed-out network check was a manual procedure (see the release
+verification reports); add these hosts to its expected destinations.
+
+| Host and path | Purpose | Schedule | Switch | Credentials |
+|---|---|---|---|---|
+| `raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` | LiteLLM model price table (upstream usage cost estimates) | daily refresh | upstream behaviour | none |
+| `api-docs.deepseek.com/quick_start/pricing.md` | DeepSeek price-page check (price book drift) | at most daily, first 5-30 min after start; also `ao usage prices --check` | `ao usage prices auto off` (`TestForkPriceCheckSwitchOff`) | none, no cookies |
+
+Tests: `./internal/forkusage/pricebook` (all), `TestForkDefaultOutboundHosts`
+and `TestForkPriceCheckSwitchOff` (`./internal/daemon`), `TestForkUsageRoutes*`
+(`./internal/httpd`) and `TestForkUsage*` (`./internal/cli`), all in
+`protected-tests.sh`.
+
 ## Upstream-sync review procedure (mandatory)
 
 Never use GitHub's "Sync fork" button, `gh repo sync` or the merge-upstream
