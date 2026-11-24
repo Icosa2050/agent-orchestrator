@@ -73,7 +73,7 @@ backend_tests='
 ./internal/forkusage/pricebook . 25
 ./internal/daemon ^(TestForkDefaultOutboundHosts|TestForkPriceCheckSwitchOff)$ 2
 ./internal/httpd ^TestForkUsageRoutes 1
-./internal/cli ^TestForkUsage 5
+./internal/cli ^TestForkUsage 6
 '
 
 fail() { echo "protected-tests: $*" >&2; exit 1; }

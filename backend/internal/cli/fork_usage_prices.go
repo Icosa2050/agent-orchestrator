@@ -123,6 +123,10 @@ func newForkUsagePricesCommand(ctx *commandContext) *cobra.Command {
 				} else if err := writeForkCheck(out, res); err != nil {
 					return err
 				}
+				if !check {
+					// A successful accept is a success; exit codes describe --check only.
+					return nil
+				}
 				switch res.Outcome {
 				case "changed", "suspicious":
 					return codedError{exitPricesChanged, fmt.Errorf("deepseek prices %s", res.Outcome)}

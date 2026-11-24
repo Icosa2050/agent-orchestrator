@@ -187,3 +187,29 @@ func TestForkUsagePricesOldDaemonAndRemote(t *testing.T) {
 		}
 	}
 }
+
+// A successful --accept exits 0 (exit codes 3/4 are for --check only).
+func TestForkUsagePricesAcceptExitsZero(t *testing.T) {
+	svc, page := newForkPriceService(t)
+	fixture, err := os.ReadFile("../forkusage/pricebook/testdata/pricing-2026-11-24.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pro peak cache-hit x100: suspicious, held for --accept.
+	page.set(strings.Replace(string(fixture), "| $0.044 ", "| $4.4   ", 1))
+	out, err := runForkUsageCLI(t, svc, "usage", "prices", "--check", "--json")
+	if ExitCode(err) != exitPricesChanged {
+		t.Fatalf("check: exit %d %v\n%s", ExitCode(err), err, out)
+	}
+	var res forkCheckResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Outcome != "suspicious" || res.PageSHA256 == "" || res.Recorded != "" {
+		t.Fatalf("check json: %v\n%s", err, out)
+	}
+	out, err = runForkUsageCLI(t, svc, "usage", "prices", "--accept", res.PageSHA256)
+	if err != nil || ExitCode(err) != 0 {
+		t.Fatalf("accept: exit %d %v\n%s", ExitCode(err), err, out)
+	}
+	if !strings.Contains(out, "recorded: deepseek-auto-") || svc.Book().Latest().Version == "deepseek-2026-09-10" {
+		t.Errorf("accept output / book: %s", out)
+	}
+}
