@@ -64,6 +64,10 @@ backend_tests='
 ./internal/storage/sqlite/store ^TestForkSessionRetention 1
 ./internal/service/session ^TestDeleteExpired 1
 ./internal/mobilebridge . 116
+./internal/httpd ^(TestForkFleet|TestForkOnDevicePaired|TestForkDeviceToken) 9
+./internal/service/report ^(TestCoordinator|TestForkReportRouter) 17
+./internal/daemon ^TestForkFleetWiring 1
+./internal/cli ^TestForkFleetWrite 3
 ./internal/adapters/telemetry (OptOut|TestFork) 5
 ./internal/adapters/telemetry/policyauthority . 4
 '

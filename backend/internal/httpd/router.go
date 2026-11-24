@@ -90,6 +90,12 @@ func NewRouterWithControl(cfg config.Config, log *slog.Logger, termMgr *terminal
 	mountAwake(r, &controllers.AwakeController{Svc: deps.Awake})
 	mountMobileDevices(r, &controllers.MobileDevicesController{Registry: deps.DeviceRoster, Presence: deps.DeviceLive, Access: deps.DeviceAccess})
 	api.Register(r)
+	// Fork: fleet seam (FORK.md). Extensions mount after the API surface.
+	for _, mount := range deps.Extensions {
+		if mount != nil {
+			mount(r)
+		}
+	}
 
 	return r
 }

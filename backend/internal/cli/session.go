@@ -339,7 +339,7 @@ func newSessionKillCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
-	return cmd
+	return markRemoteFleetWrite(cmd) // Fork: fleet seam (FORK.md).
 }
 
 func newSessionRestoreCommand(ctx *commandContext) *cobra.Command {

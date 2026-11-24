@@ -46,6 +46,10 @@ const (
 	remoteAnnotation          = "ao.remote"
 	remoteAnnotationReadOnly  = "read-only"
 	remoteAnnotationLocalOnly = "local"
+	// remoteAnnotationFleetWrite marks a write command that fleet control may
+	// send to a remote host. Until the fleet write client lands, --host and
+	// AO_HOST refuse it like any other write.
+	remoteAnnotationFleetWrite = "fleet-write"
 )
 
 // tailscaleNets are the addresses Tailscale assigns: the CGNAT range and its

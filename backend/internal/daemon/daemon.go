@@ -829,9 +829,11 @@ func Run(buildVersion string) (retErr error) {
 			reportCoordinator.Wake()
 		}
 	}})
+	fleet := newForkFleet() // Fork: fleet seam (FORK.md); inert in PR-0.
 	reportCoordinator = reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{
 		Store:    store,
 		Delivery: reportSemanticDelivery{chat: chatSvc, sessions: reportSessions, store: store},
+		Router:   fleet.reportRouter(), // Fork: fleet seam (FORK.md).
 	})
 	chatSvc.SetReportCoordinator(reportCoordinator)
 	reportDeliveryDone := reportCoordinator.Start(ctx)
@@ -932,6 +934,7 @@ func Run(buildVersion string) (retErr error) {
 		Devices:     accessDevices,
 		Codes:       pairingCodes,
 	}
+	bs.OnDevicePaired = fleet.onDevicePaired() // Fork: fleet seam (FORK.md).
 	// HostID is assigned below, once the identity file has been read.
 	mc := &controllers.MobileController{Bridge: bs}
 	// Session search: a local, read-only index over past sessions. It starts
@@ -1278,6 +1281,7 @@ func Run(buildVersion string) (retErr error) {
 		DeviceLive:         presenceTracker,
 		DeviceAccess:       bs,
 		AccessDevices:      accessDevices,
+		Extensions:         fleet.routes(), // Fork: fleet seam (FORK.md).
 		Import:             importsvc.New(importsvc.Deps{Store: store}),
 		SessionImport:      sessionImportSvc,
 		Directories:        fsbrowsersvc.New(),
@@ -1380,7 +1384,7 @@ func Run(buildVersion string) (retErr error) {
 
 	// Late-bind: the LAN listener shares the exact loopback router instance so
 	// the LAN surface and loopback surface never drift apart.
-	lan := httpd.NewMobileLAN(srv.Handler(), hostIdentity.HostID, mobilebridge.DefaultPort, log, telemetrySink)
+	lan := httpd.NewMobileLAN(fleet.lanHandler(srv.Handler()), hostIdentity.HostID, mobilebridge.DefaultPort, log, telemetrySink)
 	lan.UseDeviceCredentials(accessDevices, pairingCodes)
 	bs.LAN = lan
 
