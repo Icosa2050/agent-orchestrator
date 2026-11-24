@@ -305,6 +305,7 @@ type Diff struct {
 	Suspicious   []string      `json:"suspicious,omitempty"`
 	NewModels    []string      `json:"newModels,omitempty"`
 	Removed      []string      `json:"removedModels,omitempty"`
+	Renamed      []string      `json:"renamedModels,omitempty"`
 	ModelChanges []ModelChange `json:"modelChanges,omitempty"`
 }
 
@@ -379,14 +380,23 @@ func Compare(current Version, page *Page, fetchedAt time.Time, pageSHA string) (
 	active := 0
 	for name, old := range cur.models {
 		if old.retired {
-			// A retired model the page lists again carries its new rates.
-			if _, back := page.Models[name]; !back {
+			// A retired model the page lists again carries its new rates; one
+			// the page now lists as a legacy alias is billed through it.
+			_, back := page.Models[name]
+			if _, aliased := page.Aliases[name]; !back && !aliased {
 				cand.Models[name] = current.Models[name]
 			}
 			continue
 		}
 		active++
 		if _, ok := page.Models[name]; !ok {
+			// Renamed: the page bills the old name as a legacy alias of
+			// another model. The alias wins; earlier events keep the previous
+			// version's price for this name.
+			if target, aliased := page.Aliases[name]; aliased {
+				d.Renamed = append(d.Renamed, name+" now billed as "+target)
+				continue
+			}
 			d.Removed = append(d.Removed, name)
 			kept := current.Models[name]
 			kept.RetiredOnPage = true
@@ -418,7 +428,8 @@ func Compare(current Version, page *Page, fetchedAt time.Time, pageSHA string) (
 	}
 	sort.Strings(d.NewModels)
 	sort.Strings(d.Removed)
-	d.Changes = describeChanges(cur, candC)
+	sort.Strings(d.Renamed)
+	d.Changes = append(describeChanges(cur, candC), prefixed("model ", d.Renamed)...)
 	for _, name := range sortedKeys(page.Models) {
 		if old, ok := cur.models[name]; ok && !old.retired {
 			if ratesOf(old.peak) != cand.Models[name].PeakPerM {
@@ -451,6 +462,14 @@ func implausibleMove(old, next [3]*big.Rat) string {
 		}
 	}
 	return ""
+}
+
+func prefixed(prefix string, items []string) []string {
+	out := make([]string, len(items))
+	for i, s := range items {
+		out[i] = prefix + s
+	}
+	return out
 }
 
 func withName(v Version, name string) Version {

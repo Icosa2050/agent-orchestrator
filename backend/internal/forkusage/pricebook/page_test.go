@@ -265,3 +265,45 @@ func TestWindowRatiosOnlyWhenUniform(t *testing.T) {
 		t.Errorf("uniform factor: %+v", w)
 	}
 }
+
+// Review regression (PR #40): a model the page drops and lists as a legacy
+// alias of a new model is a rename, not an invalid version.
+func TestCompareModelRenamedToAlias(t *testing.T) {
+	b := mustBook(t)
+	latest := b.Latest()
+	renameNote := "(3) Use `deepseek-pro` as the model name. The legacy name `deepseek-v4-pro` is still accepted, its requests are served by the new model and billed at the Pro price."
+	pro := pageModel{"deepseek-pro(3)", [3]string{"$0.04", "$1.2", "$3.6"}, [3]string{"$0.02", "$0.6", "$1.8"}}
+	p, err := ParsePage([]byte(mkPage([]pageModel{flashCol(), pro}, realAliasNote, realPeakNote, renameNote)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Aliases["deepseek-v4-pro"] != "deepseek-pro" {
+		t.Fatalf("aliases: %+v", p.Aliases)
+	}
+	at := ts(t, "2026-12-03T06:12:00Z")
+	d, cand, err := Compare(latest, p, at, "sha")
+	if err != nil || d.Outcome != OutcomeChanged || cand == nil {
+		t.Fatalf("rename: %+v %v %v", d, cand, err)
+	}
+	if _, kept := cand.Models["deepseek-v4-pro"]; kept || cand.Aliases["deepseek-v4-pro"] != "deepseek-pro" || len(d.Removed) != 0 {
+		t.Errorf("candidate: models %v aliases %v removed %v", cand.Models, cand.Aliases, d.Removed)
+	}
+	if !containsString(d.Changes, "model deepseek-v4-pro now billed as deepseek-pro") {
+		t.Errorf("changes: %v", d.Changes)
+	}
+	// Recorded, the old name prices at the new model's rate from detection;
+	// earlier events keep the previous version's Pro price.
+	cand.Version = "deepseek-auto-2026-12-03"
+	nb, err := Load([]Version{*cand})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := nb.Price(Usage{Route: "deepseek", Model: "deepseek-v4-pro", At: at.Add(-time.Second), OutputTokens: 1_000_000})
+	after, _ := nb.Price(Usage{Route: "deepseek", Model: "deepseek-v4-pro", At: at, OutputTokens: 1_000_000})
+	if before.BilledAs != "deepseek-v4-pro" || before.Window != WindowPeak || before.TotalNanos != 3_960_000_000 {
+		t.Errorf("before: %+v", before)
+	}
+	if after.BilledAs != "deepseek-pro" || after.TotalNanos != 3_600_000_000 {
+		t.Errorf("after: %+v", after)
+	}
+}
