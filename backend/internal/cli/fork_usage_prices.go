@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"text/tabwriter"
@@ -284,7 +285,7 @@ func forkNextStart(rep forkWindowReport, peak bool) (time.Time, error) {
 // forkUsageRouteError explains a 404 from a daemon that predates the routes.
 func forkUsageRouteError(err error) error {
 	var apiErr apiResponseError
-	if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
 		return errors.New("this daemon has no DeepSeek price book; update it")
 	}
 	return err

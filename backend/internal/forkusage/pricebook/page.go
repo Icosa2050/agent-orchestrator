@@ -35,7 +35,7 @@ func layout(reason string) error { return &ParseError{Reason: reason} }
 
 var (
 	footnoteRef   = regexp.MustCompile(`\((\d)\)\s*$`)
-	priceCell     = regexp.MustCompile(`^(\$|USD\s*|¥|￥|CNY\s*|RMB\s*)\s*([0-9]+(?:\.[0-9]+)?)$`)
+	priceCell     = regexp.MustCompile(`^(\$|USD\s*|¥|￥|CNY\s*|RMB\s*)\s*(\d+(?:\.\d+)?)$`)
 	clockRange    = regexp.MustCompile(`([0-2][0-9]:[0-5][0-9])\s*[-–—]\s*([0-2][0-9]:[0-5][0-9])`)
 	weekdayRange  = regexp.MustCompile(`(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(?:through|to|-|–)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)`)
 	backticked    = regexp.MustCompile("`([a-z0-9][a-z0-9._-]*)`")
@@ -300,6 +300,7 @@ const (
 // Diff is the difference between the current version and the page.
 type Diff struct {
 	Outcome      string        `json:"outcome"`
+	Currency     string        `json:"currency"`
 	Changes      []string      `json:"changes,omitempty"`
 	Suspicious   []string      `json:"suspicious,omitempty"`
 	NewModels    []string      `json:"newModels,omitempty"`
@@ -323,7 +324,7 @@ var suspiciousFactor = big.NewRat(10, 1)
 // half the current models vanishing) still returns the candidate; the caller
 // must not record it without an explicit accept.
 func Compare(current Version, page *Page, fetchedAt time.Time, pageSHA string) (Diff, *Version, error) {
-	d := Diff{Outcome: OutcomeUnchanged}
+	d := Diff{Outcome: OutcomeUnchanged, Currency: page.Currency}
 	cur, err := compileVersion(current)
 	if err != nil {
 		return d, nil, err
@@ -368,23 +369,20 @@ func Compare(current Version, page *Page, fetchedAt time.Time, pageSHA string) (
 			d.NewModels = append(d.NewModels, name)
 			continue
 		}
-		for i := range peak {
-			if old.peak[i].Sign() > 0 && peak[i].Sign() > 0 {
-				ratio := new(big.Rat).Quo(peak[i], old.peak[i])
-				if ratio.Cmp(suspiciousFactor) > 0 || new(big.Rat).Mul(ratio, suspiciousFactor).Cmp(big.NewRat(1, 1)) < 0 {
-					d.Suspicious = append(d.Suspicious, fmt.Sprintf("%s price moved more than 10x", name))
-					break
-				}
-			} else if old.peak[i].Sign() != peak[i].Sign() {
-				d.Suspicious = append(d.Suspicious, fmt.Sprintf("%s price moved to or from zero", name))
-				break
-			}
+		// Both windows: an off-peak-only jump is as suspicious as a peak one.
+		if reason := implausibleMove(old.peak, peak); reason != "" {
+			d.Suspicious = append(d.Suspicious, fmt.Sprintf("%s peak %s", name, reason))
+		} else if reason := implausibleMove(old.offPeak, off); reason != "" {
+			d.Suspicious = append(d.Suspicious, fmt.Sprintf("%s off-peak %s", name, reason))
 		}
 	}
 	active := 0
 	for name, old := range cur.models {
 		if old.retired {
-			cand.Models[name] = current.Models[name]
+			// A retired model the page lists again carries its new rates.
+			if _, back := page.Models[name]; !back {
+				cand.Models[name] = current.Models[name]
+			}
 			continue
 		}
 		active++
@@ -415,7 +413,7 @@ func Compare(current Version, page *Page, fetchedAt time.Time, pageSHA string) (
 	if err != nil {
 		return d, nil, layout("page content does not form a valid version")
 	}
-	if candC.sameAsKey == cur.sameAsKey {
+	if candC.sameAsKey == cur.sameAsKey && len(d.Suspicious) == 0 {
 		return d, nil, nil
 	}
 	sort.Strings(d.NewModels)
@@ -428,11 +426,31 @@ func Compare(current Version, page *Page, fetchedAt time.Time, pageSHA string) (
 			}
 		}
 	}
+	if len(d.Changes) == 0 && page.Currency != "USD" {
+		d.Changes = append(d.Changes, "currency changed to "+page.Currency)
+	}
 	d.Outcome = OutcomeChanged
 	if len(d.Suspicious) > 0 {
 		d.Outcome = OutcomeSuspicious
 	}
 	return d, &cand, nil
+}
+
+// implausibleMove reports a component that moved more than 10x either way,
+// or to or from zero.
+func implausibleMove(old, next [3]*big.Rat) string {
+	for i := range old {
+		switch {
+		case old[i].Sign() > 0 && next[i].Sign() > 0:
+			ratio := new(big.Rat).Quo(next[i], old[i])
+			if ratio.Cmp(suspiciousFactor) > 0 || new(big.Rat).Mul(ratio, suspiciousFactor).Cmp(big.NewRat(1, 1)) < 0 {
+				return "price moved more than 10x"
+			}
+		case old[i].Sign() != next[i].Sign():
+			return "price moved to or from zero"
+		}
+	}
+	return ""
 }
 
 func withName(v Version, name string) Version {
@@ -481,4 +499,7 @@ func sortedPairs(m map[string]string) []string {
 	return out
 }
 
-var errNoPending = errors.New("no pending price change with that page hash")
+var (
+	errNoPending = errors.New("no pending price change with that page hash")
+	errNotUSD    = errors.New("the held change is not priced in USD; the price book supports USD only, so it cannot be accepted")
+)

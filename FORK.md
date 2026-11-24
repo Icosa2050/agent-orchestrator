@@ -156,6 +156,7 @@ counts them together with the fleet seam markers.
 | `startForkUsage` / `defer forkUsage.stop()` next to `newForkFleet()`, and `forkUsage.routes()` appended to `APIDeps.Extensions` | `backend/internal/daemon/daemon.go` | the price book, its daily check loop and the `/api/v1/usage/fork/*` routes |
 | `prices` and `window` added to the `ao usage` tree | `backend/internal/cli/usage.go` | fork CLI commands; `prices` writes and stays local, `window` is remote read-only |
 | `ExitCode` honours an error's own `ExitCode() int` | `backend/internal/cli/root.go` | `ao usage prices --check` exit codes 3 (changed) and 4 (cannot verify) |
+| `ao usage prices`, `prices auto`, `window` listed as user commands | `backend/internal/telemetrymeta/cli.go` | CLI command classification (no telemetry is sent unless consented) |
 
 The routes sit under `/api/v1/usage/fork/` (not `/api/v1/fork/usage/` as the
 design sketched) so the LAN listener's device-credential gate for

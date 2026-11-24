@@ -1,6 +1,7 @@
 package pricebook
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -91,7 +92,7 @@ func TestParseRejectsBrokenPages(t *testing.T) {
 	if _, err := ParsePage([]byte(good)); err != nil {
 		t.Fatalf("synthetic page rejected: %v", err)
 	}
-	real, _ := os.ReadFile("testdata/pricing-2026-11-24.md")
+	fixture, _ := os.ReadFile("testdata/pricing-2026-11-24.md")
 	for name, body := range map[string]string{
 		"html":             "<!DOCTYPE html><html><body>" + good + "</body></html>",
 		"truncated":        good[:len(good)/2],
@@ -105,11 +106,11 @@ func TestParseRejectsBrokenPages(t *testing.T) {
 		"alias note gone":  mkPage([]pageModel{flashCol(), proCol()}, realPeakNote),
 		"mixed currency":   strings.Replace(good, "$0.044", "¥0.3", 1),
 		"bad model header": strings.Replace(good, "deepseek-v4-pro", "DeepSeek V4 Pro", 1),
-		"layout reshaped":  strings.ReplaceAll(string(real), "| PRICING(2)", "| COST(2)"),
+		"layout reshaped":  strings.ReplaceAll(string(fixture), "| PRICING(2)", "| COST(2)"),
 	} {
 		if _, err := ParsePage([]byte(body)); err == nil {
 			t.Errorf("%s: parsed", name)
-		} else if _, ok := err.(*ParseError); !ok {
+		} else if pe := (*ParseError)(nil); !errors.As(err, &pe) {
 			t.Errorf("%s: error %T is not a ParseError", name, err)
 		}
 	}
@@ -202,5 +203,65 @@ func TestCompareSafetyRail(t *testing.T) {
 	p, _ := ParsePage([]byte(mkPage([]pageModel{flashCol(), {"deepseek-v4-pro", [3]string{"$0.44", "$1.32", "$3.96"}, [3]string{"$0.22", "$0.66", "$1.98"}}}, realAliasNote, realPeakNote)))
 	if d, _, _ := Compare(latest, p, time.Now(), "s"); d.Outcome != OutcomeChanged {
 		t.Errorf("x10 exactly: %+v", d)
+	}
+}
+
+// Review regressions (Codex): off-peak-only jumps, currency-only changes and
+// models that reappear after being retired.
+func TestCompareReviewRegressions(t *testing.T) {
+	latest := mustBook(t).Latest()
+	parse := func(body string) *Page {
+		t.Helper()
+		p, err := ParsePage([]byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// Off-peak only, x100: suspicious even though the peak price is unchanged.
+	pro := proCol()
+	pro.offPeak[2] = "$198"
+	d, cand, _ := Compare(latest, parse(mkPage([]pageModel{flashCol(), pro}, realAliasNote, realPeakNote)), time.Now(), "s")
+	if d.Outcome != OutcomeSuspicious || cand == nil {
+		t.Errorf("off-peak jump: %+v", d)
+	}
+	// Same numbers in yuan: never "unchanged".
+	yuan := strings.ReplaceAll(mkPage([]pageModel{flashCol(), proCol()}, realAliasNote, realPeakNote), "$", "¥")
+	d, cand, _ = Compare(latest, parse(yuan), time.Now(), "s")
+	if d.Outcome != OutcomeSuspicious || cand == nil || d.Currency != "CNY" || len(d.Changes) == 0 {
+		t.Errorf("currency-only change: %+v", d)
+	}
+	// Retired, then listed again with new rates: the new rates win.
+	retired := latest
+	retired.Models = map[string]ModelPrice{
+		"deepseek-flash":  latest.Models["deepseek-flash"],
+		"deepseek-v4-pro": {PeakPerM: latest.Models["deepseek-v4-pro"].PeakPerM, RetiredOnPage: true},
+	}
+	back := proCol()
+	back.peak, back.offPeak = [3]string{"$0.04", "$1.2", "$3.6"}, [3]string{"$0.02", "$0.6", "$1.8"}
+	d, cand, _ = Compare(retired, parse(mkPage([]pageModel{flashCol(), back}, realAliasNote, realPeakNote)), time.Now(), "s")
+	if d.Outcome != OutcomeChanged || cand.Models["deepseek-v4-pro"].RetiredOnPage || cand.Models["deepseek-v4-pro"].PeakPerM.Output != "3.6" {
+		t.Errorf("reappearing model: %+v %+v", d, cand)
+	}
+}
+
+func TestWindowRatiosOnlyWhenUniform(t *testing.T) {
+	latest := mustBook(t).Latest()
+	odd := latest
+	odd.Version, odd.Source, odd.Label = "deepseek-auto-2026-12-03", SourcePageAuto, AutoLabel
+	odd.EffectiveFrom = ts(t, "2026-12-03T00:00:00Z")
+	odd.Models = map[string]ModelPrice{
+		"deepseek-flash":  {PeakPerM: Rates{"0.006", "0.3", "1.2"}, OffPeakPerM: &Rates{"0.003", "0.15", "0.4"}},
+		"deepseek-v4-pro": latest.Models["deepseek-v4-pro"],
+	}
+	b, err := Load([]Version{odd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := b.WindowAt(ts(t, "2026-12-05T12:00:00Z")); w.Window != WindowOffPeak || w.PriceFactor != "" {
+		t.Errorf("non-uniform off-peak factor: %+v", w)
+	}
+	if w := mustBook(t).WindowAt(ts(t, "2026-11-28T12:00:00Z")); w.PriceFactor != "0.5" {
+		t.Errorf("uniform factor: %+v", w)
 	}
 }

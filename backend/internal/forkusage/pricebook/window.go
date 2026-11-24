@@ -149,9 +149,11 @@ type Span struct {
 
 // Window describes the price window at one instant.
 type Window struct {
-	At              time.Time  `json:"at"`
-	Window          string     `json:"window"`
-	PriceFactor     string     `json:"priceFactor"`
+	At     time.Time `json:"at"`
+	Window string    `json:"window"`
+	// PriceFactor is the price relative to peak; empty off-peak when models
+	// have explicit off-peak rates that differ from the multiplier.
+	PriceFactor     string     `json:"priceFactor,omitempty"`
 	Reason          string     `json:"reason"`
 	Holiday         string     `json:"holiday,omitempty"`
 	Since           *time.Time `json:"since,omitempty"`
@@ -176,7 +178,10 @@ func (b *Book) WindowAt(t time.Time) Window {
 	if s.peak {
 		w.Window, w.PriceFactor = WindowPeak, "1"
 	} else {
-		w.Window, w.PriceFactor = WindowOffPeak, decimalString(s.version.multiple)
+		w.Window = WindowOffPeak
+		if s.version.uniformOffPeak() {
+			w.PriceFactor = decimalString(s.version.multiple)
+		}
 	}
 	if since, ok := b.segmentStart(t); ok {
 		w.Since = &since

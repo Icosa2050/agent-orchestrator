@@ -28,11 +28,11 @@ func (p *forkPricePage) set(body string) {
 
 func newForkPriceService(t *testing.T) (*pricebook.Service, *forkPricePage) {
 	t.Helper()
-	real, err := os.ReadFile("../forkusage/pricebook/testdata/pricing-2026-11-24.md")
+	fixture, err := os.ReadFile("../forkusage/pricebook/testdata/pricing-2026-11-24.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := &forkPricePage{body: string(real)}
+	page := &forkPricePage{body: string(fixture)}
 	page.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		page.mu.Lock()
 		defer page.mu.Unlock()
@@ -133,8 +133,8 @@ func TestForkUsagePricesCheckExitCodes(t *testing.T) {
 	if ExitCode(err) != exitPricesCannotVerify || !strings.Contains(out, "HTML instead of Markdown") {
 		t.Fatalf("cannot verify: exit %d %v\n%s", ExitCode(err), err, out)
 	}
-	real, _ := os.ReadFile("../forkusage/pricebook/testdata/pricing-2026-11-24.md")
-	page.set(strings.Replace(string(real), "| $3.96 ", "| $3.5  ", 1))
+	fixture, _ := os.ReadFile("../forkusage/pricebook/testdata/pricing-2026-11-24.md")
+	page.set(strings.Replace(string(fixture), "| $3.96 ", "| $3.5  ", 1))
 	out, err = runForkUsageCLI(t, svc, "usage", "prices", "--check", "--json")
 	if ExitCode(err) != exitPricesChanged {
 		t.Fatalf("changed: exit %d %v\n%s", ExitCode(err), err, out)

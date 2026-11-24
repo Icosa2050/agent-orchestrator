@@ -111,8 +111,8 @@ type compiledModel struct {
 }
 
 var (
-	decimalPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,5})(\.[0-9]{1,9})?$`)
-	clockPattern   = regexp.MustCompile(`^([01][0-9]|2[0-4]):([0-5][0-9])$`)
+	decimalPattern = regexp.MustCompile(`^(0|[1-9]\d{0,5})(\.\d{1,9})?$`)
+	clockPattern   = regexp.MustCompile(`^([01]\d|2[0-4]):([0-5]\d)$`)
 	weekdayNames   = map[string]time.Weekday{
 		"Sun": time.Sunday, "Mon": time.Monday, "Tue": time.Tuesday, "Wed": time.Wednesday,
 		"Thu": time.Thursday, "Fri": time.Friday, "Sat": time.Saturday,
@@ -413,3 +413,16 @@ func (b *Book) VersionAt(t time.Time) (Version, bool) {
 
 // RouteBilling maps a usage billing route to its billing kind ("api"), or "".
 func (b *Book) RouteBilling(route string) string { return b.routes[route] }
+
+// uniformOffPeak reports whether every model's off-peak rates are exactly
+// offPeakMultiplier x peak.
+func (c *compiled) uniformOffPeak() bool {
+	for _, m := range c.models {
+		for i := range m.peak {
+			if new(big.Rat).Mul(m.peak[i], c.multiple).Cmp(m.offPeak[i]) != 0 {
+				return false
+			}
+		}
+	}
+	return true
+}

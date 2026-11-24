@@ -22,15 +22,15 @@ import (
 
 // Check limits.
 const (
-	CheckInterval   = 24 * time.Hour
-	fetchTimeout    = 10 * time.Second
-	maxPageBytes    = 512 << 10
-	userAgent       = "ao-pricebook-check"
-	staleAutoCheck  = 7 * 24 * time.Hour
-	staleEmbedded   = 30 * 24 * time.Hour
-	defaultTick     = time.Hour
-	firstCheckMin   = 5 * time.Minute
-	firstCheckRange = 25 * time.Minute
+	CheckInterval      = 24 * time.Hour
+	fetchTimeout       = 10 * time.Second
+	maxPageBytes       = 512 << 10
+	userAgent          = "ao-pricebook-check"
+	staleAutoCheck     = 7 * 24 * time.Hour
+	staleEmbedded      = 30 * 24 * time.Hour
+	defaultTick        = time.Hour
+	firstCheckEarliest = 5 * time.Minute
+	firstCheckRange    = 25 * time.Minute
 )
 
 // Check outcomes beyond the Compare outcomes.
@@ -131,7 +131,7 @@ func NewService(cfg Config) (*Service, error) {
 	}
 	if cfg.FirstDelay == nil {
 		cfg.FirstDelay = func() time.Duration {
-			return firstCheckMin + time.Duration(rand.Int64N(int64(firstCheckRange))) //nolint:gosec // Scheduling jitter, not security.
+			return firstCheckEarliest + time.Duration(rand.Int64N(int64(firstCheckRange))) //nolint:gosec // Scheduling jitter, not security.
 		}
 	}
 	if cfg.After == nil {
@@ -302,6 +302,9 @@ func (s *Service) Accept(sha string) (CheckResult, error) {
 	s.mu.Unlock()
 	if st.Pending == nil || st.Pending.PageSHA256 != sha {
 		return CheckResult{}, errNoPending
+	}
+	if st.Pending.Diff.Currency != "USD" {
+		return CheckResult{}, errNotUSD
 	}
 	name, err := s.record(st.Pending.Version)
 	if err != nil {

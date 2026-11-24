@@ -347,3 +347,19 @@ func TestCorruptAutoFileFallsBackToEmbedded(t *testing.T) {
 		t.Errorf("status: %+v", st)
 	}
 }
+
+func TestAcceptRefusesNonUSD(t *testing.T) {
+	yuan := strings.ReplaceAll(mkPage([]pageModel{flashCol(), proCol()}, realAliasNote, realPeakNote), "$", "¥")
+	ps := newPageServer(t, yuan)
+	s := newTestService(t, ps, &clock{now: ts(t, "2026-12-03T06:12:00Z")})
+	res, err := s.Check(context.Background())
+	if err != nil || res.Outcome != OutcomeSuspicious || res.Status.Pending == nil {
+		t.Fatalf("check: %+v %v", res, err)
+	}
+	if _, err := s.Accept(res.PageSHA256); err == nil || !strings.Contains(err.Error(), "USD only") {
+		t.Fatalf("accept non-USD: %v", err)
+	}
+	if s.Book().Latest().Version != "deepseek-2026-09-10" {
+		t.Error("non-USD prices activated")
+	}
+}

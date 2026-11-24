@@ -47,7 +47,7 @@ func Routes(s *Service) func(chi.Router) {
 			}
 			res, err := s.Accept(body.PageSHA256)
 			switch {
-			case errors.Is(err, errNoPending):
+			case errors.Is(err, errNoPending), errors.Is(err, errNotUSD):
 				envelope.WriteAPIError(w, req, http.StatusConflict, "conflict", "PRICEBOOK_NO_PENDING", err.Error(), nil)
 			case err != nil:
 				envelope.WriteAPIError(w, req, http.StatusInternalServerError, "internal", "PRICEBOOK_WRITE_FAILED", "could not record the price version", nil)
@@ -123,7 +123,7 @@ type WindowReport struct {
 	Provider        string        `json:"provider"`
 	At              TimePair      `json:"at"`
 	Window          string        `json:"window"`
-	PriceFactor     string        `json:"priceFactor"`
+	PriceFactor     string        `json:"priceFactor,omitempty"`
 	PeakVsOffPeak   string        `json:"peakVsOffPeak"`
 	Reason          string        `json:"reason"`
 	Holiday         string        `json:"holiday,omitempty"`
@@ -136,11 +136,11 @@ type WindowReport struct {
 	Assumptions     []string      `json:"assumptions,omitempty"`
 	NoPriceEvidence bool          `json:"noPriceEvidence,omitempty"`
 	Models          []WindowModel `json:"models"`
-	PriceBook       PriceBookRef  `json:"priceBook"`
+	PriceBook       BookRef       `json:"priceBook"`
 }
 
-// PriceBookRef summarizes the price book behind an answer.
-type PriceBookRef struct {
+// BookRef summarizes the price book behind an answer.
+type BookRef struct {
 	Version         string     `json:"version"`
 	Source          string     `json:"source"`
 	Label           string     `json:"label,omitempty"`
@@ -179,12 +179,14 @@ func (s *Service) WindowReport(t time.Time) WindowReport {
 		NextOffPeak: spanPair(w.NextOffPeak), NextPeak: spanPair(w.NextPeak), WindowRule: WindowRule,
 		HolidayCalendar: w.HolidayCalendar, Assumptions: w.Assumptions, NoPriceEvidence: w.NoPriceEvidence,
 		Models: []WindowModel{},
-		PriceBook: PriceBookRef{Version: w.Version, Source: st.Source, Label: st.Label, LastCheckAt: st.LastCheckAt,
+		PriceBook: BookRef{Version: w.Version, Source: st.Source, Label: st.Label, LastCheckAt: st.LastCheckAt,
 			LastCheckStatus: st.LastCheckStatus, Stale: st.Stale, Warnings: st.Warnings},
 	}
 	if v, ok := book.versionAt(w.At); ok {
 		rep.PriceBook.Source, rep.PriceBook.Label = v.Source, v.Label
-		if v.multiple.Sign() > 0 {
+		// One ratio only when every model's off-peak rate is multiplier x peak;
+		// otherwise the per-model rates are the answer.
+		if v.multiple.Sign() > 0 && v.uniformOffPeak() {
 			rep.PeakVsOffPeak = decimalString(new(big.Rat).Inv(v.multiple))
 		}
 		for _, r := range v.rates() {
