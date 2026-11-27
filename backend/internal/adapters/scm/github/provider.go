@@ -243,7 +243,9 @@ const graphQLCheckContextLimit = 100
 // checkRunFields is the CheckRun selection every rollup query uses. The
 // workflow name and event identify which runs are reruns of the same check
 // (see latestCheckRuns). Suite IDs keep cancellation evidence within one run.
-const checkRunFields = `name status conclusion detailsUrl url databaseId checkSuite{ conclusion id workflowRun{ event workflow{ name } } }`
+// The workflow run's databaseId orders runs of one workflow (see
+// markSupersededRuns).
+const checkRunFields = `name status conclusion detailsUrl url databaseId checkSuite{ conclusion id workflowRun{ databaseId event workflow{ name } } }`
 
 // prObservationQuery is the GraphQL query (derived from PR #28, credited
 // to @whoisasx) that pulls everything we need in one round trip:
@@ -331,11 +333,12 @@ func (p *Provider) markCancelledGateFailures(ctx context.Context, owner, repo st
 		return
 	}
 	checks := nodes(contexts["nodes"])
+	markSupersededRuns(checks)
 	for _, n := range checks {
 		suite, _ := n["checkSuite"].(map[string]any)
 		id := str(suite["id"])
 		jobID := int64(num(n["databaseId"]))
-		if id == "" || jobID <= 0 || checkSuiteConclusion(n) != "CANCELLED" || str(n["conclusion"]) != "FAILURE" {
+		if id == "" || jobID <= 0 || boolv(n["supersededRun"]) || checkSuiteConclusion(n) != "CANCELLED" || str(n["conclusion"]) != "FAILURE" {
 			continue
 		}
 		failures, cancelled := 0, false
@@ -660,8 +663,10 @@ func jobIDForCheck(pr map[string]any, name string) int64 {
 // `gh pr checks` show only the newest run per workflow, event and job. Check
 // run IDs grow, so the highest databaseId is the newest. A run without a
 // readable workflowRun (another app, or a token without Actions access) is
-// always kept: it can't be matched to its reruns.
+// always kept: it can't be matched to its reruns. Check runs of a cancelled run
+// that a newer run replaced are marked first (see markSupersededRuns).
 func latestCheckRuns(in []map[string]any) []map[string]any {
+	markSupersededRuns(in)
 	newest := map[string]float64{}
 	for _, n := range in {
 		if key := checkRunKey(n); key != "" {
@@ -689,6 +694,50 @@ func checkRunKey(n map[string]any) string {
 		return ""
 	}
 	return strings.Join([]string{str(workflow["name"]), str(run["event"]), str(n["name"])}, "\x00")
+}
+
+// markSupersededRuns flags the check runs of a cancelled workflow run that a
+// newer run of the same workflow and event replaced on this commit (a
+// concurrency group with cancel-in-progress, or a draft PR marked ready). A
+// gate job (needs + if: always()) in such a run concludes FAILURE because its
+// dependencies were cancelled, and until the replacement's own gate exists it
+// is the newest check of that name. The newer run decides: once any of its
+// check runs is on the head, in any state, the older run proves nothing.
+// A cancelled run with no newer run keeps its failures.
+//
+// Runs are ordered by workflowRun.databaseId, which grows across the whole
+// repository. runNumber only counts within one workflow file, and runs are
+// matched by workflow name, which two files may share. A rerun attempt keeps
+// its run's databaseId, so it never supersedes its own earlier attempt here.
+// Runs without a readable workflowRun or databaseId are never marked.
+func markSupersededRuns(checks []map[string]any) {
+	newest := map[string]float64{}
+	for _, n := range checks {
+		if key, id := workflowRunKey(n); key != "" {
+			newest[key] = max(newest[key], id)
+		}
+	}
+	for _, n := range checks {
+		if key, id := workflowRunKey(n); key != "" && id < newest[key] && checkSuiteConclusion(n) == "CANCELLED" {
+			n["supersededRun"] = true
+		}
+	}
+}
+
+// workflowRunKey identifies the workflow and event of a check run's workflow
+// run, with that run's databaseId.
+func workflowRunKey(n map[string]any) (string, float64) {
+	if str(n["__typename"]) != "CheckRun" {
+		return "", 0
+	}
+	suite, _ := n["checkSuite"].(map[string]any)
+	run, _ := suite["workflowRun"].(map[string]any)
+	workflow, _ := run["workflow"].(map[string]any)
+	id := num(run["databaseId"])
+	if workflow == nil || id <= 0 {
+		return "", 0
+	}
+	return str(workflow["name"]) + "\x00" + str(run["event"]), id
 }
 
 // statusRollup extracts the commits[0].commit.statusCheckRollup blob
@@ -729,7 +778,7 @@ func checkStatusFromGraphQL(n map[string]any) domain.PRCheckStatus {
 	case "SUCCESS", "NEUTRAL":
 		return domain.PRCheckPassed
 	case "FAILURE":
-		if boolv(n["cancelledGateFailure"]) && checkSuiteConclusion(n) == "CANCELLED" {
+		if (boolv(n["supersededRun"]) || boolv(n["cancelledGateFailure"])) && checkSuiteConclusion(n) == "CANCELLED" {
 			return domain.PRCheckCancelled
 		}
 		return domain.PRCheckFailed
