@@ -176,15 +176,23 @@ hosts use different DeepSeek price books.
 | deepseek | `defer-nonurgent` | peak now | defer non-urgent work to `nextOffPeak.from`; if it must run, prefer flash and fewer reviewers |
 | deepseek | `ok-offpeak` | off-peak now | run deferred work; `windowEndsAt` says how long it stays cheap |
 | deepseek | `unknown` | price book stale or missing, holiday year missing (window still shown) | treat as peak |
-| openrouter | `stop` | binding limit's `remainingUsd` ≤ 0 | no PAL calls; tell the owner |
+| openrouter | `stop` | binding limit's `remainingUsd` ≤ 0 (a zero limit counts as exhausted) | no PAL calls; tell the owner |
 | openrouter | `low-runway` | runway < `runwayLowDays` or remaining < `keyRemainingLowPct` (25 %) | ask before non-urgent PAL use; use the rank-1 model |
 | openrouter | `prefer-cheaper` | remaining < 50 % | choose cheaper allowed models when quality allows |
 | openrouter | `ok` | otherwise (also: a key without a limit) | — |
-| openrouter | `unknown` | key polling off or the key never read | treat the budget as tight |
+| openrouter | `unknown` | key polling off, the key never read, or the last refresh failed and the last reading would be `ok` | treat the budget as tight |
 
 Precedence: `stop` > `low-runway` > window / limit codes. `unknown` never
-means "go". Without a DeepSeek balance (polling off) the window codes still
-apply and the reason says the balance is unknown.
+means "go". Thresholds compare unrounded values; `days` and `remainingPct`
+are rounded for display only. Without a DeepSeek balance (polling off or
+failing) the window codes still apply and the reason says why the balance is
+unknown. Each entry carries the row's `status` (`ok`, `disabled`,
+`unavailable`) and `statusReason`; after a failed refresh the last good
+reading is used and marked (`balance.stale`, `openrouter.stale`), and its
+cautionary codes stay, but OpenRouter never answers `ok` on it. The §9.2
+OpenRouter `stop` on a 402 in the PAL ledger arrives with the ledger reader
+(PR E). `runway.avgDailySpend` is a decimal string with `runway.currency`
+for both providers (USD for OpenRouter).
 
 - **Runway.** DeepSeek: balance / average daily spend over the last 7 days,
   from the balance history (`deepseek-balance.jsonl`) of the same key and
@@ -194,7 +202,8 @@ apply and the reason says the balance is unknown.
   used: both DeepSeek routes and tools outside AO share the wallet, so it
   would overstate the runway. OpenRouter: remaining of the binding limit (the
   effective budget or the key limit, whichever has the smaller share left)
-  / (`usage_weekly` / elapsed UTC week days, at least 1).
+  / (`usage_weekly` / UTC week days elapsed at the reading, at least 1).
+  With `--fleet`, a shared key's entry with a runway beats one without.
 - **Model prices.** `GET https://openrouter.ai/api/v1/models` is public and
   keyless. The daemon fetches it at most once a day (retry after a failure:
   1 h; attempts persist across restarts), with no `Authorization` header, no
