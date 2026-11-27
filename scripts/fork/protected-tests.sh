@@ -73,7 +73,7 @@ backend_tests='
 ./internal/forkusage/pricebook . 25
 ./internal/daemon ^(TestForkDefaultOutboundHosts|TestForkPriceCheckSwitchOff)$ 2
 ./internal/httpd ^TestForkUsageRoutes 2
-./internal/cli ^TestForkUsage 15
+./internal/cli ^TestForkUsage 18
 ./internal/forkusage/reportext . 10
 ./internal/observe/usage ^TestForkUsageSeam 1
 ./internal/storage/sqlite/store ^TestForkUsageDeepSeekEvents 1

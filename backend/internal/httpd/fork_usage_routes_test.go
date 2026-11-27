@@ -46,13 +46,9 @@ func TestForkUsageRoutesMountBesideUpstreamUsage(t *testing.T) {
 
 type forkReportExtStore struct{}
 
-func (forkReportExtStore) ListForkDeepSeekUsageEvents(context.Context, time.Time, time.Time, []string) ([]store.ForkDeepSeekUsageEvent, error) {
+func (forkReportExtStore) ListForkUsageReportSnapshot(context.Context, time.Time, time.Time, []string) ([]store.ForkDeepSeekUsageEvent, []domain.UsageReportEvent, error) {
 	return []store.ForkDeepSeekUsageEvent{{CreatedAt: time.Now().UTC().Add(-time.Hour), BillingProviderID: "deepseek-account", ModelID: "deepseek-v4-pro",
-		UncachedTokens: 1000, Harness: domain.HarnessDeepSeek, SessionID: "s1"}}, nil
-}
-
-func (forkReportExtStore) ListUsageReportEvents(context.Context, time.Time, time.Time) ([]domain.UsageReportEvent, error) {
-	return nil, nil
+		UncachedTokens: 1000, Harness: domain.HarnessDeepSeek, SessionID: "s1"}}, nil, nil
 }
 
 // report-ext mounts beside the price book under the device-credential gate,

@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -57,6 +58,16 @@ func TestForkUsageDeepSeekEventsReadsRoutesWindowAndRequestStart(t *testing.T) {
 	}
 	if legacy.RequestStartedAt != nil || broken.RequestStartedAt != nil {
 		t.Fatalf("legacy/broken starts = %v/%v, want none", legacy.RequestStartedAt, broken.RequestStartedAt)
+	}
+
+	// The snapshot read returns both lists from one read transaction, equal
+	// to the separate queries.
+	snapDS, snapAll, err := s.ListForkUsageReportSnapshot(ctx, day, day.Add(24*time.Hour), []string{"deepseek", "deepseek-account"})
+	mustNoError(t, err)
+	all, err := s.ListUsageReportEvents(ctx, day, day.Add(24*time.Hour))
+	mustNoError(t, err)
+	if !reflect.DeepEqual(snapDS, events) || !reflect.DeepEqual(snapAll, all) || len(snapAll) != 4 {
+		t.Fatalf("snapshot differs from the separate reads:\n%+v\n%+v", snapDS, snapAll)
 	}
 
 	none, err := s.ListForkDeepSeekUsageEvents(ctx, day, day.Add(24*time.Hour), nil)

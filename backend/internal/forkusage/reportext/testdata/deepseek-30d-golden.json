@@ -2223,5 +2223,9 @@
     "catalogPricedEvents": 0,
     "replacedCatalogCostNanos": 0
   },
+  "snapshot": {
+    "rows": [],
+    "sessionRows": []
+  },
   "warnings": []
 }

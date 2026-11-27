@@ -251,6 +251,26 @@ type Totals struct {
 	Costs
 }
 
+// SnapshotRow is what the upstream report shows for one row key over the
+// same database snapshot: its event count and catalog cost. The CLI merges
+// only when the upstream report it read agrees with it.
+type SnapshotRow struct {
+	Period    string `json:"period,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	Harness   string `json:"harness"`
+	Model     string `json:"model"`
+	Speed     string `json:"speed"`
+	Events    int64  `json:"events"`
+	CostNanos int64  `json:"costNanos"`
+}
+
+// Snapshot lists every upstream row key in the window: period rows and
+// session rows.
+type Snapshot struct {
+	Rows        []SnapshotRow `json:"rows"`
+	SessionRows []SnapshotRow `json:"sessionRows"`
+}
+
 // Report is the report-ext answer.
 type Report struct {
 	Schema          int                       `json:"schema"`
@@ -273,6 +293,7 @@ type Report struct {
 	SessionModels   map[string][]SessionModel `json:"sessionModels"`
 	Hours           []Hour                    `json:"hours"`
 	Totals          Totals                    `json:"totals"`
+	Snapshot        Snapshot                  `json:"snapshot"`
 	PriceBook       *BookRef                  `json:"priceBook,omitempty"`
 	Warnings        []string                  `json:"warnings"`
 }
@@ -515,6 +536,7 @@ func Build(in Input) (Report, error) {
 	}
 	sort.Strings(rep.PriceVersions)
 	rep.SessionModels = sessionModels(in, rep.SessionRows)
+	rep.Snapshot = snapshot(in, loc, periodLayout)
 
 	if n := rep.Totals.BillingStatuses[pricebook.StatusNoPriceEvidence]; n > 0 {
 		rep.Warnings = append(rep.Warnings, fmt.Sprintf("%d DeepSeek events predate the first evidenced price version: tokens shown, cost unknown", n))
@@ -663,4 +685,48 @@ func lessStrings(a, b []string) bool {
 		}
 	}
 	return false
+}
+
+// snapshot aggregates the upstream report events like the upstream report
+// does (every event counts; costNanos sums the stored estimates).
+func snapshot(in Input, loc *time.Location, periodLayout string) Snapshot {
+	type key struct{ period, session, harness, model, speed string }
+	rows, sessions := map[key]*SnapshotRow{}, map[key]*SnapshotRow{}
+	for _, e := range in.All {
+		if in.ProjectID != "" && e.ProjectID != in.ProjectID {
+			continue
+		}
+		speed := pricing.SpeedTier(e.ProviderID, e.ServiceTier)
+		for _, t := range []struct {
+			m map[key]*SnapshotRow
+			k key
+		}{
+			{rows, key{period: e.CreatedAt.In(loc).Format(periodLayout), harness: string(e.Harness), model: e.ModelID, speed: speed}},
+			{sessions, key{session: string(e.SessionID), harness: string(e.Harness), model: e.ModelID, speed: speed}},
+		} {
+			r := t.m[t.k]
+			if r == nil {
+				r = &SnapshotRow{Period: t.k.period, SessionID: t.k.session, Harness: t.k.harness, Model: t.k.model, Speed: t.k.speed}
+				t.m[t.k] = r
+			}
+			r.Events++
+			if e.Costs.EstimatedCostNanos != nil {
+				r.CostNanos += *e.Costs.EstimatedCostNanos
+			}
+		}
+	}
+	out := Snapshot{Rows: []SnapshotRow{}, SessionRows: []SnapshotRow{}}
+	for _, r := range rows {
+		out.Rows = append(out.Rows, *r)
+	}
+	for _, r := range sessions {
+		out.SessionRows = append(out.SessionRows, *r)
+	}
+	for _, list := range [][]SnapshotRow{out.Rows, out.SessionRows} {
+		sort.Slice(list, func(i, j int) bool {
+			a, b := list[i], list[j]
+			return lessStrings([]string{a.Period, a.SessionID, a.Harness, a.Model, a.Speed}, []string{b.Period, b.SessionID, b.Harness, b.Model, b.Speed})
+		})
+	}
+	return out
 }

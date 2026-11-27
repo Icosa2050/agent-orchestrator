@@ -78,10 +78,16 @@ host.
   leaves unpriced therefore still ranks. With `--top` the CLI re-reads the
   upstream report without `top` and truncates itself; `ext.rankedBy` says
   so. `--fleet` does the same per host, every read going to that host.
-- Both reads compute their window from the clock. If the upstream report and
-  report-ext cover different windows (a day or hour rollover between the
-  reads), the CLI reads report-ext once more and otherwise reports
-  `ext.status: "error"` instead of merging mismatched periods.
+- The merge replaces catalog costs with price-book costs, so both reads must
+  describe the same events. report-ext reads its DeepSeek events and the
+  upstream report events in one read transaction and returns `snapshot`:
+  every upstream row key (period rows and session rows) with the event count
+  and `costNanos` the upstream report shows over that snapshot. The CLI merges
+  only when the report it read has the same window and every row matches the
+  snapshot (no row missing on either side; with a `top`-truncated report only
+  the rows it has are compared). Otherwise (ingestion or a day/hour rollover
+  between the reads) it re-reads both, the report first, up to 3 times, and
+  then reports `ext.status: "error"` with the upstream answer unchanged.
 - A daemon without report-ext (HTTP 404): `ext: {"status": "unsupported"}`.
   Any other failure: `ext: {"status": "error", "reason": ...}`. Neither fails
   the command.

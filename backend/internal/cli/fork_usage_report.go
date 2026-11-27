@@ -167,6 +167,22 @@ type forkReportExt struct {
 	Totals        forkReportTotals `json:"totals"`
 	PriceBook     *forkBookRef     `json:"priceBook"`
 	Warnings      []string         `json:"warnings"`
+	// Snapshot is what the upstream report shows for every row key over
+	// report-ext's database snapshot.
+	Snapshot *struct {
+		Rows        []forkSnapshotRow `json:"rows"`
+		SessionRows []forkSnapshotRow `json:"sessionRows"`
+	} `json:"snapshot"`
+}
+
+type forkSnapshotRow struct {
+	Period    string `json:"period"`
+	SessionID string `json:"sessionId"`
+	Harness   string `json:"harness"`
+	Model     string `json:"model"`
+	Speed     string `json:"speed"`
+	Events    int64  `json:"events"`
+	CostNanos int64  `json:"costNanos"`
 }
 
 // forkRowExt is what a merged upstream row gains under its "ext" key.
@@ -234,44 +250,122 @@ func forkFetchReportExt(ctx context.Context, c *commandContext, params url.Value
 	return raw, "ok", nil
 }
 
+// forkConsistencyAttempts bounds how often the CLI re-reads both reports when
+// they disagree (ingestion or a period rollover between the reads).
+const forkConsistencyAttempts = 3
+
 // forkMergeUsageReport merges report-ext into one host's upstream report,
 // both read from that host. The upstream keys stay as the daemon sent them;
 // rows with DeepSeek events gain an "ext" object and the report a top-level
 // "ext". Rows are ranked by effective cost (session rows always, period rows
 // with --top); with --top the upstream report is re-read without top so a
-// DeepSeek row the catalog left unpriced can rank. Both reads must cover the
-// same window. An ext failure never fails the command.
+// DeepSeek row the catalog left unpriced can rank.
+//
+// The merge replaces catalog costs with price-book costs, so both reads must
+// describe the same events: the same window, and every upstream row's events
+// and costNanos equal to report-ext's snapshot of that row (no row missing on
+// either side). When they disagree the CLI re-reads both, upstream first, and
+// gives up with ext.status "error" after forkConsistencyAttempts. An ext
+// failure never fails the command.
 func forkMergeUsageReport(ctx context.Context, c *commandContext, upstream json.RawMessage, params url.Values, by string, top int) (json.RawMessage, error) {
-	extRaw, ext, status, err := forkReadExt(ctx, c, params)
-	if status != "ok" {
-		return forkWithExtStatus(upstream, status, err)
+	upstreamParams := params
+	full := url.Values{}
+	for k, v := range params {
+		full[k] = v
 	}
-	if top > 0 && ext.Totals.PricedEvents > 0 {
-		full := url.Values{}
-		for k, v := range params {
-			full[k] = v
-		}
-		full.Del("top")
+	full.Del("top")
+	readUpstream := func(p url.Values) (json.RawMessage, error) {
 		var res json.RawMessage
-		if err := c.getJSON(ctx, apiPath("usage/report", full), &res); err != nil {
-			return forkWithExtStatus(upstream, "error", fmt.Errorf("re-read the report for ranking: %w", err))
+		if err := c.getJSON(ctx, apiPath("usage/report", p), &res); err != nil {
+			return nil, fmt.Errorf("re-read the report: %w", err)
 		}
 		if err := checkReportAnswer(res, by, 0); err != nil {
-			return forkWithExtStatus(upstream, "error", err)
+			return nil, err
 		}
-		upstream = res
+		return res, nil
 	}
-	// The two reads compute their windows from the clock; across a period
-	// rollover they can differ. Read the extension once more, then give up.
-	if !forkSameWindow(upstream, ext) {
-		if extRaw, ext, status, err = forkReadExt(ctx, c, params); status != "ok" {
+	original := upstream
+	var mismatch error
+	for attempt := 0; attempt < forkConsistencyAttempts; attempt++ {
+		if attempt > 0 {
+			res, err := readUpstream(upstreamParams)
+			if err != nil {
+				return forkWithExtStatus(original, "error", err)
+			}
+			upstream = res
+		}
+		extRaw, ext, status, err := forkReadExt(ctx, c, params)
+		if status != "ok" {
 			return forkWithExtStatus(upstream, status, err)
 		}
-		if !forkSameWindow(upstream, ext) {
-			return forkWithExtStatus(upstream, "error", errors.New("report and report-ext cover different windows (period rollover); run it again"))
+		if top > 0 && ext.Totals.PricedEvents > 0 && upstreamParams.Get("top") != "" {
+			// Rank over every row: re-read without top, then read the
+			// extension again so it is not older than the report.
+			upstreamParams = full
+			if upstream, err = readUpstream(full); err != nil {
+				return forkWithExtStatus(original, "error", err)
+			}
+			if extRaw, ext, status, err = forkReadExt(ctx, c, params); status != "ok" {
+				return forkWithExtStatus(upstream, status, err)
+			}
+		}
+		if mismatch = forkConsistent(upstream, ext, by, upstreamParams.Get("top") != ""); mismatch == nil {
+			return forkMergeExt(upstream, extRaw, ext, by, top)
 		}
 	}
-	return forkMergeExt(upstream, extRaw, ext, by, top)
+	return forkWithExtStatus(upstream, "error", fmt.Errorf("%w; run it again", mismatch))
+}
+
+// forkConsistent reports why upstream and ext do not describe the same
+// events, or nil. truncated: upstream applied top, so snapshot rows may be
+// missing from it (but every row it has must match).
+func forkConsistent(upstream json.RawMessage, ext forkReportExt, by string, truncated bool) error {
+	if !forkSameWindow(upstream, ext) {
+		return errors.New("report and report-ext cover different windows (period rollover)")
+	}
+	if ext.Snapshot == nil {
+		return errors.New("report-ext has no snapshot to check the report against")
+	}
+	field, keyOf, snap := "rows", forkPeriodKey, ext.Snapshot.Rows
+	if by == "session" {
+		field, keyOf, snap = "sessionRows", forkSessionKey, ext.Snapshot.SessionRows
+	}
+	var doc struct {
+		Rows        []map[string]json.RawMessage `json:"rows"`
+		SessionRows []map[string]json.RawMessage `json:"sessionRows"`
+	}
+	if err := json.Unmarshal(upstream, &doc); err != nil {
+		return fmt.Errorf("decode usage report: %w", err)
+	}
+	rows := doc.Rows
+	if field == "sessionRows" {
+		rows = doc.SessionRows
+	}
+	want := make(map[string]forkSnapshotRow, len(snap))
+	for _, r := range snap {
+		k := forkRowKey(r.Period, r.Harness, r.Model, r.Speed)
+		if by == "session" {
+			k = forkRowKey(r.SessionID, r.Harness, r.Model, r.Speed)
+		}
+		want[k] = r
+	}
+	for _, row := range rows {
+		k := keyOf(row)
+		w, ok := want[k]
+		var got struct {
+			Events    int64 `json:"events"`
+			CostNanos int64 `json:"costNanos"`
+		}
+		_ = json.Unmarshal(mustJSON(row), &got)
+		if !ok || got.Events != w.Events || got.CostNanos != w.CostNanos {
+			return errors.New("usage events changed between the report and report-ext reads")
+		}
+		delete(want, k)
+	}
+	if !truncated && len(want) > 0 {
+		return errors.New("usage events changed between the report and report-ext reads")
+	}
+	return nil
 }
 
 func forkReadExt(ctx context.Context, c *commandContext, params url.Values) (json.RawMessage, forkReportExt, string, error) {

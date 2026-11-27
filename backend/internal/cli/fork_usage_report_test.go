@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,19 +18,48 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/forkusage/pricebook"
 	"github.com/aoagents/agent-orchestrator/backend/internal/forkusage/reportext"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
+	usagesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/usage"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/store"
 )
 
-type forkReportStore struct {
-	events []store.ForkDeepSeekUsageEvent
+// forkReportState is the fake daemon's usage database: the upstream report
+// (the real upstream reader and controller) and report-ext both read it.
+// afterUpstream runs after the n-th upstream report read, to ingest events
+// between the CLI's reads.
+type forkReportState struct {
+	mu            sync.Mutex
+	deepseek      []store.ForkDeepSeekUsageEvent
+	all           []domain.UsageReportEvent
+	upstreamReads int
+	afterUpstream func(n int, s *forkReportState)
 }
 
-func (s forkReportStore) ListForkDeepSeekUsageEvents(context.Context, time.Time, time.Time, []string) ([]store.ForkDeepSeekUsageEvent, error) {
-	return s.events, nil
+// add ingests one event; deepseek events are also in the fork query.
+func (s *forkReportState) add(e store.ForkDeepSeekUsageEvent, deepseek bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	hit, miss, out := e.CachedTokens, e.UncachedTokens, e.OutputTokens
+	s.all = append(s.all, domain.UsageReportEvent{
+		CreatedAt: e.CreatedAt, ProviderID: e.ProviderID, BillingProviderID: e.BillingProviderID, ModelID: e.ModelID, ServiceTier: e.ServiceTier,
+		Tokens: domain.UsageTokenMetrics{CachedInputTokens: &hit, UncachedInputTokens: &miss, OutputTokens: &out},
+		Costs:  domain.UsageEventCosts{EstimatedCostNanos: e.CatalogCostNanos}, Harness: e.Harness, SessionID: e.SessionID, ProjectID: e.ProjectID,
+	})
+	if deepseek {
+		s.deepseek = append(s.deepseek, e)
+	}
 }
 
-func (forkReportStore) ListUsageReportEvents(context.Context, time.Time, time.Time) ([]domain.UsageReportEvent, error) {
-	return nil, nil
+func (s *forkReportState) ListUsageReportEvents(context.Context, time.Time, time.Time) ([]domain.UsageReportEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]domain.UsageReportEvent(nil), s.all...), nil
+}
+
+func (s *forkReportState) ListForkUsageReportSnapshot(context.Context, time.Time, time.Time, []string) ([]store.ForkDeepSeekUsageEvent, []domain.UsageReportEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]store.ForkDeepSeekUsageEvent(nil), s.deepseek...), append([]domain.UsageReportEvent(nil), s.all...), nil
 }
 
 type forkReportDaemon struct {
@@ -43,10 +73,11 @@ func (d *forkReportDaemon) seen() []string {
 	return append([]string(nil), d.requests...)
 }
 
-// runForkReportCLI runs the CLI against a daemon with the real report-ext
-// route (ext "": none, an old daemon; "fail": answers 500) and an upstream
-// report that answers upstream(groupBy, top).
-func runForkReportCLI(t *testing.T, events []store.ForkDeepSeekUsageEvent, ext string, upstream func(groupBy, top string) string, args ...string) (string, *forkReportDaemon, error) {
+// runForkReportCLI runs the CLI against a daemon serving the real upstream
+// report and (ext "ok") the real report-ext over state; ext "" is an old
+// daemon, "fail" answers report-ext with 500. override, when set, replaces
+// the upstream report's answer.
+func runForkReportCLI(t *testing.T, state *forkReportState, ext string, override func(groupBy, top string) string, args ...string) (string, *forkReportDaemon, error) {
 	t.Helper()
 	cfg := setConfigEnv(t)
 	d := &forkReportDaemon{}
@@ -59,20 +90,34 @@ func runForkReportCLI(t *testing.T, events []store.ForkDeepSeekUsageEvent, ext s
 				d.mu.Unlock()
 			}
 			next.ServeHTTP(w, req)
+			if req.URL.Path == "/api/v1/usage/report" {
+				state.mu.Lock()
+				state.upstreamReads++
+				n, hook := state.upstreamReads, state.afterUpstream
+				state.mu.Unlock()
+				if hook != nil {
+					hook(n, state)
+				}
+			}
 		})
 	})
 	r.Post("/internal/telemetry/cli-invoked", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	r.Get("/api/v1/usage/report", func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, upstream(req.URL.Query().Get("groupBy"), req.URL.Query().Get("top")))
-	})
+	if override != nil {
+		r.Get("/api/v1/usage/report", func(w http.ResponseWriter, req *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, override(req.URL.Query().Get("groupBy"), req.URL.Query().Get("top")))
+		})
+	} else {
+		usage := &controllers.UsageController{Report: usagesvc.NewReportReader(state, nil), Log: slog.Default()}
+		r.Route("/api/v1", usage.Register)
+	}
 	switch ext {
 	case "ok":
 		svc, err := pricebook.NewService(pricebook.Config{DataDir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}
-		reportext.Routes(&reportext.Service{Store: forkReportStore{events: events}, Prices: svc})(r)
+		reportext.Routes(&reportext.Service{Store: state, Prices: svc})(r)
 	case "fail":
 		r.Get("/api/v1/usage/fork/report-ext", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -90,8 +135,6 @@ func runForkReportCLI(t *testing.T, events []store.ForkDeepSeekUsageEvent, ext s
 	return out, d, err
 }
 
-// forkReportFixture: one costly DeepSeek account-route reply (unpriced in the
-// catalog) and a cheap codex row the catalog prices.
 // forkFixtureTime is the latest weekend 00:30 UTC before now: always
 // off-peak and inside the default 7-day window, whatever the wall clock.
 func forkFixtureTime() time.Time {
@@ -105,34 +148,25 @@ func forkFixtureTime() time.Time {
 	}
 }
 
-func forkReportFixture() ([]store.ForkDeepSeekUsageEvent, func(groupBy, top string) string) {
-	at := forkFixtureTime()
-	period := at.Format("2006-01-02")
-	events := []store.ForkDeepSeekUsageEvent{{
-		CreatedAt: at, ProviderID: domain.UsageProviderOpenAI, BillingProviderID: "deepseek-account", ModelID: "deepseek-v4-pro",
-		UncachedTokens: 1_000_000, Harness: domain.HarnessDeepSeek, SessionID: "ds-1", ProjectID: "p",
-	}}
-	upstream := func(groupBy, top string) string {
-		topField := ""
-		if top != "" {
-			topField = `"top":` + top + `,`
-		}
-		if groupBy == "session" {
-			rows := `{"sessionId":"cx-1","projectId":"p","harness":"codex","model":"gpt-6","speed":"standard","events":1,"pricedEvents":1,"costNanos":5},` +
-				`{"sessionId":"ds-1","projectId":"p","harness":"deepseek-harness","model":"deepseek-v4-pro","speed":"standard","events":1,"pricedEvents":0,"costNanos":0}`
-			if top == "1" {
-				rows = rows[:strings.Index(rows, "},")+1]
-			}
-			return `{"days":7,"timeZone":"UTC","rows":[],"sessions":[],` + topField + `"groupBy":"session","sessionRows":[` + rows + `]}`
-		}
-		rows := `{"period":"` + period + `","harness":"codex","model":"gpt-6","speed":"standard","events":1,"costNanos":5},` +
-			`{"period":"` + period + `","harness":"deepseek-harness","model":"deepseek-v4-pro","speed":"standard","events":1,"costNanos":0}`
-		if top == "1" {
-			rows = rows[:strings.Index(rows, "},")+1]
-		}
-		return `{"days":7,"timeZone":"UTC",` + topField + `"rows":[` + rows + `],"sessions":[]}`
+// forkDeepSeekReply is a DeepSeek account-route reply of 1M cache-miss
+// tokens the catalog leaves unpriced: $0.66 off-peak in the price book.
+func forkDeepSeekReply(minute int) store.ForkDeepSeekUsageEvent {
+	return store.ForkDeepSeekUsageEvent{
+		CreatedAt: forkFixtureTime().Add(time.Duration(minute) * time.Minute), ProviderID: domain.UsageProviderOpenAI,
+		BillingProviderID: "deepseek-account", ModelID: "deepseek-v4-pro", UncachedTokens: 1_000_000,
+		Harness: domain.HarnessDeepSeek, SessionID: "ds-1", ProjectID: "p",
 	}
-	return events, upstream
+}
+
+// forkReportFixture: one costly DeepSeek reply and a cheap codex reply the
+// catalog prices at 5 nano-USD.
+func forkReportFixture() *forkReportState {
+	s := &forkReportState{}
+	s.add(forkDeepSeekReply(0), true)
+	cost := int64(5)
+	s.add(store.ForkDeepSeekUsageEvent{CreatedAt: forkFixtureTime(), ProviderID: domain.UsageProviderOpenAI, BillingProviderID: "openai",
+		ModelID: "gpt-6", UncachedTokens: 10, CatalogCostNanos: &cost, Harness: domain.HarnessCodex, SessionID: "cx-1", ProjectID: "p"}, false)
+	return s
 }
 
 type forkMerged struct {
@@ -169,8 +203,7 @@ func decodeMerged(t *testing.T, out string) forkMerged {
 }
 
 func TestForkUsageReportMergesExtIntoRows(t *testing.T) {
-	events, upstream := forkReportFixture()
-	out, d, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--days", "7")
+	out, d, err := runForkReportCLI(t, forkReportFixture(), "ok", nil, "usage", "report", "--days", "7")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,22 +224,23 @@ func TestForkUsageReportMergesExtIntoRows(t *testing.T) {
 }
 
 // --top ranks by price-book cost: the DeepSeek row the catalog left at 0
-// outranks the codex row upstream kept.
+// outranks the codex row upstream kept. The CLI re-reads the report without
+// top, then report-ext again so the extension is not older than the report.
 func TestForkUsageReportTopRanksByPricebookCost(t *testing.T) {
-	events, upstream := forkReportFixture()
-	out, d, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--top", "1")
+	out, d, err := runForkReportCLI(t, forkReportFixture(), "ok", nil, "usage", "report", "--top", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := d.seen(); len(got) != 3 || got[0] != "/api/v1/usage/report?top=1" || got[2] != "/api/v1/usage/report" {
-		t.Fatalf("requests = %v", got)
+	want := []string{"/api/v1/usage/report?top=1", "/api/v1/usage/fork/report-ext", "/api/v1/usage/report", "/api/v1/usage/fork/report-ext"}
+	if got := d.seen(); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("requests = %v, want %v", got, want)
 	}
 	m := decodeMerged(t, out)
-	if m.Top != 1 || len(m.Rows) != 1 || m.Rows[0].Harness != "deepseek-harness" || m.Ext.RankedBy == "" {
+	if m.Ext.Status != "ok" || m.Top != 1 || len(m.Rows) != 1 || m.Rows[0].Harness != "deepseek-harness" || m.Ext.RankedBy == "" {
 		t.Fatalf("ranked output = %s", out)
 	}
 
-	out, _, err = runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--by", "session", "--top", "1")
+	out, _, err = runForkReportCLI(t, forkReportFixture(), "ok", nil, "usage", "report", "--by", "session", "--top", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,8 +255,7 @@ func TestForkUsageReportTopRanksByPricebookCost(t *testing.T) {
 }
 
 func TestForkUsageReportExtUnsupportedAndError(t *testing.T) {
-	events, upstream := forkReportFixture()
-	out, _, err := runForkReportCLI(t, events, "", upstream, "usage", "report", "--top", "1")
+	out, _, err := runForkReportCLI(t, forkReportFixture(), "", nil, "usage", "report", "--top", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +263,7 @@ func TestForkUsageReportExtUnsupportedAndError(t *testing.T) {
 	if m.Ext.Status != "unsupported" || len(m.Rows) != 1 || m.Rows[0].Harness != "codex" {
 		t.Fatalf("old daemon output = %s", out)
 	}
-	out, _, err = runForkReportCLI(t, events, "fail", upstream, "usage", "report")
+	out, _, err = runForkReportCLI(t, forkReportFixture(), "fail", nil, "usage", "report")
 	if err != nil {
 		t.Fatalf("an ext failure failed the command: %v", err)
 	}
@@ -240,8 +273,9 @@ func TestForkUsageReportExtUnsupportedAndError(t *testing.T) {
 }
 
 func TestForkUsageReportByHour(t *testing.T) {
-	events, upstream := forkReportFixture()
-	out, d, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--by", "hour", "--days", "7", "--tz", "Europe/Berlin")
+	state := forkReportFixture()
+	events := state.deepseek
+	out, d, err := runForkReportCLI(t, state, "ok", nil, "usage", "report", "--by", "hour", "--days", "7", "--tz", "Europe/Berlin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +293,7 @@ func TestForkUsageReportByHour(t *testing.T) {
 		t.Errorf("histogram has %d lines, want 24 hours plus header and footer:\n%s", lines, out)
 	}
 
-	out, _, err = runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--by", "hour", "--json", "--tz", "Asia/Kolkata")
+	out, _, err = runForkReportCLI(t, state, "ok", nil, "usage", "report", "--by", "hour", "--json", "--tz", "Asia/Kolkata")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,11 +325,11 @@ func TestForkUsageReportByHour(t *testing.T) {
 		t.Fatalf("hours = %+v", v.Hours)
 	}
 
-	if _, _, err := runForkReportCLI(t, events, "", upstream, "usage", "report", "--by", "hour"); err == nil || !strings.Contains(err.Error(), "update it") {
+	if _, _, err := runForkReportCLI(t, state, "", nil, "usage", "report", "--by", "hour"); err == nil || !strings.Contains(err.Error(), "update it") {
 		t.Fatalf("old daemon --by hour: %v", err)
 	}
 	for _, args := range [][]string{{"usage", "report", "--by", "hour", "--top", "2"}, {"usage", "report", "--by", "hour", "--tz", "Mars/Olympus"}} {
-		_, d, err := runForkReportCLI(t, events, "ok", upstream, args...)
+		_, d, err := runForkReportCLI(t, state, "ok", nil, args...)
 		var usage usageError
 		if !errors.As(err, &usage) || len(d.seen()) != 0 {
 			t.Fatalf("%v: err %v requests %v, want a usage error before any request", args, err, d.seen())
@@ -348,9 +382,14 @@ func TestForkUsageReportFleetExtPerHost(t *testing.T) {
 
 // --top with no priced DeepSeek events keeps upstream's ranking and makes no
 // second upstream read.
+// --top with no priced DeepSeek events keeps upstream's ranking and makes no
+// second upstream read.
 func TestForkUsageReportTopWithoutPricedEventsKeepsUpstream(t *testing.T) {
-	_, upstream := forkReportFixture()
-	out, d, err := runForkReportCLI(t, nil, "ok", upstream, "usage", "report", "--top", "1")
+	state := &forkReportState{}
+	cost := int64(5)
+	state.add(store.ForkDeepSeekUsageEvent{CreatedAt: forkFixtureTime(), ProviderID: domain.UsageProviderOpenAI, BillingProviderID: "openai",
+		ModelID: "gpt-6", UncachedTokens: 10, CatalogCostNanos: &cost, Harness: domain.HarnessCodex, SessionID: "cx-1"}, false)
+	out, d, err := runForkReportCLI(t, state, "ok", nil, "usage", "report", "--top", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +397,7 @@ func TestForkUsageReportTopWithoutPricedEventsKeepsUpstream(t *testing.T) {
 		t.Fatalf("requests = %v, want the upstream report and report-ext only", got)
 	}
 	m := decodeMerged(t, out)
-	if m.Ext.Status != "ok" || m.Ext.RankedBy == "" || len(m.Rows) != 1 || m.Rows[0].Harness != "codex" {
+	if m.Ext.Status != "ok" || len(m.Rows) != 1 || m.Rows[0].Harness != "codex" {
 		t.Fatalf("output = %s", out)
 	}
 }
@@ -366,13 +405,12 @@ func TestForkUsageReportTopWithoutPricedEventsKeepsUpstream(t *testing.T) {
 // Session rows are ranked by effective cost even without --top: the
 // DeepSeek session the catalog left at 0 comes first.
 func TestForkUsageReportSessionRowsRankedWithoutTop(t *testing.T) {
-	events, upstream := forkReportFixture()
-	out, _, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--by", "session")
+	out, _, err := runForkReportCLI(t, forkReportFixture(), "ok", nil, "usage", "report", "--by", "session")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m := decodeMerged(t, out)
-	if len(m.SessionRows) != 2 || m.SessionRows[0].SessionID != "ds-1" || m.SessionRows[1].SessionID != "cx-1" || m.Top != 0 {
+	if m.Ext.Status != "ok" || len(m.SessionRows) != 2 || m.SessionRows[0].SessionID != "ds-1" || m.SessionRows[1].SessionID != "cx-1" || m.Top != 0 {
 		t.Fatalf("session order = %s", out)
 	}
 }
@@ -380,14 +418,14 @@ func TestForkUsageReportSessionRowsRankedWithoutTop(t *testing.T) {
 // A row mixing price-book-priced DeepSeek events with other catalog-priced
 // events keeps the other events' catalog cost in its effective cost.
 func TestForkUsageReportEffectiveCostKeepsOtherCatalogCost(t *testing.T) {
-	events, _ := forkReportFixture()
-	catalog := int64(400)
-	events[0].CatalogCostNanos = &catalog
-	period := events[0].CreatedAt.Format("2006-01-02")
-	upstream := func(string, string) string {
-		return `{"days":7,"rows":[{"period":"` + period + `","harness":"deepseek-harness","model":"deepseek-v4-pro","speed":"standard","events":2,"costNanos":1000}],"sessions":[]}`
-	}
-	out, _, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report")
+	state := &forkReportState{}
+	priced, other := forkDeepSeekReply(0), forkDeepSeekReply(1)
+	catalog, otherCost := int64(400), int64(600)
+	priced.CatalogCostNanos = &catalog
+	other.BillingProviderID, other.CatalogCostNanos = "openrouter", &otherCost // same row, not in the fork query
+	state.add(priced, true)
+	state.add(other, false)
+	out, _, err := runForkReportCLI(t, state, "ok", nil, "usage", "report")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,18 +439,88 @@ func TestForkUsageReportEffectiveCostKeepsOtherCatalogCost(t *testing.T) {
 // An upstream report over another window than report-ext (a period
 // rollover between the reads) is not merged.
 func TestForkUsageReportWindowMismatchIsAnExtError(t *testing.T) {
-	events, _ := forkReportFixture()
-	upstream := func(string, string) string {
+	override := func(string, string) string {
 		return `{"days":7,"since":"2001-01-01T00:00:00Z","until":"2001-01-08T00:00:00Z","rows":[],"sessions":[]}`
 	}
-	out, d, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report")
+	out, d, err := runForkReportCLI(t, forkReportFixture(), "ok", override, "usage", "report")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if m := decodeMerged(t, out); m.Ext.Status != "error" || !strings.Contains(m.Ext.Reason, "different windows") {
 		t.Fatalf("output = %s", out)
 	}
-	if got := d.seen(); len(got) != 3 {
-		t.Fatalf("requests = %v, want one report-ext retry", got)
+	if got := d.seen(); len(got) != 2*forkConsistencyAttempts {
+		t.Fatalf("requests = %v, want %d report/report-ext pairs", got, forkConsistencyAttempts)
+	}
+}
+
+// Ingestion between the report and report-ext reads: the extension's
+// snapshot shows replies the report did not count. The CLI re-reads both
+// and merges only the consistent pair (no understated or negative cost).
+func TestForkUsageReportIngestionBetweenReadsRetries(t *testing.T) {
+	state := forkReportFixture()
+	state.afterUpstream = func(n int, s *forkReportState) {
+		if n == 1 {
+			s.add(forkDeepSeekReply(1), true)
+			s.add(forkDeepSeekReply(2), true)
+		}
+	}
+	out, d, err := runForkReportCLI(t, state, "ok", nil, "usage", "report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.seen(); len(got) != 4 {
+		t.Fatalf("requests = %v, want one re-read of both", got)
+	}
+	m := decodeMerged(t, out)
+	if m.Ext.Status != "ok" || len(m.Rows) != 2 || m.Rows[1].Ext == nil || m.Rows[1].Ext.Events != 3 ||
+		*m.Rows[1].Ext.EffectiveCostNanos != 3*660_000_000 {
+		t.Fatalf("merged output = %s", out)
+	}
+}
+
+// The --top re-read without top happens after the first report-ext read;
+// ingestion right after it must not be merged against the older extension.
+func TestForkUsageReportIngestionDuringTopRereadRetries(t *testing.T) {
+	state := forkReportFixture()
+	state.afterUpstream = func(n int, s *forkReportState) {
+		if n == 2 {
+			s.add(forkDeepSeekReply(1), true)
+		}
+	}
+	out, d, err := runForkReportCLI(t, state, "ok", nil, "usage", "report", "--top", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := decodeMerged(t, out)
+	if m.Ext.Status != "ok" || m.Top != 1 || len(m.Rows) != 1 || m.Rows[0].Ext == nil || m.Rows[0].Ext.Events != 2 ||
+		*m.Rows[0].Ext.EffectiveCostNanos != 2*660_000_000 {
+		t.Fatalf("merged output = %s\nrequests %v", out, d.seen())
+	}
+	for _, r := range d.seen()[2:] {
+		if strings.Contains(r, "top=") {
+			t.Fatalf("a re-read kept top: %v", d.seen())
+		}
+	}
+}
+
+// Events that keep changing: after forkConsistencyAttempts the CLI gives up
+// with ext.status "error" and the upstream answer unchanged, never a wrong
+// merge.
+func TestForkUsageReportIngestionThatNeverSettlesIsAnExtError(t *testing.T) {
+	state := forkReportFixture()
+	state.afterUpstream = func(n int, s *forkReportState) { s.add(forkDeepSeekReply(n), true) }
+	out, _, err := runForkReportCLI(t, state, "ok", nil, "usage", "report", "--by", "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := decodeMerged(t, out)
+	if m.Ext.Status != "error" || !strings.Contains(m.Ext.Reason, "changed between") {
+		t.Fatalf("output = %s", out)
+	}
+	for _, r := range m.SessionRows {
+		if r.Ext != nil {
+			t.Fatalf("a row was merged against a changed extension: %s", out)
+		}
 	}
 }

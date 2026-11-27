@@ -20,11 +20,11 @@ import (
 // book routes, so the LAN listener's device-credential gate covers it.
 const Route = pricebook.RoutePrefix + "/report-ext"
 
-// Store is what the report reads: the fork DeepSeek query and the upstream
-// report events (for every session's models).
+// Store is what the report reads: the fork DeepSeek events and the upstream
+// report events (for sessionModels and the snapshot), from one database
+// snapshot.
 type Store interface {
-	ListForkDeepSeekUsageEvents(ctx context.Context, since, until time.Time, routes []string) ([]store.ForkDeepSeekUsageEvent, error)
-	ListUsageReportEvents(ctx context.Context, since, until time.Time) ([]domain.UsageReportEvent, error)
+	ListForkUsageReportSnapshot(ctx context.Context, since, until time.Time, routes []string) ([]store.ForkDeepSeekUsageEvent, []domain.UsageReportEvent, error)
 }
 
 // Service answers report-ext requests.
@@ -60,11 +60,7 @@ func (s *Service) Report(ctx context.Context, days, offset int, timeZone string,
 		return Report{}, err
 	}
 	book := s.Prices.Book()
-	deepseek, err := s.Store.ListForkDeepSeekUsageEvents(ctx, w.Since, w.Until, book.Routes())
-	if err != nil {
-		return Report{}, err
-	}
-	all, err := s.Store.ListUsageReportEvents(ctx, w.Since, w.Until)
+	deepseek, all, err := s.Store.ListForkUsageReportSnapshot(ctx, w.Since, w.Until, book.Routes())
 	if err != nil {
 		return Report{}, err
 	}

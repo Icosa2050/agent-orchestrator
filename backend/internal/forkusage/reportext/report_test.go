@@ -384,8 +384,10 @@ func TestPricedRowsJoinUpstreamRows(t *testing.T) {
 		e := store.ForkDeepSeekUsageEvent{CreatedAt: at, ProviderID: domain.UsageProviderOpenAI, BillingProviderID: route, ModelID: model,
 			CachedTokens: hit, UncachedTokens: miss, OutputTokens: out, Harness: domain.HarnessDeepSeek, SessionID: "s1"}
 		ds = append(ds, e)
+		catalog := int64(100 * i)
 		up = append(up, domain.UsageReportEvent{CreatedAt: at, ProviderID: domain.UsageProviderOpenAI, BillingProviderID: route, ModelID: model,
-			Tokens: domain.UsageTokenMetrics{CachedInputTokens: &hit, UncachedInputTokens: &miss, OutputTokens: &out}, Harness: domain.HarnessDeepSeek, SessionID: "s1"})
+			Tokens: domain.UsageTokenMetrics{CachedInputTokens: &hit, UncachedInputTokens: &miss, OutputTokens: &out}, Harness: domain.HarnessDeepSeek, SessionID: "s1",
+			Costs: domain.UsageEventCosts{EstimatedCostNanos: &catalog}})
 	}
 	for _, days := range []int{1, 7} {
 		for _, tz := range []string{"UTC", "Europe/Berlin", "Asia/Kolkata"} {
@@ -416,6 +418,34 @@ func TestPricedRowsJoinUpstreamRows(t *testing.T) {
 			for k, v := range want {
 				if got[k] != v {
 					t.Errorf("days %d tz %s: key %+v tokens %d, upstream %d", days, tz, k, got[k], v)
+				}
+			}
+			// The snapshot (built from the upstream events) is exactly what
+			// the upstream report shows per row.
+			withAll, err := Build(Input{Window: w, Book: mustBook(t), DeepSeek: ds, All: up})
+			if err != nil {
+				t.Fatal(err)
+			}
+			type counts struct{ events, cost int64 }
+			upRows := map[key]counts{}
+			for _, r := range upstream.Rows {
+				upRows[key{r.Period, string(r.Harness), r.ModelID, r.Speed}] = counts{r.Events, r.CostNanos}
+			}
+			if len(withAll.Snapshot.Rows) != len(upRows) {
+				t.Fatalf("days %d tz %s: snapshot %d rows, upstream %d", days, tz, len(withAll.Snapshot.Rows), len(upRows))
+			}
+			for _, r := range withAll.Snapshot.Rows {
+				if c := upRows[key{r.Period, r.Harness, r.Model, r.Speed}]; c != (counts{r.Events, r.CostNanos}) {
+					t.Errorf("days %d tz %s: snapshot %+v, upstream %+v", days, tz, r, c)
+				}
+			}
+			upSessions := map[key]counts{}
+			for _, r := range upstream.SessionRows {
+				upSessions[key{string(r.SessionID), string(r.Harness), r.ModelID, r.Speed}] = counts{r.Events, r.CostNanos}
+			}
+			for _, r := range withAll.Snapshot.SessionRows {
+				if c := upSessions[key{r.SessionID, r.Harness, r.Model, r.Speed}]; c != (counts{r.Events, r.CostNanos}) || len(withAll.Snapshot.SessionRows) != len(upSessions) {
+					t.Errorf("days %d tz %s: snapshot session %+v, upstream %+v", days, tz, r, c)
 				}
 			}
 		}

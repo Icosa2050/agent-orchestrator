@@ -67,6 +67,35 @@ ORDER BY model_usage_events.id
 // every event of the DeepSeek Harness, plus any event billed to one of the
 // given routes (the price book's route table).
 func (s *Store) ListForkDeepSeekUsageEvents(ctx context.Context, since, until time.Time, routes []string) ([]ForkDeepSeekUsageEvent, error) {
+	return listForkDeepSeekUsageEvents(ctx, s.readDB, since, until, routes)
+}
+
+// ListForkUsageReportSnapshot reads the DeepSeek events and the upstream
+// report events (ListUsageReportEvents) of [since, until) in one read-only
+// transaction, so both describe the same database snapshot: an event ingested
+// meanwhile is in both lists or in neither.
+func (s *Store) ListForkUsageReportSnapshot(ctx context.Context, since, until time.Time, routes []string) ([]ForkDeepSeekUsageEvent, []domain.UsageReportEvent, error) {
+	tx, err := s.readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	deepseek, err := listForkDeepSeekUsageEvents(ctx, tx, since, until, routes)
+	if err != nil {
+		return nil, nil, err
+	}
+	all, err := s.listUsageReportEvents(ctx, s.qr.WithTx(tx), since, until)
+	if err != nil {
+		return nil, nil, err
+	}
+	return deepseek, all, nil
+}
+
+type forkQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func listForkDeepSeekUsageEvents(ctx context.Context, db forkQuerier, since, until time.Time, routes []string) ([]ForkDeepSeekUsageEvent, error) {
 	const layout = "2006-01-02 15:04:05"
 	if routes == nil {
 		routes = []string{}
@@ -75,7 +104,7 @@ func (s *Store) ListForkDeepSeekUsageEvents(ctx context.Context, since, until ti
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.readDB.QueryContext(ctx, forkListDeepSeekUsageEvents,
+	rows, err := db.QueryContext(ctx, forkListDeepSeekUsageEvents,
 		since.UTC().Format(layout), until.UTC().Format(layout), string(domain.HarnessDeepSeek), string(routeJSON))
 	if err != nil {
 		return nil, err
