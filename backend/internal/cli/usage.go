@@ -96,6 +96,8 @@ func newUsageCommand(ctx *commandContext) *cobra.Command {
 	cmd.AddCommand(markRemoteReadOnly(newUsageReportCommand(ctx)), markRemoteReadOnly(newUsageLimitsCommand(ctx)))
 	// Fork: usage seam (FORK.md). `prices` writes (check, accept, auto), so it stays local; `window` only reads.
 	cmd.AddCommand(newForkUsagePricesCommand(ctx), markRemoteReadOnly(newForkUsageWindowCommand(ctx)))
+	// Fork: usage seam (FORK.md). `providers status` reads; `providers enable|disable` write and stay local.
+	cmd.AddCommand(newForkUsageProvidersCommand(ctx))
 	return cmd
 }
 
@@ -248,6 +250,9 @@ func newUsageLimitsCommand(ctx *commandContext) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if mode == usageLimitsCurrent { // Fork: usage seam (FORK.md): provider rows, one per key.
+					return writeForkFleetUsageLimits(cmd.Context(), ctx, cmd.OutOrStdout(), hosts, asJSON)
+				}
 				if asJSON || mode == usageLimitsReadings {
 					return writeJSON(cmd.OutOrStdout(), map[string]any{"hosts": hosts})
 				}
@@ -256,6 +261,9 @@ func newUsageLimitsCommand(ctx *commandContext) *cobra.Command {
 			var res json.RawMessage
 			if err := ctx.getJSON(cmd.Context(), path, &res); err != nil {
 				return err
+			}
+			if mode == usageLimitsCurrent { // Fork: usage seam (FORK.md): provider rows and the DeepSeek hint.
+				return writeForkUsageLimits(cmd.Context(), ctx, cmd.OutOrStdout(), res, asJSON)
 			}
 			if asJSON || mode == usageLimitsReadings {
 				return writeJSON(cmd.OutOrStdout(), res)
