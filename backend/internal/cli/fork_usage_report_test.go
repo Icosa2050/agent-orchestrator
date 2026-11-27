@@ -332,3 +332,20 @@ func TestForkUsageReportFleetExtPerHost(t *testing.T) {
 		t.Fatalf("good host missing or report-ext not read from it: %v", good.seen())
 	}
 }
+
+// --top with no priced DeepSeek events keeps upstream's ranking and makes no
+// second upstream read.
+func TestForkUsageReportTopWithoutPricedEventsKeepsUpstream(t *testing.T) {
+	_, upstream := forkReportFixture()
+	out, d, err := runForkReportCLI(t, nil, "ok", upstream, "usage", "report", "--top", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.seen(); len(got) != 2 {
+		t.Fatalf("requests = %v, want the upstream report and report-ext only", got)
+	}
+	m := decodeMerged(t, out)
+	if m.Ext.Status != "ok" || m.Ext.RankedBy == "" || len(m.Rows) != 1 || m.Rows[0].Harness != "codex" {
+		t.Fatalf("output = %s", out)
+	}
+}

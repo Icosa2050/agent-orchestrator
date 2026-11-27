@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -386,39 +387,67 @@ func forkSessionExts(ext forkReportExt) map[string]*forkRowExt {
 	return out
 }
 
-// forkMergeFleetUsageReport merges each host's report-ext into its report,
-// fetched from the same host. Fleet rows keep upstream's --top ranking.
-func forkMergeFleetUsageReport(ctx context.Context, c *commandContext, hosts []fleetUsageHost, params url.Values, by string) error {
-	exts, err := c.fleetGetJSON(ctx, apiPath(forkReportExtPath, forkReportExtParams(params)))
+// forkFleetExt is one host's report-ext read.
+type forkFleetExt struct {
+	data   json.RawMessage
+	status string // "ok", "unsupported" or "error"
+	err    error
+}
+
+// forkFleetGetExt reads report-ext from every host the fleet read reaches,
+// keeping the typed 404 of a daemon that predates it. Keyed by name and URL.
+func forkFleetGetExt(ctx context.Context, c *commandContext, params url.Values) (map[string]forkFleetExt, error) {
+	health, contexts, err := c.fleetHosts(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	byHost := map[string]fleetUsageHost{}
-	for _, h := range exts {
-		byHost[h.Name+"\x00"+h.URL] = h
+	out := make([]forkFleetExt, len(health))
+	var wg sync.WaitGroup
+	for i := range health {
+		if contexts[i] == nil {
+			out[i] = forkFleetExt{status: "error", err: errors.New(orDash(health[i].Error))}
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			data, status, err := forkFetchReportExt(ctx, contexts[i], params)
+			out[i] = forkFleetExt{data: data, status: status, err: err}
+		}()
 	}
+	wg.Wait()
+	byHost := make(map[string]forkFleetExt, len(health))
+	for i, h := range health {
+		byHost[h.Name+"\x00"+h.URL] = out[i]
+	}
+	return byHost, nil
+}
+
+// forkMergeFleetUsageReport merges each host's report-ext into its report,
+// fetched from the same host. Fleet rows keep upstream's --top ranking. A
+// failed ext read marks the hosts' ext as an error; it never fails the run.
+func forkMergeFleetUsageReport(ctx context.Context, c *commandContext, hosts []fleetUsageHost, params url.Values, by string) error {
+	exts, fleetErr := forkFleetGetExt(ctx, c, params)
 	for i := range hosts {
 		if hosts[i].Status != remoteStatusOK {
 			continue
 		}
-		h, ok := byHost[hosts[i].Name+"\x00"+hosts[i].URL]
+		h, ok := exts[hosts[i].Name+"\x00"+hosts[i].URL]
 		var merged json.RawMessage
 		var mergeErr error
 		switch {
+		case fleetErr != nil:
+			merged, mergeErr = forkWithExtStatus(hosts[i].Data, "error", fleetErr)
 		case !ok:
 			merged, mergeErr = forkWithExtStatus(hosts[i].Data, "error", errors.New("host missing from the report-ext read"))
-		case h.Status != remoteStatusOK:
-			status := "error"
-			if strings.Contains(h.Error, "404") || strings.Contains(strings.ToLower(h.Error), "not found") {
-				status = "unsupported"
-			}
-			merged, mergeErr = forkWithExtStatus(hosts[i].Data, status, errors.New(h.Error))
+		case h.status != "ok":
+			merged, mergeErr = forkWithExtStatus(hosts[i].Data, h.status, h.err)
 		default:
 			var ext forkReportExt
-			if err := json.Unmarshal(h.Data, &ext); err != nil {
+			if err := json.Unmarshal(h.data, &ext); err != nil {
 				merged, mergeErr = forkWithExtStatus(hosts[i].Data, "error", fmt.Errorf("decode report-ext: %w", err))
 			} else {
-				merged, mergeErr = forkMergeExt(hosts[i].Data, h.Data, ext, by, 0)
+				merged, mergeErr = forkMergeExt(hosts[i].Data, h.data, ext, by, 0)
 			}
 		}
 		if mergeErr != nil {

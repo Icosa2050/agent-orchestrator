@@ -559,6 +559,7 @@ func sessionModels(in Input, deepseek []SessionRow) map[string][]SessionModel {
 		}
 		// Speed tiers of one model merge into one MODELS entry.
 		prev.Events += r.Events
+		prev.Tokens.add(r.Tokens)
 		prev.Costs.add(r.Costs)
 		if prev.BilledAs == "" {
 			prev.BilledAs = r.BilledAs

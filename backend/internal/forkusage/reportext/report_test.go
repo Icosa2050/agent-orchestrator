@@ -432,3 +432,23 @@ func TestReportWindowRejectsBadParameters(t *testing.T) {
 		}
 	}
 }
+
+// One model at two speed tiers is one MODELS entry with summed tokens,
+// events and cost, also when only the DeepSeek query saw the events.
+func TestSessionModelsMergeSpeedTiers(t *testing.T) {
+	w := dayWindow(t, "2026-11-23T00:00:00Z", 1)
+	a := ev(t, "2026-11-23T12:00:00Z", "deepseek", "deepseek-flash", 0, 1000, 0)
+	b := ev(t, "2026-11-23T12:10:00Z", "deepseek", "deepseek-flash", 0, 500, 0)
+	b.ServiceTier = "priority"
+	rep, err := Build(Input{Window: w, Book: mustBook(t), DeepSeek: []store.ForkDeepSeekUsageEvent{a, b}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.SessionRows) != 2 || rep.SessionRows[0].Speed == rep.SessionRows[1].Speed {
+		t.Fatalf("session rows = %+v, want one per speed tier", rep.SessionRows)
+	}
+	models := rep.SessionModels["s1"]
+	if len(models) != 1 || models[0].Events != 2 || models[0].Tokens != 1500 || *models[0].CostNanos != 225_000 {
+		t.Fatalf("models = %+v", models)
+	}
+}
