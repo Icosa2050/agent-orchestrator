@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +50,8 @@ func newForkProvidersDaemon(t *testing.T, mode string, withRoutes bool) *chi.Mux
 		book, _ := newForkPriceService(t)
 		svc, err := providers.NewService(providers.Config{
 			DataDir: t.TempDir(), Client: fake.Client(), Keys: forkCLIKeys{}, Window: book.WindowReport,
-			DeepSeekURL: fake.URL + "/user/balance", OpenRouterURL: fake.URL + "/api/v1/key",
+			DeepSeekURL: fake.URL + "/user/balance", OpenRouterURL: fake.URL + "/api/v1/key", ModelsURL: fake.URL + "/api/v1/models",
+			PAL: providers.PALConfigPaths{ClaudeJSON: filepath.Join(t.TempDir(), "claude.json")},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -71,7 +73,7 @@ func runForkProvidersCLI(t *testing.T, r http.Handler, args ...string) (string, 
 
 func TestForkUsageProvidersEnableAndLimitsRows(t *testing.T) {
 	daemon := newForkProvidersDaemon(t, "ok", true)
-	// Nothing enabled: `limits` prints exactly the upstream table.
+	// Nothing enabled: `limits` prints the upstream table, then only the steering lines.
 	out, _, err := runForkProvidersCLI(t, daemon, "usage", "limits")
 	if err != nil || strings.Contains(out, "PROVIDER") || !strings.Contains(out, "claude me@example.com") {
 		t.Fatalf("limits with providers off: %v\n%s", err, out)

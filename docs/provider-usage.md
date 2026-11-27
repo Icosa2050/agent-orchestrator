@@ -14,6 +14,9 @@ version applies to the next read, including history.
 | `ao usage window [--at <time>] [--next offpeak\|peak] [--json]` | the DeepSeek peak/off-peak window now or at any instant |
 | `ao usage report [--days N] [--offset N] [--tz Z] [-p P] [--by session] [--top N] [--fleet]` | the upstream usage report (JSON) with the DeepSeek extension merged under `ext` |
 | `ao usage report --by hour [--days N] [--tz Z] [--json] [--fleet]` | DeepSeek usage per UTC hour of day, peak hours marked |
+| `ao usage limits [--json] [--fleet]` | the upstream limits, the provider rows (when polling is on) and the steering block (below) |
+| `ao usage providers enable\|disable deepseek\|openrouter`, `ao usage providers status [--json]` | opt-in balance / key polling (default off) |
+| `ao usage providers set runwayLowDays=3 balanceLow=5 keyRemainingLowPct=25 modelsListing=on\|off` | steering thresholds and the OpenRouter model-listing switch (local only) |
 
 ## How a DeepSeek reply is priced
 
@@ -124,6 +127,124 @@ the window or on that date. `--json` gives:
 ```
 
 The keys above are stable (schema 1); new keys may be added.
+
+## Steering (`ao usage limits`)
+
+AO supplies signals and advice; orchestrators decide. Nothing is blocked or
+throttled. `ao usage limits --json` carries the key `steering`:
+
+```json
+{"steering":{"schema":1,
+  "deepseek":{"keyId":"a1b2c3d4e5f6","window":"peak","priceFactor":1,"peakVsOffPeak":2,
+    "windowEndsAt":"2026-11-25T10:00:00Z","windowEndsAtBerlin":"2026-11-25T11:00:00+01:00",
+    "nextOffPeak":{"from":"…","until":"…","fromBerlin":"…","untilBerlin":"…"},"nextPeak":{…},
+    "models":[{"model":"deepseek-flash","nowPerM":{…},"peakPerM":{…},"offPeakPerM":{…}}],
+    "alsoVia":{"route":"openrouter","currency":"USD","note":"information only: …","models":[{"id":"deepseek/deepseek-v4.1-flash","promptPerM":"0.0507","completionPerM":"0.2028"}]},
+    "balance":{"amount":"42.10","currency":"USD","isAvailable":true,"source":"user/balance","fetchedAt":"…"},
+    "runway":{"days":12.3,"avgDailySpend":"3.42","currency":"USD","basis":"balance change, last 7 d, adjustment intervals excluded","coverageDays":6.6},
+    "advice":{"code":"defer-nonurgent","reason":"peak until Wed 10:00 UTC (11:00 Berlin); off-peak is half price"},
+    "priceBook":{"version":"deepseek-2026-11-24","source":"embedded","stale":false}},
+  "openrouter":{"keyId":"9f8e7d6c5b4a","timePricing":"none known",
+    "key":{"remainingUsd":73.2,"limitUsd":100,"remainingPct":73.2,"limitBasis":"key limit","resetInterval":"weekly","resetsAt":"…","resetsAtBerlin":"…"},
+    "runway":{"days":16.5,"avgDailySpend":"4.43","currency":"USD","basis":"usage_weekly / elapsed UTC week days (at least 1)"},
+    "models":[{"model":"deepseek/deepseek-v4.1-flash","status":"listed","promptPerM":"0.0507","completionPerM":"0.2028","cacheReadPerM":"0.001014","blendedPerM":"0.08112","rank":1}],
+    "presets":[{"model":"@preset/pal-cheap","name":"pal-cheap","chain":[{"model":"deepseek/deepseek-v4.1-flash","status":"listed","blendedPerM":"0.08112"}],"source":"PAL model registry description (OPENROUTER_MODELS_CONFIG_PATH)"}],
+    "blendBasis":"fallback 4:1 input:output (no PAL ledger yet)",
+    "allowedModelsSource":"~/.claude.json mcpServers.pal.env.OPENROUTER_ALLOWED_MODELS",
+    "listingStatus":"ok","listedAt":"…","listingSource":"openrouter.ai/api/v1/models (public, keyless)",
+    "advice":{"code":"ok","reason":"$73.20 of $100.00 left (weekly); resets Mon 00:00 UTC (01:00 Berlin)"}},
+  "thresholds":{"runwayLowDays":3,"balanceLow":"5","keyRemainingLowPct":25,"preferCheaperPct":50}}}
+```
+
+The text form follows the provider rows:
+
+```
+steer: deepseek DEFER-NONURGENT (peak until Wed 10:00 UTC (11:00 Berlin); off-peak is half price; off-peak until Thu 01:00 UTC (02:00 Berlin); runway 12.3 d)
+       openrouter OK ($73.20 of $100.00 left (weekly); resets Mon 00:00 UTC (01:00 Berlin); runway 16.5 d; cheapest allowed: deepseek/deepseek-v4.1-flash $0.08/M blended)
+```
+
+With `--fleet`, `steering` holds lists (`deepseek[]`, `openrouter[]`), one
+entry per distinct key with the `hosts` that report it, plus `warnings` when
+hosts use different DeepSeek price books.
+
+### Advice codes
+
+| Provider | Code | When | Meaning for the orchestrator |
+|---|---|---|---|
+| deepseek | `stop` | `is_available=false` or balance ≤ 0 | start no DeepSeek work; tell the owner |
+| deepseek | `low-runway` | runway < `runwayLowDays` (3) or balance < `balanceLow` (5, account currency) | ask the owner before non-urgent work; overrides the window |
+| deepseek | `defer-nonurgent` | peak now | defer non-urgent work to `nextOffPeak.from`; if it must run, prefer flash and fewer reviewers |
+| deepseek | `ok-offpeak` | off-peak now | run deferred work; `windowEndsAt` says how long it stays cheap |
+| deepseek | `unknown` | price book stale or missing, holiday year missing (window still shown) | treat as peak |
+| openrouter | `stop` | binding limit's `remainingUsd` ≤ 0 (a zero limit counts as exhausted) | no PAL calls; tell the owner |
+| openrouter | `low-runway` | runway < `runwayLowDays` or remaining < `keyRemainingLowPct` (25 %) | ask before non-urgent PAL use; use the rank-1 model |
+| openrouter | `prefer-cheaper` | remaining < 50 % | choose cheaper allowed models when quality allows |
+| openrouter | `ok` | otherwise (also: a key without a limit) | — |
+| openrouter | `unknown` | key polling off, the key never read, or the last refresh failed and the last reading would be `ok` | treat the budget as tight |
+
+Precedence: `stop` > `low-runway` > window / limit codes. `unknown` never
+means "go". Thresholds compare unrounded values; `days` and `remainingPct`
+are rounded for display only. Without a DeepSeek balance (polling off or
+failing) the window codes still apply and the reason says why the balance is
+unknown. Each entry carries the row's `status` (`ok`, `disabled`,
+`unavailable`) and `statusReason`; after a failed refresh the last good
+reading is used and marked (`balance.stale`, `openrouter.stale`), and its
+cautionary codes stay, but OpenRouter never answers `ok` on it. The §9.2
+OpenRouter `stop` on a 402 in the PAL ledger arrives with the ledger reader
+(PR E). `runway.avgDailySpend` is a decimal string with `runway.currency`
+for both providers (USD for OpenRouter).
+
+- **Runway.** DeepSeek: balance / average daily spend over the last 7 days,
+  from the balance history (`deepseek-balance.jsonl`) of the same key and
+  currency; intervals with a top-up or grant are excluded. `null` with a
+  reason when polling is off, with under 2 days of covered history, or when no
+  spend was observed. AO-session spend from the report extension is never
+  used: both DeepSeek routes and tools outside AO share the wallet, so it
+  would overstate the runway. OpenRouter: remaining of the binding limit (the
+  effective budget or the key limit, whichever has the smaller share left)
+  / (`usage_weekly` / UTC week days elapsed at the reading, at least 1).
+  With `--fleet`, the newest reading of a shared key stays authoritative;
+  without its own runway it borrows another host's average daily spend
+  against its own balance, which can only tighten the advice.
+- **Model prices.** `GET https://openrouter.ai/api/v1/models` is public and
+  keyless. The daemon fetches it at most once a day (retry after a failure:
+  1 h; attempts persist across restarts), with no `Authorization` header, no
+  cookies and redirects refused, and caches the price fields in
+  `provider-usage/openrouter-models.json`. Default **on**;
+  `ao usage providers set modelsListing=off` stops it (the cached listing is
+  still shown, marked).
+- **Allowed models** come from `mcpServers.pal.env.OPENROUTER_ALLOWED_MODELS`
+  in `~/.claude.json` (names only). `~` router aliases are looked up directly
+  in the listing; a model missing there is `not listed`. `@preset/...` entries
+  are not priced; each is listed under `presets` with its chain as PAL's own
+  model registry (`OPENROUTER_MODELS_CONFIG_PATH`) describes it
+  ("OpenRouter preset pal-cheap: a -> b -> c"), informational only, since
+  OpenRouter resolves presets server-side.
+- **Ranking.** `blendedPerM` = (4 × prompt + 1 × completion) / 5 per million
+  tokens, the fallback mix until the PAL ledger (PR E) supplies an observed
+  one. It is a ranking aid; the raw listed prices are always shown. The
+  listing is OpenRouter's displayed price; the charge can differ.
+- **Cross-route.** `deepseek.alsoVia` lists OpenRouter's `deepseek/*` prices
+  next to the direct API prices, as information only: moving DeepSeek work to
+  OpenRouter changes the serving host and its data policy, an owner decision.
+- **Deferral.** There is no AO deferral mechanism in v1. Orchestrators use
+  `ao usage window --next offpeak` and their own timer.
+
+### Orchestrator rule text
+
+Paste into project orchestrator rules:
+
+```
+## API spend steering (DeepSeek, PAL/OpenRouter)
+- Before dispatching DeepSeek work (DeepSeek Harness sessions, dsh reviews, panels, bulk runs) or PAL-heavy work, read `ao usage limits --json` -> `steering`. Do not poll it; read it once per dispatch decision.
+- deepseek `stop`: start no DeepSeek work; tell the owner. `low-runway`: stop or ask the owner before non-urgent work.
+- deepseek `defer-nonurgent` (peak, 2x price): defer non-urgent work (reviews that do not block a merge, second opinions, panels, bulk/backfill) to `steering.deepseek.nextOffPeak.from` (`ao usage window --next offpeak`). If it must run now: use deepseek-flash instead of deepseek-v4-pro, one reviewer instead of several, smaller context.
+- deepseek `ok-offpeak`: run deferred DeepSeek work now; check `windowEndsAt` so long batches finish before peak.
+- Urgent work (blocking a merge, CI recovery, owner request) is never deferred for price; note the peak cost in your report.
+- PAL/OpenRouter: prefer the cheapest allowed model that is good enough for the task (`steering.openrouter.models`, rank 1 first); for PAL prefer `pal-cheap` or `pal-balanced` when quality allows and keep `pal-strong` and expensive models (by `blendedPerM`) for hard problems. `prefer-cheaper`/`low-runway`: cheaper models only, ask before large consensus runs. `stop`: no PAL calls.
+- `unknown` advice means "assume peak / assume tight budget", never "go". `ok` means no budget concern, not "use the strongest model".
+- Report deferrals in your progress report ("deferred 3 DeepSeek reviews to off-peak 10:00 UTC").
+```
 
 ## Reference numbers
 

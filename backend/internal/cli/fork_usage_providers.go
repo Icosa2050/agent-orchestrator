@@ -49,6 +49,7 @@ func newForkUsageProvidersCommand(ctx *commandContext) *cobra.Command {
 	for _, on := range []bool{true, false} {
 		cmd.AddCommand(newForkUsageProvidersSwitchCommand(ctx, on))
 	}
+	cmd.AddCommand(newForkUsageProvidersSetCommand(ctx))
 	return cmd
 }
 
@@ -146,8 +147,16 @@ func writeForkProvidersStatus(out io.Writer, res providers.StatusResponse) error
 		return err
 	}
 	th := res.Thresholds
-	_, err := fmt.Fprintf(out, "thresholds: runwayLowDays=%s balanceLow=%s keyRemainingLowPct=%s\n",
-		strconv.FormatFloat(th.RunwayLowDays, 'f', -1, 64), th.BalanceLow, strconv.FormatFloat(th.KeyRemainingLowPct, 'f', -1, 64))
+	_, err := fmt.Fprintf(out, "thresholds: runwayLowDays=%s balanceLow=%s keyRemainingLowPct=%s (prefer-cheaper below %d%%)\n",
+		strconv.FormatFloat(th.RunwayLowDays, 'f', -1, 64), th.BalanceLow, strconv.FormatFloat(th.KeyRemainingLowPct, 'f', -1, 64), providers.PreferCheaperPct)
+	if err != nil || res.Steering == nil {
+		return err
+	}
+	listing := "on"
+	if !res.ModelsListing {
+		listing = "off"
+	}
+	_, err = fmt.Fprintf(out, "openrouter model listing: %s (keyless, at most daily; `ao usage providers set modelsListing=on|off`)\n", listing)
 	return err
 }
 
@@ -184,6 +193,9 @@ func writeForkUsageLimits(c context.Context, ctx *commandContext, out io.Writer,
 		if problem != "" {
 			merged["providersStatus"], _ = json.Marshal(problem)
 		}
+		if res != nil && res.Steering != nil {
+			merged["steering"], _ = json.Marshal(res.Steering)
+		}
 		return writeJSON(out, merged)
 	}
 	if err := writeUsageLimitsData(out, accounts, usageLimitsCurrent); err != nil {
@@ -196,7 +208,11 @@ func writeForkUsageLimits(c context.Context, ctx *commandContext, out io.Writer,
 		}
 		return nil
 	}
-	return writeForkProviderRows(out, res.Providers, time.Now())
+	if err := writeForkProviderRows(out, res.Providers, time.Now()); err != nil {
+		return err
+	}
+	ds, or := forkSteeringOf(res)
+	return writeForkSteering(out, ds, or, nil, false)
 }
 
 // writeForkFleetUsageLimits finishes `ao usage limits --fleet` (current
@@ -206,12 +222,14 @@ func writeForkFleetUsageLimits(c context.Context, ctx *commandContext, out io.Wr
 	provHosts, err := ctx.fleetGetJSON(c, forkProvidersPath)
 	rows := []providers.Row{}
 	missing := []forkProviderHostProblem{}
+	steering := forkSteeringBlock{Schema: providers.SteeringSchema, DeepSeek: []*providers.DeepSeekSteering{}, OpenRouter: []*providers.OpenRouterSteering{}}
 	if err == nil {
 		rows = forkDedupeProviderRows(provHosts)
 		missing = forkProviderProblems(hosts, provHosts)
+		steering = forkFleetSteering(provHosts)
 	}
 	if asJSON {
-		return writeJSON(out, map[string]any{"hosts": hosts, "providersSchema": providers.SchemaVersion, "providers": rows, "providersMissing": missing})
+		return writeJSON(out, map[string]any{"hosts": hosts, "providersSchema": providers.SchemaVersion, "providers": rows, "providersMissing": missing, "steering": steering})
 	}
 	if err := writeFleetUsageLimits(out, hosts, usageLimitsCurrent); err != nil {
 		return err
@@ -229,7 +247,7 @@ func writeForkFleetUsageLimits(c context.Context, ctx *commandContext, out io.Wr
 			return err
 		}
 	}
-	return nil
+	return writeForkSteering(out, steering.DeepSeek, steering.OpenRouter, steering.Warnings, true)
 }
 
 // forkProviderHostProblem names a host whose accounts answered but whose

@@ -70,6 +70,11 @@ func newFakeProviders(t *testing.T) *fakeProviders {
 			_, _ = io.WriteString(w, strings.Repeat(" ", maxBodyBytes+10))
 			return
 		}
+		if r.URL.Path == "/api/v1/models" {
+			data, _ := os.ReadFile(filepath.Join("testdata", "openrouter-models.json"))
+			_, _ = w.Write(data)
+			return
+		}
 		if r.URL.Path == "/user/balance" {
 			_, _ = io.WriteString(w, `{"is_available":true,"balance_infos":[{"currency":"USD","total_balance":"42.10","granted_balance":"0.00","topped_up_balance":"42.10"}]}`)
 			return
@@ -113,7 +118,8 @@ func newTestService(t *testing.T, f *fakeProviders, keys KeyReader, clock *testC
 	svc, err := NewService(Config{
 		DataDir: t.TempDir(), Client: f.srv.Client(), Keys: keys, Now: clock.now,
 		Logger:      slog.New(slog.NewTextHandler(log, &slog.HandlerOptions{Level: slog.LevelDebug})),
-		DeepSeekURL: f.srv.URL + "/user/balance", OpenRouterURL: f.srv.URL + "/api/v1/key",
+		DeepSeekURL: f.srv.URL + "/user/balance", OpenRouterURL: f.srv.URL + "/api/v1/key", ModelsURL: f.srv.URL + "/api/v1/models",
+		PAL:     PALConfigPaths{ClaudeJSON: filepath.Join(t.TempDir(), "no-claude.json")},
 		Timeout: 100 * time.Millisecond, Jitter: func(time.Duration) time.Duration { return 0 },
 	})
 	if err != nil {
@@ -145,9 +151,14 @@ func TestProvidersOffByDefaultSendNothing(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	<-done
-	if n := f.requests(); n != 0 {
-		t.Fatalf("%d requests with every provider off", n)
+	// Only the keyless model listing (default on) may go out.
+	f.mu.Lock()
+	for i, p := range f.paths {
+		if p != "/api/v1/models" || f.auths[i] != "" {
+			t.Errorf("request %s (auth %v) with every provider off", p, f.auths[i] != "")
+		}
 	}
+	f.mu.Unlock()
 	for _, r := range res.Providers {
 		if r.Status != StatusDisabled || r.KeyID != "" {
 			t.Errorf("row %+v", r)
@@ -601,6 +612,10 @@ func TestProvidersRunPollsEnabledDeepSeek(t *testing.T) {
 	svc := newTestService(t, f, staticKeys{DeepSeek: sentinelKey, OpenRouter: sentinelKey}, clock, nil)
 	_ = svc.SetEnabled(DeepSeek, true)
 	_ = svc.SetEnabled(OpenRouter, true)
+	off := false
+	if err := svc.SetSettings(Settings{ModelsListing: &off}); err != nil {
+		t.Fatal(err)
+	}
 	ticks := make(chan time.Time)
 	svc.cfg.After = func(time.Duration) <-chan time.Time { return ticks }
 	ctx, cancel := context.WithCancel(context.Background())

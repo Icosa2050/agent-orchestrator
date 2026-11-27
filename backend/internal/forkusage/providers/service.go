@@ -43,10 +43,13 @@ type Config struct {
 	// tick and backoff jitter.
 	DeepSeekURL   string
 	OpenRouterURL string
-	Timeout       time.Duration
-	Tick          time.Duration
-	After         func(time.Duration) <-chan time.Time
-	Jitter        func(time.Duration) time.Duration
+	ModelsURL     string
+	// PAL locates the PAL MCP config (allowed models, preset chains).
+	PAL     PALConfigPaths
+	Timeout time.Duration
+	Tick    time.Duration
+	After   func(time.Duration) <-chan time.Time
+	Jitter  func(time.Duration) time.Duration
 }
 
 type pollState struct {
@@ -68,8 +71,11 @@ type pollState struct {
 type Service struct {
 	cfg    Config
 	client *http.Client
-	mu     sync.Mutex // guards the pollState fields below the fetch mutex
-	state  map[string]*pollState
+	// public sends the keyless models-listing request.
+	public    *http.Client
+	listingMu sync.Mutex // serializes listing fetches
+	mu        sync.Mutex // guards the pollState fields below the fetch mutex
+	state     map[string]*pollState
 }
 
 // NewService validates cfg.
@@ -83,7 +89,10 @@ func NewService(cfg Config) (*Service, error) {
 	if cfg.OpenRouterURL == "" {
 		cfg.OpenRouterURL = OpenRouterKeyURL
 	}
-	for _, raw := range []string{cfg.DeepSeekURL, cfg.OpenRouterURL} {
+	if cfg.ModelsURL == "" {
+		cfg.ModelsURL = OpenRouterModelsURL
+	}
+	for _, raw := range []string{cfg.DeepSeekURL, cfg.OpenRouterURL, cfg.ModelsURL} {
 		if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" {
 			return nil, errors.New("providers: endpoint URLs must be https")
 		}
@@ -111,7 +120,11 @@ func NewService(cfg Config) (*Service, error) {
 			return time.Duration(rand.Int64N(int64(d)/5 + 1)) //nolint:gosec // scheduling jitter, not security
 		}
 	}
-	s := &Service{cfg: cfg, client: newClient(cfg.Client, cfg.Timeout), state: map[string]*pollState{}}
+	listingTimeoutFor := listingTimeout
+	if cfg.Timeout < fetchTimeout {
+		listingTimeoutFor = cfg.Timeout // tests shorten every timeout
+	}
+	s := &Service{cfg: cfg, client: newClient(cfg.Client, cfg.Timeout), public: newClient(cfg.Client, listingTimeoutFor), state: map[string]*pollState{}}
 	for _, p := range Known {
 		s.state[p] = &pollState{}
 	}
@@ -146,8 +159,10 @@ func (s *Service) SetEnabled(provider string, on bool) error {
 }
 
 // Run polls the DeepSeek balance every PollInterval while it is enabled
-// (balance changes need history). OpenRouter is read on demand only. With
-// every provider off it sends nothing. It returns when ctx ends.
+// (balance changes need history). OpenRouter's key is read on demand only.
+// The keyless OpenRouter model listing is refreshed at most daily while its
+// switch is on (default on). With every provider and the listing off it
+// sends nothing. It returns when ctx ends.
 func (s *Service) Run(ctx context.Context) {
 	for {
 		select {
@@ -155,10 +170,48 @@ func (s *Service) Run(ctx context.Context) {
 			return
 		case <-s.cfg.After(s.cfg.Tick):
 		}
-		if !s.Enabled()[DeepSeek] {
+		enabled, _, listing := readSettings(s.cfg.DataDir)
+		if listing {
+			s.refreshListingIfDue(ctx)
+		}
+		if !enabled[DeepSeek] {
 			continue
 		}
 		s.refreshIfDue(ctx, DeepSeek, PollInterval)
+	}
+}
+
+// refreshListingIfDue fetches the public model listing when the cached one
+// is older than ListingEvery and the last attempt is older than an hour.
+// Attempts are persisted, so restarts do not refetch.
+func (s *Service) refreshListingIfDue(ctx context.Context) {
+	s.listingMu.Lock()
+	defer s.listingMu.Unlock()
+	if _, _, on := readSettings(s.cfg.DataDir); !on {
+		return
+	}
+	now := s.cfg.Now().UTC()
+	cached, _ := readListing(s.cfg.DataDir)
+	if (len(cached.Models) > 0 && now.Sub(cached.FetchedAt) < ListingEvery) || now.Sub(cached.LastAttempt) < listingRetry {
+		return
+	}
+	var resp openrouterModelsResponse
+	reason := getPublicJSON(ctx, s.public, s.cfg.ModelsURL, maxListingBytes, &resp)
+	cached.LastAttempt = now
+	if reason == "" {
+		models, ok := parseListing(resp)
+		if ok {
+			cached.Models, cached.FetchedAt, cached.LastReason = models, now, ""
+		} else {
+			reason = ReasonUnexpected
+		}
+	}
+	if reason != "" {
+		cached.LastReason = reason
+		s.cfg.Logger.Info("openrouter model listing fetch failed", "reason", reason)
+	}
+	if err := writeListing(s.cfg.DataDir, cached); err != nil {
+		s.cfg.Logger.Warn("provider usage: could not save the OpenRouter model listing")
 	}
 }
 
@@ -313,13 +366,18 @@ type StatusResponse struct {
 	ProvidersSchema int        `json:"providersSchema"`
 	Providers       []Row      `json:"providers"`
 	Thresholds      Thresholds `json:"thresholds"`
+	// ModelsListing is the OpenRouter model-listing switch (default on).
+	ModelsListing bool `json:"modelsListing"`
+	// Steering is the steering block (design §9); absent from daemons that
+	// predate it.
+	Steering *Steering `json:"steering,omitempty"`
 }
 
 // Status answers every provider. With refresh, enabled providers whose
 // reading is older than FreshFor (and that are not backing off) are fetched
 // first, concurrently.
 func (s *Service) Status(ctx context.Context, refresh bool) StatusResponse {
-	enabled, th := readConfig(s.cfg.DataDir)
+	enabled, th, listing := readSettings(s.cfg.DataDir)
 	if refresh {
 		// A client hanging up must not turn into a provider error and a
 		// backoff; the client's own timeout bounds the fetch.
@@ -337,17 +395,42 @@ func (s *Service) Status(ctx context.Context, refresh bool) StatusResponse {
 		wg.Wait()
 	}
 	now := s.cfg.Now()
-	out := StatusResponse{ProvidersSchema: SchemaVersion, Thresholds: th, Providers: make([]Row, 0, len(Known))}
-	for _, p := range Known {
-		out.Providers = append(out.Providers, s.row(p, enabled[p], now))
+	out := StatusResponse{ProvidersSchema: SchemaVersion, Thresholds: th, ModelsListing: listing, Providers: make([]Row, 0, len(Known))}
+	// One window evaluation per answer, so rows and steering agree.
+	var window *pricebook.WindowReport
+	if s.cfg.Window != nil {
+		w := s.cfg.Window(now)
+		window = &w
 	}
+	for _, p := range Known {
+		out.Providers = append(out.Providers, s.row(p, enabled[p], now, window))
+	}
+	in := steerInputs{now: now, th: th, listingOn: listing, pal: readPALConfig(s.cfg.PAL), window: window}
+	for _, r := range out.Providers {
+		switch r.Provider {
+		case DeepSeek:
+			in.deepseek = r
+		case OpenRouter:
+			in.openrouter = r
+		}
+	}
+	if enabled[DeepSeek] {
+		samples, err := readSamples(s.cfg.DataDir)
+		in.samples, in.samplesErr = samples, err != nil
+	}
+	in.listing, in.listingOK = readListing(s.cfg.DataDir)
+	st := buildSteering(in)
+	out.Steering = &st
 	return out
 }
 
-func (s *Service) row(provider string, enabled bool, now time.Time) Row {
+// SetSettings updates the steering thresholds or the listing switch.
+func (s *Service) SetSettings(set Settings) error { return writeSettings(s.cfg.DataDir, set) }
+
+func (s *Service) row(provider string, enabled bool, now time.Time, window *pricebook.WindowReport) Row {
 	r := Row{Provider: provider, Status: StatusDisabled}
-	if provider == DeepSeek && s.cfg.Window != nil {
-		r.Window, r.PriceBook = windowOf(s.cfg.Window(now))
+	if provider == DeepSeek && window != nil {
+		r.Window, r.PriceBook = windowOf(*window)
 	}
 	if !enabled {
 		r.Reason = ReasonDisabled + "; enable with `ao usage providers enable " + provider + "`"
