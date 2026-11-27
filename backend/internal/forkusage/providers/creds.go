@@ -70,28 +70,28 @@ func (k SystemKeys) env(name string) string {
 
 // Key implements KeyReader.
 func (k SystemKeys) Key(ctx context.Context, provider string) (string, error) {
-	var key string
+	var sources []string
 	switch provider {
 	case DeepSeek:
-		key = k.deepseekStored()
-		if key == "" {
-			key = strings.TrimSpace(k.env(deepseekKeyName))
-		}
+		sources = []string{k.deepseekStored(), strings.TrimSpace(k.env(deepseekKeyName))}
 	case OpenRouter:
-		key = k.openrouterKeychain(ctx)
-		if key == "" {
-			key = strings.TrimSpace(k.env(openrouterKeyName))
-		}
+		sources = []string{k.openrouterKeychain(ctx), strings.TrimSpace(k.env(openrouterKeyName))}
 	default:
 		return "", errUnknownProvider
 	}
-	if key == "" {
-		return "", errNoKey
+	// The first usable key wins; an unusable stored value does not shadow a
+	// good one in the environment.
+	err := errNoKey
+	for _, key := range sources {
+		if key == "" {
+			continue
+		}
+		if usableKey(key) {
+			return key, nil
+		}
+		err = errKeyInvalid
 	}
-	if !usableKey(key) {
-		return "", errKeyInvalid
-	}
-	return key, nil
+	return "", err
 }
 
 // usableKey refuses anything that could break or inject into an HTTP header.

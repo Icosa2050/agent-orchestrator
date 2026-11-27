@@ -211,7 +211,10 @@ Failures map to fixed reasons (`no key`, `invalid key (401)`, `timeout`,
 shown or logged. Errors back off 15 min, 30 min, then 1 h (jittered);
 `enable` clears the backoff. `keyId` is the first 12 hex characters of
 SHA-256(key), a one-way identifier used for `--fleet` de-duplication
-(one row per key, "same key on: …").
+(one row per key, "same key on: …"; hosts whose accounts answered but whose
+provider rows did not are listed, `--json` key `providersMissing`). An
+OpenRouter effective budget and the key limit are each shown with their own
+reset period.
 
 State: `provider-usage/deepseek-balance.jsonl` (0600, `{ts, keyId, currency,
 total, granted, toppedUp}`, 90 days, compacted on write). A `keyId` or

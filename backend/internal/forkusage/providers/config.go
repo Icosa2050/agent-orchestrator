@@ -117,11 +117,17 @@ func writeEnabled(dataDir, provider string, on bool) error {
 			if err := json.Unmarshal(raw, &section); err != nil {
 				return fmt.Errorf("provider-usage config providers section: %w", err)
 			}
+			if section == nil { // "providers": null
+				section = map[string]json.RawMessage{}
+			}
 		}
 		entry := map[string]json.RawMessage{}
 		if raw, ok := section[provider]; ok {
 			if err := json.Unmarshal(raw, &entry); err != nil {
 				return fmt.Errorf("provider-usage config %s section: %w", provider, err)
+			}
+			if entry == nil {
+				entry = map[string]json.RawMessage{}
 			}
 		}
 		entry["enabled"], _ = json.Marshal(on)

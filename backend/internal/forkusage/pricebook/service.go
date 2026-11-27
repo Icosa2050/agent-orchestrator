@@ -538,6 +538,9 @@ func writeAutoCheck(dataDir string, on bool) error {
 			if err := json.Unmarshal(raw, &section); err != nil {
 				return fmt.Errorf("provider-usage config pricebook section: %w", err)
 			}
+			if section == nil { // "pricebook": null
+				section = map[string]json.RawMessage{}
+			}
 		}
 		section["autoCheck"], _ = json.Marshal(on)
 		cfg["pricebook"], _ = json.Marshal(section)

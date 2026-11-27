@@ -168,6 +168,12 @@ func (s *Service) refreshIfDue(ctx context.Context, provider string, every time.
 	st := s.state[provider]
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	// Re-check the opt-in under the fetch lock: SetEnabled(false) takes this
+	// lock after saving the switch, so a refresh that was waiting here while
+	// the provider was disabled must not send the key.
+	if !s.Enabled()[provider] {
+		return
+	}
 	now := s.cfg.Now()
 	s.mu.Lock()
 	due := now.Sub(st.lastAttempt) >= every && !now.Before(st.backoffUntil)

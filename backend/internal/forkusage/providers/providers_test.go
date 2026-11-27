@@ -339,6 +339,18 @@ func TestProvidersConfigKeepsPriceBookSection(t *testing.T) {
 	if !on[DeepSeek] || on[OpenRouter] || th.RunwayLowDays != 5 || th.KeyRemainingLowPct != 25 {
 		t.Fatalf("on=%v th=%+v", on, th)
 	}
+	// Valid-but-null sections are rewritten, not a panic.
+	for _, body := range []string{`{"providers":null}`, `{"providers":{"deepseek":null}}`, `null`} {
+		if err := os.WriteFile(pricebook.ConfigPath(dir), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeEnabled(dir, DeepSeek, true); err != nil {
+			t.Fatalf("%s: %v", body, err)
+		}
+		if on, _ := readConfig(dir); !on[DeepSeek] {
+			t.Fatalf("%s: not enabled", body)
+		}
+	}
 	if err := writeEnabled(dir, "pal", true); !errors.Is(err, errUnknownProvider) {
 		t.Fatalf("pal: %v", err)
 	}
@@ -390,6 +402,16 @@ func TestComputeChange(t *testing.T) {
 		}
 		if o := outsideAO(ch); o.Amount != nil || !strings.Contains(o.Reason, "not joined") {
 			t.Fatalf("outside %+v", o)
+		}
+	})
+	t.Run("an exact boundary sample beats an older one", func(t *testing.T) {
+		ch := computeChange([]Sample{
+			sample(at(24.25), "k1", "USD", "100.00", "0", "100.00"),
+			sample(at(24), "k1", "USD", "90.00", "0", "90.00"),
+			sample(at(0), "k1", "USD", "90.00", "0", "90.00"),
+		}, "k1", "USD", now)
+		if ch.Amount == nil || *ch.Amount != "0.00" || ch.Coverage.Samples != 2 {
+			t.Fatalf("%+v", ch)
 		}
 	})
 	t.Run("top-up and grant are adjustments", func(t *testing.T) {
@@ -468,7 +490,7 @@ func TestParseKeyResets(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, ok := parseKey(resp, now)
-	if !ok || k.ResetBasis != "effective_budget.resets_at" || k.ResetInterval != "monthly" || k.RemainingPct != nil || string(*k.Budget.RemainingUSD) != "40" {
+	if !ok || k.ResetBasis != "effective_budget" || k.ResetInterval != "monthly" || k.RemainingPct != nil || string(*k.Budget.RemainingUSD) != "40" {
 		t.Fatalf("%+v", k)
 	}
 }
@@ -501,6 +523,12 @@ func TestSystemKeysDeepSeekStoreAndEnv(t *testing.T) {
 	env["DEEPSEEK_API_KEY"] = "bad key\nX-Injected: 1"
 	if _, err := keys.Key(context.Background(), DeepSeek); !errors.Is(err, errKeyInvalid) {
 		t.Fatalf("header injection: %v", err)
+	}
+	// An unusable stored key does not shadow a good env key.
+	write("version: 1\nrefs:\n  DEEPSEEK_API_KEY: \"garbled key\"\n")
+	env["DEEPSEEK_API_KEY"] = "sk-from-env-12345"
+	if k, err := keys.Key(context.Background(), DeepSeek); err != nil || k != "sk-from-env-12345" {
+		t.Fatalf("stored unusable, env good: %q %v", k, err)
 	}
 }
 
@@ -538,5 +566,73 @@ func TestSystemKeysOpenRouterKeychainSecretOnStdout(t *testing.T) {
 	}
 	if k, _ := keys.Key(context.Background(), OpenRouter); k != "sk-or-env-123456" {
 		t.Fatalf("linux env: %q", k)
+	}
+}
+
+// A refresh that was waiting for the fetch lock while the provider was
+// disabled sends nothing.
+func TestProvidersDisableWinsOverWaitingRefresh(t *testing.T) {
+	f := newFakeProviders(t)
+	clock := &testClock{t: time.Date(2026, 11, 24, 13, 0, 0, 0, time.UTC)}
+	svc := newTestService(t, f, staticKeys{DeepSeek: sentinelKey}, clock, nil)
+	if err := writeEnabled(svc.cfg.DataDir, DeepSeek, true); err != nil {
+		t.Fatal(err)
+	}
+	st := svc.state[DeepSeek]
+	st.mu.Lock()
+	done := make(chan struct{})
+	go func() { svc.refreshIfDue(context.Background(), DeepSeek, FreshFor); close(done) }()
+	time.Sleep(50 * time.Millisecond) // the refresh is now waiting for st.mu
+	if err := writeEnabled(svc.cfg.DataDir, DeepSeek, false); err != nil {
+		t.Fatal(err)
+	}
+	st.mu.Unlock()
+	<-done
+	if n := f.requests(); n != 0 {
+		t.Fatalf("%d requests after disable", n)
+	}
+}
+
+// The background loop polls an enabled DeepSeek once per PollInterval and
+// never touches OpenRouter (on demand only).
+func TestProvidersRunPollsEnabledDeepSeek(t *testing.T) {
+	f := newFakeProviders(t)
+	clock := &testClock{t: time.Date(2026, 11, 24, 13, 0, 0, 0, time.UTC)}
+	svc := newTestService(t, f, staticKeys{DeepSeek: sentinelKey, OpenRouter: sentinelKey}, clock, nil)
+	_ = svc.SetEnabled(DeepSeek, true)
+	_ = svc.SetEnabled(OpenRouter, true)
+	ticks := make(chan time.Time)
+	svc.cfg.After = func(time.Duration) <-chan time.Time { return ticks }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { svc.Run(ctx); close(done) }()
+	tick := func() { ticks <- clock.now() }
+	tick()
+	tick() // same instant: not due again
+	clock.add(PollInterval)
+	tick()
+	tick() // wait for the third tick's poll to finish
+	cancel()
+	<-done
+	if n := f.requests(); n != 2 {
+		t.Fatalf("%d polls, want 2", n)
+	}
+	for _, p := range f.paths {
+		if p != "/user/balance" {
+			t.Fatalf("background loop requested %s", p)
+		}
+	}
+	if got, _ := readSamples(svc.cfg.DataDir); len(got) != 2 {
+		t.Fatalf("samples %d", len(got))
+	}
+}
+
+func TestParseKeyRejectsEmptyData(t *testing.T) {
+	var resp openrouterKeyResponse
+	if err := json.Unmarshal([]byte(`{"data":{}}`), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parseKey(resp, time.Now()); ok {
+		t.Fatal("empty data accepted")
 	}
 }

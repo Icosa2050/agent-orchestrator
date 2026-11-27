@@ -20,8 +20,12 @@ type KeyInfo struct {
 	UsageMonthlyUSD *json.Number `json:"usageMonthlyUsd,omitempty"`
 	IsFreeTier      *bool        `json:"isFreeTier,omitempty"`
 	Budget          *Budget      `json:"budget,omitempty"`
-	// ResetsAt is when the limit resets: the key budget's resets_at, else
+	// LimitResetsAt is when the key limit (limitUsd/remainingUsd) resets,
 	// derived from limit_reset (daily, weekly from Monday, monthly; UTC).
+	LimitResetsAt *time.Time `json:"limitResetsAt,omitempty"`
+	// ResetsAt is the next reset of the binding budget: the effective
+	// budget's (resets_at, else derived from its reset_interval) when
+	// OpenRouter reports one, else the key limit's.
 	ResetsAt      *time.Time `json:"resetsAt,omitempty"`
 	ResetInterval string     `json:"resetInterval,omitempty"`
 	ResetBasis    string     `json:"resetBasis,omitempty"`
@@ -60,7 +64,8 @@ type openrouterKeyResponse struct {
 // key) and anything else not listed here are dropped.
 func parseKey(resp openrouterKeyResponse, now time.Time) (KeyInfo, bool) {
 	d := resp.Data
-	if d == nil {
+	if d == nil || (d.Limit == nil && d.LimitRemaining == nil && d.Usage == nil && d.UsageDaily == nil &&
+		d.UsageWeekly == nil && d.UsageMonthly == nil && d.EffectiveBudget == nil) {
 		return KeyInfo{}, false
 	}
 	for _, n := range []*json.Number{d.Limit, d.LimitRemaining, d.Usage, d.UsageDaily, d.UsageWeekly, d.UsageMonthly} {
@@ -95,18 +100,20 @@ func parseKey(resp openrouterKeyResponse, now time.Time) (KeyInfo, bool) {
 			k.RemainingPct = &pct
 		}
 	}
+	if k.LimitReset != nil {
+		k.LimitResetsAt = nextReset(*k.LimitReset, now)
+	}
+	if b := k.Budget; b != nil && b.ResetsAt == nil && b.ResetInterval != nil {
+		b.ResetsAt = nextReset(*b.ResetInterval, now)
+	}
 	switch {
-	case k.Budget != nil && k.Budget.ResetsAt != nil:
-		k.ResetsAt, k.ResetBasis = k.Budget.ResetsAt, "effective_budget.resets_at"
+	case k.Budget != nil && (k.Budget.ResetsAt != nil || k.Budget.ResetInterval != nil):
+		k.ResetsAt, k.ResetBasis = k.Budget.ResetsAt, "effective_budget"
 		if k.Budget.ResetInterval != nil {
 			k.ResetInterval = *k.Budget.ResetInterval
 		}
-	case k.Budget != nil && k.Budget.ResetInterval != nil && nextReset(*k.Budget.ResetInterval, now) != nil:
-		k.ResetInterval = *k.Budget.ResetInterval
-		k.ResetsAt, k.ResetBasis = nextReset(k.ResetInterval, now), "effective_budget.reset_interval (derived, UTC)"
-	case k.LimitReset != nil && nextReset(*k.LimitReset, now) != nil:
-		k.ResetInterval = *k.LimitReset
-		k.ResetsAt, k.ResetBasis = nextReset(k.ResetInterval, now), "limit_reset (derived, UTC)"
+	case k.LimitResetsAt != nil:
+		k.ResetsAt, k.ResetInterval, k.ResetBasis = k.LimitResetsAt, *k.LimitReset, "limit_reset (derived, UTC)"
 	}
 	return k, true
 }

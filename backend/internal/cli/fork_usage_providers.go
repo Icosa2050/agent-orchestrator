@@ -204,27 +204,59 @@ func writeForkUsageLimits(c context.Context, ctx *commandContext, out io.Writer,
 // host with a key shown once ("same key on: …").
 func writeForkFleetUsageLimits(c context.Context, ctx *commandContext, out io.Writer, hosts []fleetUsageHost, asJSON bool) error {
 	provHosts, err := ctx.fleetGetJSON(c, forkProvidersPath)
-	var rows []providers.Row
+	rows := []providers.Row{}
+	missing := []forkProviderHostProblem{}
 	if err == nil {
 		rows = forkDedupeProviderRows(provHosts)
+		missing = forkProviderProblems(hosts, provHosts)
 	}
 	if asJSON {
-		res := map[string]any{"hosts": hosts, "providersSchema": providers.SchemaVersion, "providers": rows}
-		if rows == nil {
-			res["providers"] = []providers.Row{}
-		}
-		return writeJSON(out, res)
+		return writeJSON(out, map[string]any{"hosts": hosts, "providersSchema": providers.SchemaVersion, "providers": rows, "providersMissing": missing})
 	}
 	if err := writeFleetUsageLimits(out, hosts, usageLimitsCurrent); err != nil {
 		return err
 	}
-	if len(forkShownRows(rows)) == 0 {
-		return nil
+	if len(forkShownRows(rows)) > 0 {
+		if _, err := fmt.Fprintln(out, "\n== providers (each key once) =="); err != nil {
+			return err
+		}
+		if err := writeForkProviderRows(out, rows, time.Now()); err != nil {
+			return err
+		}
 	}
-	if _, err := fmt.Fprintln(out, "\n== providers (each key once) =="); err != nil {
-		return err
+	for _, m := range missing {
+		if _, err := fmt.Fprintf(out, "providers not read from %s: %s\n", m.Name, m.Status); err != nil {
+			return err
+		}
 	}
-	return writeForkProviderRows(out, rows, time.Now())
+	return nil
+}
+
+// forkProviderHostProblem names a host whose accounts answered but whose
+// provider rows did not (an older daemon, or an error).
+type forkProviderHostProblem struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+func forkProviderProblems(accounts, provs []fleetUsageHost) []forkProviderHostProblem {
+	answered := map[string]bool{}
+	for _, h := range accounts {
+		answered[h.Name] = h.Status == remoteStatusOK
+	}
+	out := []forkProviderHostProblem{}
+	for _, h := range provs {
+		if !answered[h.Name] || (h.Status == remoteStatusOK && len(h.Data) > 0) {
+			continue
+		}
+		p := forkProviderHostProblem{Name: h.Name, Status: h.Status, Error: h.Error}
+		if strings.Contains(h.Error, "404") || strings.Contains(strings.ToLower(h.Error), "not found") {
+			p.Status, p.Error = providers.StatusUnsupported, ""
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // forkDedupeProviderRows merges the hosts' provider rows: one row per
@@ -387,24 +419,50 @@ func forkProviderCells(r providers.Row) (balance, used, reset string) {
 			}
 		}
 		if ch := r.Change; ch != nil {
-			switch {
-			case ch.Amount == nil:
+			if ch.Amount == nil {
 				used = ch.Window + " change: " + ch.Reason
-			case len(ch.Adjustments) > 0:
-				used = fmt.Sprintf("%s change %s %s (includes %s)", ch.Window, forkSigned(*ch.Amount), ch.Currency, ch.Adjustments[0].Kind)
-			default:
-				used = fmt.Sprintf("%s change %s %s (observed)", ch.Window, forkSigned(*ch.Amount), ch.Currency)
+			} else {
+				note := []string{"observed"}
+				if cov := ch.Coverage; cov != nil {
+					if cov.Partial {
+						note = append(note, "since "+cov.From.UTC().Format("Mon 15:04")+" UTC only")
+					}
+					if cov.Gaps > 0 {
+						note = append(note, fmt.Sprintf("%d gaps", cov.Gaps))
+					}
+				}
+				if len(ch.Adjustments) > 0 {
+					note = append(note, "includes "+ch.Adjustments[0].Kind)
+				}
+				used = fmt.Sprintf("%s change %s %s (%s)", ch.Window, forkSigned(*ch.Amount), ch.Currency, strings.Join(note, ", "))
 			}
 		}
 		reset = forkWindowCell(r.Window)
 	case providers.OpenRouter:
 		if k := r.Key; k != nil {
-			switch {
-			case k.LimitUSD != nil && k.RemainingUSD != nil:
-				balance = fmt.Sprintf("%s left of %s", forkUSD(k.RemainingUSD), forkUSD(k.LimitUSD))
-				if k.ResetInterval != "" {
-					balance += " " + k.ResetInterval
+			// Each amount is shown with its own reset period: the effective
+			// budget first when OpenRouter reports one, then the key limit.
+			var parts []string
+			if b := k.Budget; b != nil && b.LimitUSD != nil && b.RemainingUSD != nil {
+				part := fmt.Sprintf("%s left of %s", forkUSD(b.RemainingUSD), forkUSD(b.LimitUSD))
+				if b.ResetInterval != nil {
+					part += " " + *b.ResetInterval
 				}
+				parts = append(parts, part+" budget")
+			}
+			if k.LimitUSD != nil && k.RemainingUSD != nil {
+				part := fmt.Sprintf("%s left of %s", forkUSD(k.RemainingUSD), forkUSD(k.LimitUSD))
+				if k.LimitReset != nil {
+					part += " " + *k.LimitReset
+				}
+				if len(parts) > 0 {
+					part = "key " + part
+				}
+				parts = append(parts, part)
+			}
+			switch {
+			case len(parts) > 0:
+				balance = strings.Join(parts, "; ")
 			case k.LimitUSD == nil:
 				balance = "no key limit"
 			}

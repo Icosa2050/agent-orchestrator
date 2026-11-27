@@ -234,3 +234,47 @@ func TestForkUsageProvidersWindowHint(t *testing.T) {
 		t.Errorf("off-peak hint %q", got)
 	}
 }
+
+// A key limit and an effective budget with different periods are each shown
+// with their own period, never one budget's amounts with the other's reset.
+func TestForkUsageProvidersOpenRouterBudgetAndKeyLimit(t *testing.T) {
+	num := func(s string) *json.Number { n := json.Number(s); return &n }
+	str := func(s string) *string { return &s }
+	resets := time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC)
+	r := providers.Row{Provider: "openrouter", Status: "ok", Key: &providers.KeyInfo{
+		LimitUSD: num("100"), RemainingUSD: num("80"), LimitReset: str("monthly"),
+		Budget:   &providers.Budget{LimitUSD: num("50"), RemainingUSD: num("12.5"), ResetInterval: str("weekly"), ResetsAt: &resets},
+		ResetsAt: &resets, ResetInterval: "weekly",
+	}}
+	balance, _, reset := forkProviderCells(r)
+	if balance != "$12.50 left of $50.00 weekly budget; key $80.00 left of $100.00 monthly" || !strings.HasPrefix(reset, "weekly, resets Mon 30 Nov") {
+		t.Fatalf("balance %q reset %q", balance, reset)
+	}
+}
+
+func TestForkUsageProvidersCoverageAndMissingHosts(t *testing.T) {
+	amount := "-1.84"
+	from := time.Date(2026, 11, 24, 12, 45, 0, 0, time.UTC)
+	r := providers.Row{Provider: "deepseek", Status: "ok", Change: &providers.Change{
+		Window: "24h", Currency: "USD", Amount: &amount,
+		Coverage:    &providers.Coverage{From: from, Partial: true, Gaps: 2},
+		Adjustments: []providers.Adjustment{{Kind: "top-up"}},
+	}}
+	if _, used, _ := forkProviderCells(r); used != "24h change -1.84 USD (observed, since Tue 12:45 UTC only, 2 gaps, includes top-up)" {
+		t.Fatalf("used %q", used)
+	}
+	accounts := []fleetUsageHost{
+		{remoteHealth: remoteHealth{Name: "local", Status: remoteStatusOK}},
+		{remoteHealth: remoteHealth{Name: "old", Status: remoteStatusOK}},
+		{remoteHealth: remoteHealth{Name: "gone", Status: remoteStatusOffline}},
+	}
+	provs := []fleetUsageHost{
+		forkFleetHost(t, "local"),
+		{remoteHealth: remoteHealth{Name: "old", Status: remoteStatusError, Error: "daemon returned HTTP 404"}},
+		{remoteHealth: remoteHealth{Name: "gone", Status: remoteStatusOffline}},
+	}
+	got := forkProviderProblems(accounts, provs)
+	if len(got) != 1 || got[0].Name != "old" || got[0].Status != providers.StatusUnsupported {
+		t.Fatalf("problems %+v", got)
+	}
+}

@@ -273,8 +273,9 @@ func computeChange(samples []Sample, keyID, currency string, now time.Time) Chan
 		}
 		in = append(in, s)
 	}
-	// A reading just before the window is a better baseline than none.
-	if before != nil && start.Sub(before.TS) <= tolerance {
+	// The baseline is the reading nearest the window start: one just before
+	// it counts only when it is closer than the first reading inside.
+	if before != nil && start.Sub(before.TS) <= tolerance && (len(in) == 0 || start.Sub(before.TS) < in[0].TS.Sub(start)) {
 		in = append([]Sample{*before}, in...)
 	}
 	if len(in) < 2 {
