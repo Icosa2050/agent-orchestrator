@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/forkusage/pricebook"
+	"github.com/aoagents/agent-orchestrator/backend/internal/forkusage/providers"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/requestscope"
 )
 
 // The fork price-book routes mount through APIDeps.Extensions next to the
@@ -36,5 +39,31 @@ func TestForkUsageRoutesMountBesideUpstreamUsage(t *testing.T) {
 		if !requiresDeviceCredential(pricebook.RoutePrefix + path) {
 			t.Errorf("%s is not behind the LAN device-credential gate", path)
 		}
+	}
+}
+
+// The provider polling routes sit behind the same gate, answer with every
+// provider off by default, and refuse the opt-in write from the LAN listener.
+func TestForkUsageRoutesProvidersLocalOnlyWrite(t *testing.T) {
+	svc, err := providers.NewService(providers.Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRouterWithControl(config.Config{}, discardLogger(), nil, APIDeps{Extensions: []func(chi.Router){providers.Routes(svc)}}, ControlDeps{})
+	if !requiresDeviceCredential(providers.RoutePath) {
+		t.Fatal("providers route is not behind the LAN device-credential gate")
+	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, providers.RoutePath, nil))
+	var body providers.StatusResponse
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &body) != nil || len(body.Providers) != 2 || body.Providers[0].Status != providers.StatusDisabled {
+		t.Fatalf("GET: %d %s", rec.Code, rec.Body)
+	}
+	req := httptest.NewRequest(http.MethodPost, providers.RoutePath, strings.NewReader(`{"provider":"deepseek","enabled":true}`))
+	req = req.WithContext(requestscope.WithLAN(req.Context()))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || svc.Enabled()[providers.DeepSeek] {
+		t.Fatalf("LAN POST: %d %s", rec.Code, rec.Body)
 	}
 }

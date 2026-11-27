@@ -532,22 +532,44 @@ func readAutoCheck(dataDir string) bool {
 }
 
 func writeAutoCheck(dataDir string, on bool) error {
+	return UpdateConfig(dataDir, func(cfg map[string]json.RawMessage) error {
+		section := map[string]json.RawMessage{}
+		if raw, ok := cfg["pricebook"]; ok {
+			if err := json.Unmarshal(raw, &section); err != nil {
+				return fmt.Errorf("provider-usage config pricebook section: %w", err)
+			}
+		}
+		section["autoCheck"], _ = json.Marshal(on)
+		cfg["pricebook"], _ = json.Marshal(section)
+		return nil
+	})
+}
+
+// configMu serializes read-modify-write cycles of the shared
+// provider-usage config.json within this process (the price book and the
+// provider polling settings both live there).
+var configMu sync.Mutex
+
+// UpdateConfig rewrites the shared provider-usage config.json under a
+// process-wide lock. edit sees every top-level section; sections it does not
+// touch are written back unchanged.
+func UpdateConfig(dataDir string, edit func(map[string]json.RawMessage) error) error {
+	configMu.Lock()
+	defer configMu.Unlock()
 	cfg := map[string]json.RawMessage{}
 	if data, err := os.ReadFile(ConfigPath(dataDir)); err == nil {
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return fmt.Errorf("provider-usage config is not valid JSON: %w", err)
 		}
+		if cfg == nil {
+			cfg = map[string]json.RawMessage{}
+		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	section := map[string]json.RawMessage{}
-	if raw, ok := cfg["pricebook"]; ok {
-		if err := json.Unmarshal(raw, &section); err != nil {
-			return fmt.Errorf("provider-usage config pricebook section: %w", err)
-		}
+	if err := edit(cfg); err != nil {
+		return err
 	}
-	section["autoCheck"], _ = json.Marshal(on)
-	cfg["pricebook"], _ = json.Marshal(section)
 	return writeJSONFile(ConfigPath(dataDir), cfg)
 }
 

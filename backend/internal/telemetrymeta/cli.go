@@ -88,6 +88,10 @@ var legacyActorlessUserCLICommands = map[string]struct{}{
 	"ao usage prices":                           {}, // Fork: usage seam (FORK.md).
 	"ao usage prices auto":                      {}, // Fork: usage seam (FORK.md).
 	"ao usage window":                           {}, // Fork: usage seam (FORK.md).
+	"ao usage providers":                        {}, // Fork: usage seam (FORK.md).
+	"ao usage providers disable":                {}, // Fork: usage seam (FORK.md).
+	"ao usage providers enable":                 {}, // Fork: usage seam (FORK.md).
+	"ao usage providers status":                 {}, // Fork: usage seam (FORK.md).
 	"ao agent":                                  {},
 	"ao agent ls":                               {},
 	"ao automation":                             {},

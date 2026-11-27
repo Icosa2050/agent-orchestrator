@@ -157,6 +157,9 @@ counts them together with the fleet seam markers.
 | `prices` and `window` added to the `ao usage` tree | `backend/internal/cli/usage.go` | fork CLI commands; `prices` writes and stays local, `window` is remote read-only |
 | `ExitCode` honours an error's own `ExitCode() int` | `backend/internal/cli/root.go` | `ao usage prices --check` exit codes 3 (changed) and 4 (cannot verify) |
 | `ao usage prices`, `prices auto`, `window` listed as user commands | `backend/internal/telemetrymeta/cli.go` | CLI command classification (no telemetry is sent unless consented) |
+| `providers` added to the `ao usage` tree | `backend/internal/cli/usage.go` | `providers status` is remote read-only; `providers enable\|disable` write and stay local |
+| one call each into `writeForkUsageLimits` / `writeForkFleetUsageLimits` for the current `ao usage limits` mode | `backend/internal/cli/usage.go` | provider rows, DeepSeek hint, `--json` keys `providersSchema`/`providers` |
+| `ao usage providers`, `providers status`, `enable`, `disable` listed as user commands | `backend/internal/telemetrymeta/cli.go` | CLI command classification |
 
 The routes sit under `/api/v1/usage/fork/` (not `/api/v1/fork/usage/` as the
 design sketched) so the LAN listener's device-credential gate for
@@ -178,6 +181,48 @@ than `$`, or more than half the models vanishing is held as suspicious until
 keeps the last version and warns; prices turn stale 7 days after the last good
 check (30 days with the check off).
 
+### Provider polling (PR C, opt-in)
+
+`backend/internal/forkusage/providers` (wired in `fork_usage_wiring.go`) and
+`backend/internal/cli/fork_usage_providers.go` poll the owner's own API
+accounts. Every provider is **off by default**; `ao usage providers enable
+deepseek|openrouter` switches one on (stored in `config.json` under
+`providers`). Enable/disable is a write: the CLI refuses it with `--host` /
+`AO_HOST`, and the daemon refuses the `POST` on the LAN listener
+(`PROVIDERS_LOCAL_ONLY`), so a paired device cannot opt this host in.
+
+| Host and path | Purpose | Schedule | Credentials |
+|---|---|---|---|
+| `api.deepseek.com/user/balance` | DeepSeek account balance (official endpoint only; granted vs topped-up, explicit currency) | every 15 min while enabled, and when a status read finds the last reading older than 5 min | the owner's DeepSeek API key, `Authorization: Bearer` |
+| `openrouter.ai/api/v1/key` | OpenRouter key limit, `limit_remaining`, usage today/week/month (UTC), reset from the key budget | on demand (`ao usage limits`, `providers status`), cached 5 min | the owner's OpenRouter key (the dedicated PAL key) |
+
+Rules: keys are read per request and dropped after it, never stored, cached
+or logged; DeepSeek reads the DeepSeek Harness credential store
+(`DSH_CREDENTIALS_PATH`, `$DSH_HOME/.credentials.yaml`, `~/.dsh`), API-key
+entry `DEEPSEEK_API_KEY` only (never the login token), then the
+`DEEPSEEK_API_KEY` env; OpenRouter reads the keychain item PAL uses (service
+`OPENROUTER_API_KEY`, account `$USER`, via `security … -w`, secret on stdout,
+never argv; macOS only), then the `OPENROUTER_API_KEY` env. Requests: HTTPS
+to the fixed URL only, redirects refused, no cookies, 10 s timeout, body at
+most 64 KB, one JSON document; amounts must be plain decimal strings
+(DeepSeek) or JSON numbers (OpenRouter, passed through in `…Usd` fields).
+Failures map to fixed reasons (`no key`, `invalid key (401)`, `timeout`,
+`unexpected response`, …); response bodies and network errors are never
+shown or logged. Errors back off 15 min, 30 min, then 1 h (jittered);
+`enable` clears the backoff. `keyId` is the first 12 hex characters of
+SHA-256(key), a one-way identifier used for `--fleet` de-duplication
+(one row per key, "same key on: …").
+
+State: `provider-usage/deepseek-balance.jsonl` (0600, `{ts, keyId, currency,
+total, granted, toppedUp}`, 90 days, compacted on write). A `keyId` or
+currency change starts a new baseline. The 24 h change reports coverage,
+gaps and top-up/grant adjustments; "DeepSeek outside AO" stays `null` with a
+reason until the AO-session spend join (report extension) lands.
+
+Routes: `GET /api/v1/usage/fork/providers[?refresh=0]` (rows,
+`providersSchema: 1`, thresholds) and `POST /api/v1/usage/fork/providers
+{provider, enabled}` (local only).
+
 ### Default outbound endpoints
 
 Requests the daemon sends by default, with no opt-in. Every new default
@@ -193,10 +238,13 @@ verification reports); add these hosts to its expected destinations.
 | `raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` | LiteLLM model price table (upstream usage cost estimates) | daily refresh | upstream behaviour | none |
 | `api-docs.deepseek.com/quick_start/pricing.md` | DeepSeek price-page check (price book drift) | at most daily, first 5-30 min after start; also `ao usage prices --check` | `ao usage prices auto off` (`TestForkPriceCheckSwitchOff`) | none, no cookies |
 
-Tests: `./internal/forkusage/pricebook` (all), `TestForkDefaultOutboundHosts`
-and `TestForkPriceCheckSwitchOff` (`./internal/daemon`), `TestForkUsageRoutes*`
-(`./internal/httpd`) and `TestForkUsage*` (`./internal/cli`), all in
-`protected-tests.sh`.
+Tests: `./internal/forkusage/pricebook` and `./internal/forkusage/providers`
+(all, including the sentinel-key leak test over 200, 401, timeout, redirect,
+oversized and malformed answers), `TestForkDefaultOutboundHosts`,
+`TestForkPriceCheckSwitchOff` and `TestForkProviderUsageOffByDefault`
+(`./internal/daemon`), `TestForkUsageRoutes*` (`./internal/httpd`) and
+`TestForkUsage*` (`./internal/cli`, including `TestForkUsageProviders*`), all
+in `protected-tests.sh`.
 
 ## Upstream-sync review procedure (mandatory)
 
