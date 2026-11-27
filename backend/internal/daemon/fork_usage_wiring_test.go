@@ -152,3 +152,14 @@ func TestForkPriceCheckSwitchOff(t *testing.T) {
 		t.Fatalf("routes = %d, want the price-book mount", len(routes))
 	}
 }
+
+// With the store wired, the daemon mounts report-ext next to the price book.
+func TestForkUsageWiringMountsReportExt(t *testing.T) {
+	installRecordingTransport(t)
+	usage := startForkUsage(context.Background(), forkUsageConfig{DataDir: t.TempDir(), Store: sqlitetest.MustOpen(t),
+		FirstDelay: func() time.Duration { return time.Hour }})
+	defer usage.stop()
+	if routes := usage.routes(); len(routes) != 2 {
+		t.Fatalf("routes = %d, want the price book and report-ext", len(routes))
+	}
+}

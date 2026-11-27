@@ -831,8 +831,8 @@ func Run(buildVersion string) (retErr error) {
 	}})
 	fleet := newForkFleet() // Fork: fleet seam (FORK.md); inert in PR-0.
 
-	// Fork: usage seam (FORK.md): the DeepSeek price book and its daily page check.
-	forkUsage := startForkUsage(ctx, forkUsageConfig{DataDir: cfg.DataDir, Logger: log})
+	// Fork: usage seam (FORK.md): the DeepSeek price book, its daily page check and the report extension.
+	forkUsage := startForkUsage(ctx, forkUsageConfig{DataDir: cfg.DataDir, Logger: log, Store: store})
 	defer forkUsage.stop()
 
 	reportCoordinator = reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{

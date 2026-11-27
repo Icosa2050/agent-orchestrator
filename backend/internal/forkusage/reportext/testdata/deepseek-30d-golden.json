@@ -1,0 +1,2161 @@
+{
+  "schema": 1,
+  "status": "ok",
+  "provider": "deepseek",
+  "currency": "USD",
+  "days": 30,
+  "timeZone": "UTC",
+  "resolution": "day",
+  "since": "2026-10-26T00:00:00Z",
+  "until": "2026-11-25T00:00:00Z",
+  "periods": [
+    "2026-10-26",
+    "2026-10-27",
+    "2026-10-28",
+    "2026-10-29",
+    "2026-10-30",
+    "2026-10-31",
+    "2026-11-01",
+    "2026-11-02",
+    "2026-11-03",
+    "2026-11-04",
+    "2026-11-05",
+    "2026-11-06",
+    "2026-11-07",
+    "2026-11-08",
+    "2026-11-09",
+    "2026-11-10",
+    "2026-11-11",
+    "2026-11-12",
+    "2026-11-13",
+    "2026-11-14",
+    "2026-11-15",
+    "2026-11-16",
+    "2026-11-17",
+    "2026-11-18",
+    "2026-11-19",
+    "2026-11-20",
+    "2026-11-21",
+    "2026-11-22",
+    "2026-11-23",
+    "2026-11-24"
+  ],
+  "windowsTimeZone": "UTC",
+  "windowRule": "reply time; request start for requests spanning a window boundary (assumed; DeepSeek does not specify)",
+  "boundaryRule": "replies without a recorded request start that land within 5 min after a window edge are priced by reply time and counted in boundaryTokens (their window is unverified)",
+  "peakRule": {
+    "version": "deepseek-2026-09-10",
+    "weekdays": [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri"
+    ],
+    "utcRanges": [
+      [
+        "01:00",
+        "04:00"
+      ],
+      [
+        "06:00",
+        "10:00"
+      ]
+    ],
+    "excludeHolidays": "cn"
+  },
+  "priceVersions": [
+    "deepseek-2026-09-10"
+  ],
+  "pricedRows": [
+    {
+      "period": "2026-11-14",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "route": "deepseek-account",
+      "routeBilling": "api",
+      "billedAs": "deepseek-v4-pro",
+      "billingStatus": "priced",
+      "priceVersion": "deepseek-2026-09-10",
+      "events": 49,
+      "cacheHitTokens": 7402624,
+      "cacheMissTokens": 269116,
+      "outputTokens": 107777,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 49,
+        "cacheHitTokens": 7402624,
+        "cacheMissTokens": 269116,
+        "outputTokens": 107777,
+        "costNanos": 553872748
+      },
+      "boundaryTokens": 0,
+      "windowBasis": {
+        "reply-time": 49,
+        "request-start": 0,
+        "reply-time-unverified": 0
+      },
+      "pricedEvents": 49,
+      "pricebookCostNanos": 553872748,
+      "peakListCostNanos": 1107745496,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "period": "2026-11-15",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "route": "deepseek-account",
+      "routeBilling": "api",
+      "billedAs": "deepseek-v4-pro",
+      "billingStatus": "priced",
+      "priceVersion": "deepseek-2026-09-10",
+      "events": 1004,
+      "cacheHitTokens": 259876480,
+      "cacheMissTokens": 1525876,
+      "outputTokens": 1161019,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 1004,
+        "cacheHitTokens": 259876480,
+        "cacheMissTokens": 1525876,
+        "outputTokens": 1161019,
+        "costNanos": 9023178340
+      },
+      "boundaryTokens": 0,
+      "windowBasis": {
+        "reply-time": 1004,
+        "request-start": 0,
+        "reply-time-unverified": 0
+      },
+      "pricedEvents": 1004,
+      "pricebookCostNanos": 9023178340,
+      "peakListCostNanos": 18046356680,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "period": "2026-11-16",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "route": "deepseek-account",
+      "routeBilling": "api",
+      "billedAs": "deepseek-v4-pro",
+      "billingStatus": "priced",
+      "priceVersion": "deepseek-2026-09-10",
+      "events": 732,
+      "cacheHitTokens": 145928576,
+      "cacheMissTokens": 1508356,
+      "outputTokens": 976142,
+      "peak": {
+        "events": 255,
+        "cacheHitTokens": 48901120,
+        "cacheMissTokens": 469651,
+        "outputTokens": 414908,
+        "costNanos": 4414624280
+      },
+      "offPeak": {
+        "events": 477,
+        "cacheHitTokens": 97027456,
+        "cacheMissTokens": 1038705,
+        "outputTokens": 561234,
+        "costNanos": 3931392652
+      },
+      "boundaryTokens": 0,
+      "windowBasis": {
+        "reply-time": 732,
+        "request-start": 0,
+        "reply-time-unverified": 0
+      },
+      "pricedEvents": 732,
+      "pricebookCostNanos": 8346016932,
+      "peakListCostNanos": 12277409584,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "period": "2026-11-17",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-flash",
+      "speed": "standard",
+      "route": "deepseek",
+      "routeBilling": "api",
+      "billedAs": "deepseek-flash",
+      "billingStatus": "priced",
+      "priceVersion": "deepseek-2026-09-10",
+      "events": 47,
+      "cacheHitTokens": 7100032,
+      "cacheMissTokens": 201371,
+      "outputTokens": 60273,
+      "peak": {
+        "events": 47,
+        "cacheHitTokens": 7100032,
+        "cacheMissTokens": 201371,
+        "outputTokens": 60273,
+        "costNanos": 175339092
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "boundaryTokens": 0,
+      "windowBasis": {
+        "reply-time": 47,
+        "request-start": 0,
+        "reply-time-unverified": 0
+      },
+      "pricedEvents": 47,
+      "pricebookCostNanos": 175339092,
+      "peakListCostNanos": 175339092,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "period": "2026-11-17",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "route": "deepseek-account",
+      "routeBilling": "api",
+      "billedAs": "deepseek-v4-pro",
+      "billingStatus": "priced",
+      "priceVersion": "deepseek-2026-09-10",
+      "events": 80,
+      "cacheHitTokens": 13728256,
+      "cacheMissTokens": 139976,
+      "outputTokens": 120493,
+      "peak": {
+        "events": 80,
+        "cacheHitTokens": 13728256,
+        "cacheMissTokens": 139976,
+        "outputTokens": 120493,
+        "costNanos": 1265963864
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "boundaryTokens": 0,
+      "windowBasis": {
+        "reply-time": 80,
+        "request-start": 0,
+        "reply-time-unverified": 0
+      },
+      "pricedEvents": 80,
+      "pricebookCostNanos": 1265963864,
+      "peakListCostNanos": 1265963864,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "period": "2026-11-19",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "route": "deepseek-account",
+      "routeBilling": "api",
+      "billedAs": "deepseek-v4-pro",
+      "billingStatus": "priced",
+      "priceVersion": "deepseek-2026-09-10",
+      "events": 132,
+      "cacheHitTokens": 22725888,
+      "cacheMissTokens": 413729,
+      "outputTokens": 264935,
+      "peak": {
+        "events": 62,
+        "cacheHitTokens": 12538624,
+        "cacheMissTokens": 106670,
+        "outputTokens": 130918,
+        "costNanos": 1210939136
+      },
+      "offPeak": {
+        "events": 70,
+        "cacheHitTokens": 10187264,
+        "cacheMissTokens": 307059,
+        "outputTokens": 134017,
+        "costNanos": 692132408
+      },
+      "boundaryTokens": 1495905,
+      "windowBasis": {
+        "reply-time": 125,
+        "request-start": 0,
+        "reply-time-unverified": 7
+      },
+      "pricedEvents": 132,
+      "pricebookCostNanos": 1903071544,
+      "peakListCostNanos": 2595203952,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "period": "2026-11-20",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "route": "deepseek-account",
+      "routeBilling": "api",
+      "billedAs": "deepseek-v4-pro",
+      "billingStatus": "priced",
+      "priceVersion": "deepseek-2026-09-10",
+      "events": 18,
+      "cacheHitTokens": 2035456,
+      "cacheMissTokens": 35901,
+      "outputTokens": 28044,
+      "peak": {
+        "events": 18,
+        "cacheHitTokens": 2035456,
+        "cacheMissTokens": 35901,
+        "outputTokens": 28044,
+        "costNanos": 248003624
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "boundaryTokens": 0,
+      "windowBasis": {
+        "reply-time": 18,
+        "request-start": 0,
+        "reply-time-unverified": 0
+      },
+      "pricedEvents": 18,
+      "pricebookCostNanos": 248003624,
+      "peakListCostNanos": 248003624,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "period": "2026-11-22",
+      "harness": "deepseek-harness",
+      "model": "deepseek-flash",
+      "speed": "standard",
+      "route": "deepseek-account",
+      "routeBilling": "api",
+      "billedAs": "deepseek-flash",
+      "billingStatus": "priced",
+      "priceVersion": "deepseek-2026-09-10",
+      "events": 78,
+      "cacheHitTokens": 16558592,
+      "cacheMissTokens": 219278,
+      "outputTokens": 126865,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 78,
+        "cacheHitTokens": 16558592,
+        "cacheMissTokens": 219278,
+        "outputTokens": 126865,
+        "costNanos": 158686476
+      },
+      "boundaryTokens": 0,
+      "windowBasis": {
+        "reply-time": 78,
+        "request-start": 0,
+        "reply-time-unverified": 0
+      },
+      "pricedEvents": 78,
+      "pricebookCostNanos": 158686476,
+      "peakListCostNanos": 317372952,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    }
+  ],
+  "sessionRows": [
+    {
+      "sessionId": "s4",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 243,
+      "billingStatuses": {
+        "priced": 243
+      },
+      "cacheHitTokens": 82209920,
+      "cacheMissTokens": 256279,
+      "outputTokens": 182624,
+      "boundaryTokens": 0,
+      "pricedEvents": 243,
+      "pricebookCostNanos": 2339357900,
+      "peakListCostNanos": 4678715800,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s26",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 131,
+      "billingStatuses": {
+        "priced": 131
+      },
+      "cacheHitTokens": 31214336,
+      "cacheMissTokens": 355052,
+      "outputTokens": 191626,
+      "boundaryTokens": 0,
+      "pricedEvents": 131,
+      "pricebookCostNanos": 2306419764,
+      "peakListCostNanos": 2600938384,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s7",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 157,
+      "billingStatuses": {
+        "priced": 157
+      },
+      "cacheHitTokens": 55271680,
+      "cacheMissTokens": 239611,
+      "outputTokens": 181656,
+      "boundaryTokens": 0,
+      "pricedEvents": 157,
+      "pricebookCostNanos": 1733799100,
+      "peakListCostNanos": 3467598200,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s5",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 177,
+      "billingStatuses": {
+        "priced": 177
+      },
+      "cacheHitTokens": 39364352,
+      "cacheMissTokens": 108810,
+      "outputTokens": 145658,
+      "boundaryTokens": 0,
+      "pricedEvents": 177,
+      "pricebookCostNanos": 1226233184,
+      "peakListCostNanos": 2452466368,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s11",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 104,
+      "billingStatuses": {
+        "priced": 104
+      },
+      "cacheHitTokens": 23587200,
+      "cacheMissTokens": 320202,
+      "outputTokens": 138529,
+      "boundaryTokens": 0,
+      "pricedEvents": 104,
+      "pricebookCostNanos": 1004539140,
+      "peakListCostNanos": 2009078280,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s13",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 55,
+      "billingStatuses": {
+        "priced": 55
+      },
+      "cacheHitTokens": 11025024,
+      "cacheMissTokens": 125132,
+      "outputTokens": 88632,
+      "boundaryTokens": 0,
+      "pricedEvents": 55,
+      "pricebookCostNanos": 1001258016,
+      "peakListCostNanos": 1001258016,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s28",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 47,
+      "billingStatuses": {
+        "priced": 47
+      },
+      "cacheHitTokens": 9196160,
+      "cacheMissTokens": 100148,
+      "outputTokens": 101596,
+      "boundaryTokens": 0,
+      "pricedEvents": 47,
+      "pricebookCostNanos": 939146560,
+      "peakListCostNanos": 939146560,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s12",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 110,
+      "billingStatuses": {
+        "priced": 110
+      },
+      "cacheHitTokens": 24694784,
+      "cacheMissTokens": 131745,
+      "outputTokens": 111246,
+      "boundaryTokens": 0,
+      "pricedEvents": 110,
+      "pricebookCostNanos": 850504028,
+      "peakListCostNanos": 1701008056,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s23",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 37,
+      "billingStatuses": {
+        "priced": 37
+      },
+      "cacheHitTokens": 7398528,
+      "cacheMissTokens": 104177,
+      "outputTokens": 90465,
+      "boundaryTokens": 0,
+      "pricedEvents": 37,
+      "pricebookCostNanos": 821290272,
+      "peakListCostNanos": 821290272,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s16",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 123,
+      "billingStatuses": {
+        "priced": 123
+      },
+      "cacheHitTokens": 25572480,
+      "cacheMissTokens": 142369,
+      "outputTokens": 77605,
+      "boundaryTokens": 0,
+      "pricedEvents": 123,
+      "pricebookCostNanos": 810216000,
+      "peakListCostNanos": 1620432000,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s17",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 84,
+      "billingStatuses": {
+        "priced": 84
+      },
+      "cacheHitTokens": 17219200,
+      "cacheMissTokens": 241211,
+      "outputTokens": 127771,
+      "boundaryTokens": 0,
+      "pricedEvents": 84,
+      "pricebookCostNanos": 791008240,
+      "peakListCostNanos": 1582016480,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s8",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 64,
+      "billingStatuses": {
+        "priced": 64
+      },
+      "cacheHitTokens": 13898240,
+      "cacheMissTokens": 94987,
+      "outputTokens": 137935,
+      "boundaryTokens": 0,
+      "pricedEvents": 64,
+      "pricebookCostNanos": 641564000,
+      "peakListCostNanos": 1283128000,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s18",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 71,
+      "billingStatuses": {
+        "priced": 71
+      },
+      "cacheHitTokens": 14441344,
+      "cacheMissTokens": 95089,
+      "outputTokens": 108404,
+      "boundaryTokens": 0,
+      "pricedEvents": 71,
+      "pricebookCostNanos": 595108228,
+      "peakListCostNanos": 1190216456,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s29",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 47,
+      "billingStatuses": {
+        "priced": 47
+      },
+      "cacheHitTokens": 8524032,
+      "cacheMissTokens": 82316,
+      "outputTokens": 92212,
+      "boundaryTokens": 1495905,
+      "pricedEvents": 47,
+      "pricebookCostNanos": 560333312,
+      "peakListCostNanos": 848874048,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s22",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 39,
+      "billingStatuses": {
+        "priced": 39
+      },
+      "cacheHitTokens": 5450624,
+      "cacheMissTokens": 57412,
+      "outputTokens": 53596,
+      "boundaryTokens": 0,
+      "pricedEvents": 39,
+      "pricebookCostNanos": 527851456,
+      "peakListCostNanos": 527851456,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s19",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 67,
+      "billingStatuses": {
+        "priced": 67
+      },
+      "cacheHitTokens": 12332672,
+      "cacheMissTokens": 111091,
+      "outputTokens": 90106,
+      "boundaryTokens": 0,
+      "pricedEvents": 67,
+      "pricebookCostNanos": 523048724,
+      "peakListCostNanos": 1046097448,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s15",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 39,
+      "billingStatuses": {
+        "priced": 39
+      },
+      "cacheHitTokens": 5860480,
+      "cacheMissTokens": 98972,
+      "outputTokens": 31203,
+      "boundaryTokens": 0,
+      "pricedEvents": 39,
+      "pricebookCostNanos": 512068040,
+      "peakListCostNanos": 512068040,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s14",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 28,
+      "billingStatuses": {
+        "priced": 28
+      },
+      "cacheHitTokens": 4335488,
+      "cacheMissTokens": 59671,
+      "outputTokens": 55584,
+      "boundaryTokens": 0,
+      "pricedEvents": 28,
+      "pricebookCostNanos": 489639832,
+      "peakListCostNanos": 489639832,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s21",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 62,
+      "billingStatuses": {
+        "priced": 62
+      },
+      "cacheHitTokens": 11314432,
+      "cacheMissTokens": 124228,
+      "outputTokens": 70312,
+      "boundaryTokens": 0,
+      "pricedEvents": 62,
+      "pricebookCostNanos": 470125744,
+      "peakListCostNanos": 940251488,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s6",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 46,
+      "billingStatuses": {
+        "priced": 46
+      },
+      "cacheHitTokens": 7722752,
+      "cacheMissTokens": 80582,
+      "outputTokens": 85526,
+      "boundaryTokens": 0,
+      "pricedEvents": 46,
+      "pricebookCostNanos": 392426144,
+      "peakListCostNanos": 784852288,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s1",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 28,
+      "billingStatuses": {
+        "priced": 28
+      },
+      "cacheHitTokens": 4548608,
+      "cacheMissTokens": 191469,
+      "outputTokens": 63599,
+      "boundaryTokens": 0,
+      "pricedEvents": 28,
+      "pricebookCostNanos": 352364936,
+      "peakListCostNanos": 704729872,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s9",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 44,
+      "billingStatuses": {
+        "priced": 44
+      },
+      "cacheHitTokens": 7471360,
+      "cacheMissTokens": 100289,
+      "outputTokens": 51705,
+      "boundaryTokens": 0,
+      "pricedEvents": 44,
+      "pricebookCostNanos": 332936560,
+      "peakListCostNanos": 665873120,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s20",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 37,
+      "billingStatuses": {
+        "priced": 37
+      },
+      "cacheHitTokens": 6256768,
+      "cacheMissTokens": 98758,
+      "outputTokens": 61536,
+      "boundaryTokens": 0,
+      "pricedEvents": 37,
+      "pricebookCostNanos": 324670456,
+      "peakListCostNanos": 649340912,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s24",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 24,
+      "billingStatuses": {
+        "priced": 24
+      },
+      "cacheHitTokens": 2679296,
+      "cacheMissTokens": 31261,
+      "outputTokens": 39754,
+      "boundaryTokens": 0,
+      "pricedEvents": 24,
+      "pricebookCostNanos": 316579384,
+      "peakListCostNanos": 316579384,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s30",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 22,
+      "billingStatuses": {
+        "priced": 22
+      },
+      "cacheHitTokens": 3094656,
+      "cacheMissTokens": 177179,
+      "outputTokens": 35586,
+      "boundaryTokens": 0,
+      "pricedEvents": 22,
+      "pricebookCostNanos": 255480852,
+      "peakListCostNanos": 510961704,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s32",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 18,
+      "billingStatuses": {
+        "priced": 18
+      },
+      "cacheHitTokens": 2035456,
+      "cacheMissTokens": 35901,
+      "outputTokens": 28044,
+      "boundaryTokens": 0,
+      "pricedEvents": 18,
+      "pricebookCostNanos": 248003624,
+      "peakListCostNanos": 248003624,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s3",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 25,
+      "billingStatuses": {
+        "priced": 25
+      },
+      "cacheHitTokens": 3616000,
+      "cacheMissTokens": 98263,
+      "outputTokens": 41473,
+      "boundaryTokens": 0,
+      "pricedEvents": 25,
+      "pricebookCostNanos": 226522120,
+      "peakListCostNanos": 453044240,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s25",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 26,
+      "billingStatuses": {
+        "priced": 26
+      },
+      "cacheHitTokens": 3556864,
+      "cacheMissTokens": 40581,
+      "outputTokens": 51281,
+      "boundaryTokens": 0,
+      "pricedEvents": 26,
+      "pricebookCostNanos": 206570848,
+      "peakListCostNanos": 413141696,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s2",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 21,
+      "billingStatuses": {
+        "priced": 21
+      },
+      "cacheHitTokens": 2854016,
+      "cacheMissTokens": 77647,
+      "outputTokens": 44178,
+      "boundaryTokens": 0,
+      "pricedEvents": 21,
+      "pricebookCostNanos": 201507812,
+      "peakListCostNanos": 403015624,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s10",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 23,
+      "billingStatuses": {
+        "priced": 23
+      },
+      "cacheHitTokens": 3039488,
+      "cacheMissTokens": 58436,
+      "outputTokens": 43427,
+      "boundaryTokens": 0,
+      "pricedEvents": 23,
+      "pricebookCostNanos": 191421956,
+      "peakListCostNanos": 382843912,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s27",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-flash",
+      "speed": "standard",
+      "billedAs": "deepseek-flash",
+      "events": 47,
+      "billingStatuses": {
+        "priced": 47
+      },
+      "cacheHitTokens": 7100032,
+      "cacheMissTokens": 201371,
+      "outputTokens": 60273,
+      "boundaryTokens": 0,
+      "pricedEvents": 47,
+      "pricebookCostNanos": 175339092,
+      "peakListCostNanos": 175339092,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s33",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-flash",
+      "speed": "standard",
+      "billedAs": "deepseek-flash",
+      "events": 78,
+      "billingStatuses": {
+        "priced": 78
+      },
+      "cacheHitTokens": 16558592,
+      "cacheMissTokens": 219278,
+      "outputTokens": 126865,
+      "boundaryTokens": 0,
+      "pricedEvents": 78,
+      "pricebookCostNanos": 158686476,
+      "peakListCostNanos": 317372952,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "sessionId": "s31",
+      "projectId": "p1",
+      "harness": "deepseek-harness",
+      "model": "deepseek-v4-pro",
+      "speed": "standard",
+      "billedAs": "deepseek-v4-pro",
+      "events": 16,
+      "billingStatuses": {
+        "priced": 16
+      },
+      "cacheHitTokens": 1911040,
+      "cacheMissTokens": 54086,
+      "outputTokens": 35541,
+      "boundaryTokens": 0,
+      "pricedEvents": 16,
+      "pricebookCostNanos": 148110820,
+      "peakListCostNanos": 296221640,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    }
+  ],
+  "sessionModels": {
+    "s1": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 28,
+        "tokens": 4803676,
+        "costNanos": 352364936,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s10": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 23,
+        "tokens": 3141351,
+        "costNanos": 191421956,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s11": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 104,
+        "tokens": 24045931,
+        "costNanos": 1004539140,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s12": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 110,
+        "tokens": 24937775,
+        "costNanos": 850504028,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s13": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 55,
+        "tokens": 11238788,
+        "costNanos": 1001258016,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s14": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 28,
+        "tokens": 4450743,
+        "costNanos": 489639832,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s15": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 39,
+        "tokens": 5990655,
+        "costNanos": 512068040,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s16": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 123,
+        "tokens": 25792454,
+        "costNanos": 810216000,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s17": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 84,
+        "tokens": 17588182,
+        "costNanos": 791008240,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s18": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 71,
+        "tokens": 14644837,
+        "costNanos": 595108228,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s19": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 67,
+        "tokens": 12533869,
+        "costNanos": 523048724,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s2": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 21,
+        "tokens": 2975841,
+        "costNanos": 201507812,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s20": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 37,
+        "tokens": 6417062,
+        "costNanos": 324670456,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s21": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 62,
+        "tokens": 11508972,
+        "costNanos": 470125744,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s22": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 39,
+        "tokens": 5561632,
+        "costNanos": 527851456,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s23": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 37,
+        "tokens": 7593170,
+        "costNanos": 821290272,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s24": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 24,
+        "tokens": 2750311,
+        "costNanos": 316579384,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s25": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 26,
+        "tokens": 3648726,
+        "costNanos": 206570848,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s26": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 131,
+        "tokens": 31761014,
+        "costNanos": 2306419764,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s27": [
+      {
+        "model": "deepseek-v4-flash",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-flash",
+        "events": 47,
+        "tokens": 7361676,
+        "costNanos": 175339092,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s28": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 47,
+        "tokens": 9397904,
+        "costNanos": 939146560,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s29": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 47,
+        "tokens": 8698560,
+        "costNanos": 560333312,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s3": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 25,
+        "tokens": 3755736,
+        "costNanos": 226522120,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s30": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 22,
+        "tokens": 3307421,
+        "costNanos": 255480852,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s31": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 16,
+        "tokens": 2000667,
+        "costNanos": 148110820,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s32": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 18,
+        "tokens": 2099401,
+        "costNanos": 248003624,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s33": [
+      {
+        "model": "deepseek-flash",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-flash",
+        "events": 78,
+        "tokens": 16904735,
+        "costNanos": 158686476,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s4": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 243,
+        "tokens": 82648823,
+        "costNanos": 2339357900,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s5": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 177,
+        "tokens": 39618820,
+        "costNanos": 1226233184,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s6": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 46,
+        "tokens": 7888860,
+        "costNanos": 392426144,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s7": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 157,
+        "tokens": 55692947,
+        "costNanos": 1733799100,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s8": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 64,
+        "tokens": 14131162,
+        "costNanos": 641564000,
+        "costBasis": "pricebook"
+      }
+    ],
+    "s9": [
+      {
+        "model": "deepseek-v4-pro",
+        "harness": "deepseek-harness",
+        "billedAs": "deepseek-v4-pro",
+        "events": 44,
+        "tokens": 7623354,
+        "costNanos": 332936560,
+        "costBasis": "pricebook"
+      }
+    ]
+  },
+  "hours": [
+    {
+      "hour": 0,
+      "utc": "00:00",
+      "peakHour": false,
+      "events": 15,
+      "cacheHitTokens": 4556160,
+      "cacheMissTokens": 3909,
+      "outputTokens": 10041,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 15,
+        "cacheHitTokens": 4556160,
+        "cacheMissTokens": 3909,
+        "outputTokens": 10041,
+        "costNanos": 122696640
+      },
+      "pricedEvents": 15,
+      "pricebookCostNanos": 122696640,
+      "peakListCostNanos": 245393280,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 1,
+      "utc": "01:00",
+      "peakHour": true,
+      "events": 160,
+      "cacheHitTokens": 26157952,
+      "cacheMissTokens": 399459,
+      "outputTokens": 280264,
+      "peak": {
+        "events": 135,
+        "cacheHitTokens": 22541952,
+        "cacheMissTokens": 301196,
+        "outputTokens": 238791,
+        "costNanos": 2335036968
+      },
+      "offPeak": {
+        "events": 25,
+        "cacheHitTokens": 3616000,
+        "cacheMissTokens": 98263,
+        "outputTokens": 41473,
+        "costNanos": 226522120
+      },
+      "pricedEvents": 160,
+      "pricebookCostNanos": 2561559088,
+      "peakListCostNanos": 2788081208,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 2,
+      "utc": "02:00",
+      "peakHour": true,
+      "events": 102,
+      "cacheHitTokens": 17790336,
+      "cacheMissTokens": 292625,
+      "outputTokens": 144841,
+      "peak": {
+        "events": 102,
+        "cacheHitTokens": 17790336,
+        "cacheMissTokens": 292625,
+        "outputTokens": 144841,
+        "costNanos": 1101057028
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "pricedEvents": 102,
+      "pricebookCostNanos": 1101057028,
+      "peakListCostNanos": 1101057028,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 3,
+      "utc": "03:00",
+      "peakHour": true,
+      "events": 10,
+      "cacheHitTokens": 2752640,
+      "cacheMissTokens": 8707,
+      "outputTokens": 15406,
+      "peak": {
+        "events": 10,
+        "cacheHitTokens": 2752640,
+        "cacheMissTokens": 8707,
+        "outputTokens": 15406,
+        "costNanos": 193617160
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "pricedEvents": 10,
+      "pricebookCostNanos": 193617160,
+      "peakListCostNanos": 193617160,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 4,
+      "utc": "04:00",
+      "peakHour": false,
+      "events": 0,
+      "cacheHitTokens": 0,
+      "cacheMissTokens": 0,
+      "outputTokens": 0,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "pricedEvents": 0,
+      "pricebookCostNanos": null,
+      "peakListCostNanos": null,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 5,
+      "utc": "05:00",
+      "peakHour": false,
+      "events": 60,
+      "cacheHitTokens": 9730176,
+      "cacheMissTokens": 267263,
+      "outputTokens": 126489,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 60,
+        "cacheHitTokens": 9730176,
+        "cacheMissTokens": 267263,
+        "outputTokens": 126489,
+        "costNanos": 640905672
+      },
+      "pricedEvents": 60,
+      "pricebookCostNanos": 640905672,
+      "peakListCostNanos": 1281811344,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 6,
+      "utc": "06:00",
+      "peakHour": true,
+      "events": 15,
+      "cacheHitTokens": 3342464,
+      "cacheMissTokens": 6522,
+      "outputTokens": 29322,
+      "peak": {
+        "events": 15,
+        "cacheHitTokens": 3342464,
+        "cacheMissTokens": 6522,
+        "outputTokens": 29322,
+        "costNanos": 271792576
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "pricedEvents": 15,
+      "pricebookCostNanos": 271792576,
+      "peakListCostNanos": 271792576,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 7,
+      "utc": "07:00",
+      "peakHour": true,
+      "events": 23,
+      "cacheHitTokens": 3995904,
+      "cacheMissTokens": 95238,
+      "outputTokens": 64229,
+      "peak": {
+        "events": 23,
+        "cacheHitTokens": 3995904,
+        "cacheMissTokens": 95238,
+        "outputTokens": 64229,
+        "costNanos": 555880776
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "pricedEvents": 23,
+      "pricebookCostNanos": 555880776,
+      "peakListCostNanos": 555880776,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 8,
+      "utc": "08:00",
+      "peakHour": true,
+      "events": 83,
+      "cacheHitTokens": 15883264,
+      "cacheMissTokens": 85516,
+      "outputTokens": 150188,
+      "peak": {
+        "events": 83,
+        "cacheHitTokens": 15883264,
+        "cacheMissTokens": 85516,
+        "outputTokens": 150188,
+        "costNanos": 1406489216
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "pricedEvents": 83,
+      "pricebookCostNanos": 1406489216,
+      "peakListCostNanos": 1406489216,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 9,
+      "utc": "09:00",
+      "peakHour": true,
+      "events": 94,
+      "cacheHitTokens": 17996928,
+      "cacheMissTokens": 163765,
+      "outputTokens": 111859,
+      "peak": {
+        "events": 94,
+        "cacheHitTokens": 17996928,
+        "cacheMissTokens": 163765,
+        "outputTokens": 111859,
+        "costNanos": 1450996272
+      },
+      "offPeak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "pricedEvents": 94,
+      "pricebookCostNanos": 1450996272,
+      "peakListCostNanos": 1450996272,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 10,
+      "utc": "10:00",
+      "peakHour": false,
+      "events": 136,
+      "cacheHitTokens": 24090752,
+      "cacheMissTokens": 408355,
+      "outputTokens": 132127,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 136,
+        "cacheHitTokens": 24090752,
+        "cacheMissTokens": 408355,
+        "outputTokens": 132127,
+        "costNanos": 1061122304
+      },
+      "pricedEvents": 136,
+      "pricebookCostNanos": 1061122304,
+      "peakListCostNanos": 2122244608,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 11,
+      "utc": "11:00",
+      "peakHour": false,
+      "events": 63,
+      "cacheHitTokens": 16445952,
+      "cacheMissTokens": 176389,
+      "outputTokens": 57093,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 63,
+        "cacheHitTokens": 16445952,
+        "cacheMissTokens": 176389,
+        "outputTokens": 57093,
+        "costNanos": 591271824
+      },
+      "pricedEvents": 63,
+      "pricebookCostNanos": 591271824,
+      "peakListCostNanos": 1182543648,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 12,
+      "utc": "12:00",
+      "peakHour": false,
+      "events": 104,
+      "cacheHitTokens": 24147968,
+      "cacheMissTokens": 240164,
+      "outputTokens": 158480,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 104,
+        "cacheHitTokens": 24147968,
+        "cacheMissTokens": 240164,
+        "outputTokens": 158480,
+        "costNanos": 402035208
+      },
+      "pricedEvents": 104,
+      "pricebookCostNanos": 402035208,
+      "peakListCostNanos": 804070416,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 13,
+      "utc": "13:00",
+      "peakHour": false,
+      "events": 75,
+      "cacheHitTokens": 11706112,
+      "cacheMissTokens": 191996,
+      "outputTokens": 70918,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 75,
+        "cacheHitTokens": 11706112,
+        "cacheMissTokens": 191996,
+        "outputTokens": 70918,
+        "costNanos": 524669464
+      },
+      "pricedEvents": 75,
+      "pricebookCostNanos": 524669464,
+      "peakListCostNanos": 1049338928,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 14,
+      "utc": "14:00",
+      "peakHour": false,
+      "events": 331,
+      "cacheHitTokens": 92805376,
+      "cacheMissTokens": 267290,
+      "outputTokens": 302557,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 331,
+        "cacheHitTokens": 92805376,
+        "cacheMissTokens": 267290,
+        "outputTokens": 302557,
+        "costNanos": 2817192532
+      },
+      "pricedEvents": 331,
+      "pricebookCostNanos": 2817192532,
+      "peakListCostNanos": 5634385064,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 15,
+      "utc": "15:00",
+      "peakHour": false,
+      "events": 334,
+      "cacheHitTokens": 103323392,
+      "cacheMissTokens": 408105,
+      "outputTokens": 438681,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 334,
+        "cacheHitTokens": 103323392,
+        "cacheMissTokens": 408105,
+        "outputTokens": 438681,
+        "costNanos": 3411052304
+      },
+      "pricedEvents": 334,
+      "pricebookCostNanos": 3411052304,
+      "peakListCostNanos": 6822104608,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 16,
+      "utc": "16:00",
+      "peakHour": false,
+      "events": 85,
+      "cacheHitTokens": 17406080,
+      "cacheMissTokens": 119058,
+      "outputTokens": 119753,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 85,
+        "cacheHitTokens": 17406080,
+        "cacheMissTokens": 119058,
+        "outputTokens": 119753,
+        "costNanos": 698622980
+      },
+      "pricedEvents": 85,
+      "pricebookCostNanos": 698622980,
+      "peakListCostNanos": 1397245960,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 17,
+      "utc": "17:00",
+      "peakHour": false,
+      "events": 75,
+      "cacheHitTokens": 11886848,
+      "cacheMissTokens": 178001,
+      "outputTokens": 100561,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 75,
+        "cacheHitTokens": 11886848,
+        "cacheMissTokens": 178001,
+        "outputTokens": 100561,
+        "costNanos": 578102096
+      },
+      "pricedEvents": 75,
+      "pricebookCostNanos": 578102096,
+      "peakListCostNanos": 1156204192,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 18,
+      "utc": "18:00",
+      "peakHour": false,
+      "events": 46,
+      "cacheHitTokens": 8549120,
+      "cacheMissTokens": 129257,
+      "outputTokens": 76317,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 46,
+        "cacheHitTokens": 8549120,
+        "cacheMissTokens": 129257,
+        "outputTokens": 76317,
+        "costNanos": 424497920
+      },
+      "pricedEvents": 46,
+      "pricebookCostNanos": 424497920,
+      "peakListCostNanos": 848995840,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 19,
+      "utc": "19:00",
+      "peakHour": false,
+      "events": 137,
+      "cacheHitTokens": 23851904,
+      "cacheMissTokens": 244132,
+      "outputTokens": 193258,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 137,
+        "cacheHitTokens": 23851904,
+        "cacheMissTokens": 244132,
+        "outputTokens": 193258,
+        "costNanos": 1068519848
+      },
+      "pricedEvents": 137,
+      "pricebookCostNanos": 1068519848,
+      "peakListCostNanos": 2137039696,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 20,
+      "utc": "20:00",
+      "peakHour": false,
+      "events": 49,
+      "cacheHitTokens": 6967040,
+      "cacheMissTokens": 419925,
+      "outputTokens": 83765,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 49,
+        "cacheHitTokens": 6967040,
+        "cacheMissTokens": 419925,
+        "outputTokens": 83765,
+        "costNanos": 596280080
+      },
+      "pricedEvents": 49,
+      "pricebookCostNanos": 596280080,
+      "peakListCostNanos": 1192560160,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 21,
+      "utc": "21:00",
+      "peakHour": false,
+      "events": 22,
+      "cacheHitTokens": 6583168,
+      "cacheMissTokens": 22263,
+      "outputTokens": 30590,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 22,
+        "cacheHitTokens": 6583168,
+        "cacheMissTokens": 22263,
+        "outputTokens": 30590,
+        "costNanos": 220091476
+      },
+      "pricedEvents": 22,
+      "pricebookCostNanos": 220091476,
+      "peakListCostNanos": 440182952,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 22,
+      "utc": "22:00",
+      "peakHour": false,
+      "events": 75,
+      "cacheHitTokens": 13260928,
+      "cacheMissTokens": 155154,
+      "outputTokens": 104626,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 75,
+        "cacheHitTokens": 13260928,
+        "cacheMissTokens": 155154,
+        "outputTokens": 104626,
+        "costNanos": 601301536
+      },
+      "pricedEvents": 75,
+      "pricebookCostNanos": 601301536,
+      "peakListCostNanos": 1202603072,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    },
+    {
+      "hour": 23,
+      "utc": "23:00",
+      "peakHour": false,
+      "events": 46,
+      "cacheHitTokens": 12125440,
+      "cacheMissTokens": 30510,
+      "outputTokens": 44183,
+      "peak": {
+        "events": 0,
+        "cacheHitTokens": 0,
+        "cacheMissTokens": 0,
+        "outputTokens": 0,
+        "costNanos": 0
+      },
+      "offPeak": {
+        "events": 46,
+        "cacheHitTokens": 12125440,
+        "cacheMissTokens": 30510,
+        "outputTokens": 44183,
+        "costNanos": 374378620
+      },
+      "pricedEvents": 46,
+      "pricebookCostNanos": 374378620,
+      "peakListCostNanos": 748757240,
+      "catalogCostNanos": null,
+      "catalogPricedEvents": 0
+    }
+  ],
+  "totals": {
+    "events": 2140,
+    "cacheHitTokens": 475355904,
+    "cacheMissTokens": 4313603,
+    "outputTokens": 2845548,
+    "peak": {
+      "events": 462,
+      "cacheHitTokens": 84303488,
+      "cacheMissTokens": 953569,
+      "outputTokens": 754636,
+      "costNanos": 7314869996
+    },
+    "offPeak": {
+      "events": 1678,
+      "cacheHitTokens": 391052416,
+      "cacheMissTokens": 3360034,
+      "outputTokens": 2090912,
+      "costNanos": 14359262624
+    },
+    "boundaryTokens": 1495905,
+    "windowBasis": {
+      "reply-time": 2133,
+      "request-start": 0,
+      "reply-time-unverified": 7
+    },
+    "billingStatuses": {
+      "priced": 2140
+    },
+    "pricedEvents": 2140,
+    "pricebookCostNanos": 21674132620,
+    "peakListCostNanos": 36033395244,
+    "catalogCostNanos": null,
+    "catalogPricedEvents": 0
+  },
+  "warnings": []
+}

@@ -102,16 +102,22 @@ func newUsageCommand(ctx *commandContext) *cobra.Command {
 func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 	var days, offset, top int
 	var tz, project, by string
-	var fleet bool
+	var fleet, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Print token and estimated cost usage over a window as JSON",
 		Long: "Print token and estimated cost usage over a window as JSON.\n\n" +
 			"By default rows are per period, harness, model and speed tier. --by session reads one row per session, harness,\n" +
 			"model and speed tier over the whole window, under \"sessionRows\" with the session and project id, costliest first.\n" +
-			"--top N keeps only the N costliest rows.",
+			"--top N keeps only the N costliest rows.\n\n" + forkUsageReportHelp, // Fork: usage seam (FORK.md)
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if by == "hour" { // Fork: usage seam (FORK.md): DeepSeek hour-of-day histogram.
+				if cmd.Flags().Changed("top") {
+					return usageError{fmt.Errorf("--top does not apply to --by hour")}
+				}
+				return runForkUsageReportHours(cmd, ctx, forkHoursArgs{days: days, offset: offset, tz: tz, project: project, fleet: fleet, json: asJSON})
+			}
 			if by != "" && by != "period" && by != "session" {
 				return usageError{fmt.Errorf("--by must be period or session, got %q", by)}
 			}
@@ -150,6 +156,10 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 						}
 					}
 				}
+				// Fork: usage seam (FORK.md): each host's DeepSeek report extension.
+				if err := forkMergeFleetUsageReport(cmd.Context(), ctx, hosts, params, by); err != nil {
+					return err
+				}
 				return writeJSON(cmd.OutOrStdout(), map[string]any{"hosts": hosts})
 			}
 			var res json.RawMessage
@@ -159,6 +169,11 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 			if err := checkReportAnswer(res, by, top); err != nil {
 				return err
 			}
+			// Fork: usage seam (FORK.md): merge the DeepSeek report extension.
+			res, err := forkMergeUsageReport(cmd.Context(), ctx, res, params, by, top)
+			if err != nil {
+				return err
+			}
 			return writeJSON(cmd.OutOrStdout(), res)
 		},
 	}
@@ -166,7 +181,8 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 	cmd.Flags().IntVar(&offset, "offset", 0, "Whole windows to step back")
 	cmd.Flags().StringVar(&tz, "tz", "", "IANA time zone for day buckets (default UTC)")
 	cmd.Flags().StringVarP(&project, "project", "p", "", "Read one project only")
-	cmd.Flags().StringVar(&by, "by", "", "Group rows by period (default) or session")
+	cmd.Flags().StringVar(&by, "by", "", "Group rows by period (default), session, or hour (DeepSeek, UTC hour of day)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "With --by hour, output JSON (the other groupings always print JSON)") // Fork: usage seam (FORK.md)
 	cmd.Flags().IntVar(&top, "top", 0, "Keep only the N costliest rows (default: all)")
 	cmd.Flags().BoolVar(&fleet, "fleet", false, "Read this machine and every saved remote (ao remote ls); returns {\"hosts\": [...]}")
 	return cmd
