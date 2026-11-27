@@ -1,18 +1,23 @@
 package httpd
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/forkusage/pricebook"
 	"github.com/aoagents/agent-orchestrator/backend/internal/forkusage/providers"
+	"github.com/aoagents/agent-orchestrator/backend/internal/forkusage/reportext"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/requestscope"
+	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/store"
 )
 
 // The fork price-book routes mount through APIDeps.Extensions next to the
@@ -65,5 +70,54 @@ func TestForkUsageRoutesProvidersLocalOnlyWrite(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden || svc.Enabled()[providers.DeepSeek] {
 		t.Fatalf("LAN POST: %d %s", rec.Code, rec.Body)
+	}
+}
+
+type forkReportExtStore struct{}
+
+func (forkReportExtStore) ListForkUsageReportSnapshot(context.Context, time.Time, time.Time, []string) ([]store.ForkDeepSeekUsageEvent, []domain.UsageReportEvent, error) {
+	return []store.ForkDeepSeekUsageEvent{{CreatedAt: time.Now().UTC().Add(-time.Hour), BillingProviderID: "deepseek-account", ModelID: "deepseek-v4-pro",
+		UncachedTokens: 1000, Harness: domain.HarnessDeepSeek, SessionID: "s1"}}, nil, nil
+}
+
+// report-ext mounts beside the price book under the device-credential gate,
+// validates the upstream report parameters and prices DeepSeek events.
+func TestForkUsageRoutesReportExt(t *testing.T) {
+	svc, err := pricebook.NewService(pricebook.Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext := reportext.Routes(&reportext.Service{Store: forkReportExtStore{}, Prices: svc})
+	r := NewRouterWithControl(config.Config{}, discardLogger(), nil, APIDeps{Extensions: []func(chi.Router){pricebook.Routes(svc), ext}}, ControlDeps{})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, reportext.Route+"?days=7&tz=Europe/Berlin", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report-ext: %d %s", rec.Code, rec.Body)
+	}
+	var body struct {
+		Schema    int    `json:"schema"`
+		TimeZone  string `json:"timeZone"`
+		PriceBook *struct {
+			Version string `json:"version"`
+		} `json:"priceBook"`
+		Totals struct {
+			Events       int64 `json:"events"`
+			PricedEvents int64 `json:"pricedEvents"`
+		} `json:"totals"`
+		Hours []json.RawMessage `json:"hours"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Schema != 1 || body.TimeZone != "Europe/Berlin" ||
+		body.PriceBook == nil || body.Totals.Events != 1 || body.Totals.PricedEvents != 1 || len(body.Hours) != 24 {
+		t.Fatalf("report-ext body: %s", rec.Body)
+	}
+	for _, q := range []string{"?days=x", "?days=0", "?offset=-1", "?tz=Mars/Olympus"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, reportext.Route+q, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", q, rec.Code)
+		}
+	}
+	if !requiresDeviceCredential(reportext.Route) {
+		t.Error("report-ext is not behind the LAN device-credential gate")
 	}
 }

@@ -414,6 +414,9 @@ func (b *Book) VersionAt(t time.Time) (Version, bool) {
 // RouteBilling maps a usage billing route to its billing kind ("api"), or "".
 func (b *Book) RouteBilling(route string) string { return b.routes[route] }
 
+// Routes lists the billing routes the book knows, sorted.
+func (b *Book) Routes() []string { return sortedKeys(b.routes) }
+
 // uniformOffPeak reports whether every model's off-peak rates are exactly
 // offPeakMultiplier x peak.
 func (c *compiled) uniformOffPeak() bool {

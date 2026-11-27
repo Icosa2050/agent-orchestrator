@@ -43,6 +43,10 @@ func runUsageCLI(t *testing.T, args ...string) (string, []string, error) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/api/v1/usage/fork/") { // Fork: usage seam (FORK.md): an old daemon without report-ext.
+			http.NotFound(w, r)
+			return
+		}
 		requests = append(requests, r.URL.RequestURI())
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -147,6 +151,7 @@ func TestUsageReportDefaultSendsNoGrouping(t *testing.T) {
 		t.Fatalf("output is not JSON: %v\n%s", err, out)
 	}
 	_ = json.Unmarshal([]byte(usageReportJSON("", "")), &want)
+	delete(got.(map[string]any), "ext") // Fork: usage seam (FORK.md): additive ext key.
 	if gotJSON, _ := json.Marshal(got); string(gotJSON) != mustMarshalJSON(t, want) {
 		t.Fatalf("default output changed:\n%s", out)
 	}

@@ -209,3 +209,14 @@ func TestForkProviderUsageOffByDefault(t *testing.T) {
 		t.Fatalf("key in response: %s", rec.Body)
 	}
 }
+
+// With the store wired, the daemon mounts report-ext next to the price book.
+func TestForkUsageWiringMountsReportExt(t *testing.T) {
+	installRecordingTransport(t)
+	usage := startForkUsage(context.Background(), forkUsageConfig{DataDir: t.TempDir(), Store: sqlitetest.MustOpen(t),
+		FirstDelay: func() time.Duration { return time.Hour }})
+	defer usage.stop()
+	if routes := usage.routes(); len(routes) != 3 {
+		t.Fatalf("routes = %d, want the price book, report-ext and providers", len(routes))
+	}
+}

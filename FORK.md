@@ -138,7 +138,7 @@ all `TestCoordinator*` (`./internal/service/report`), `TestForkFleetWiring*`
 between the merge base and HEAD; `scripts/fork/upstream-guard.test.sh`
 checks that it does.
 
-## Usage seams (API-billed usage, PR A: DeepSeek price book)
+## Usage seams (API-billed usage, PR A: DeepSeek price book; PR B: report extension)
 
 The DeepSeek price book lives in fork-owned code:
 `backend/internal/forkusage/pricebook` (embedded price versions with evidence,
@@ -153,7 +153,11 @@ counts them together with the fleet seam markers.
 
 | Seam | Upstream file | What plugs in |
 |---|---|---|
-| `startForkUsage` / `defer forkUsage.stop()` next to `newForkFleet()`, and `forkUsage.routes()` appended to `APIDeps.Extensions` | `backend/internal/daemon/daemon.go` | the price book, its daily check loop and the `/api/v1/usage/fork/*` routes |
+| `startForkUsage` / `defer forkUsage.stop()` next to `newForkFleet()` (given the store), and `forkUsage.routes()` appended to `APIDeps.Extensions` | `backend/internal/daemon/daemon.go` | the price book, its daily check loop and the `/api/v1/usage/fork/*` routes, including `report-ext` |
+| `requestStartedAt` capture: the last `request/context` frame before each reply, written into the event's `provider_usage_json` | `backend/internal/observe/usage/parser_deepseek.go` | the request start the report extension uses for requests spanning a peak/off-peak boundary (no schema change) |
+| `--by hour`, `--json`, the help text, and one merge call each after the single-host and fleet report reads | `backend/internal/cli/usage.go` | `backend/internal/cli/fork_usage_report.go`: the `ext` merge, `--top` re-ranking by price-book cost, the hour histogram |
+| `ListUsageReportEvents` delegates to `listUsageReportEvents(q)` | `backend/internal/storage/sqlite/store/usage_store.go` | the fork report snapshot runs the upstream report query inside its read transaction |
+| the report test server answers `/api/v1/usage/fork/*` with 404 and the exact-output test drops `ext` | `backend/internal/cli/usage_test.go` | keeps the upstream report tests meaningful with the extra report-ext request |
 | `prices` and `window` added to the `ao usage` tree | `backend/internal/cli/usage.go` | fork CLI commands; `prices` writes and stays local, `window` is remote read-only |
 | `ExitCode` honours an error's own `ExitCode() int` | `backend/internal/cli/root.go` | `ao usage prices --check` exit codes 3 (changed) and 4 (cannot verify) |
 | `ao usage prices`, `prices auto`, `window` listed as user commands | `backend/internal/telemetrymeta/cli.go` | CLI command classification (no telemetry is sent unless consented) |
@@ -165,6 +169,16 @@ The routes sit under `/api/v1/usage/fork/` (not `/api/v1/fork/usage/` as the
 design sketched) so the LAN listener's device-credential gate for
 `/api/v1/usage` covers them. Prices are computed at read time; nothing is
 stored in SQLite and no upstream pricing, DTO, OpenAPI or migration changes.
+
+PR B adds `backend/internal/forkusage/reportext` (read-time DeepSeek report
+extension: per-event window basis, pricing by price version, route and
+billing status, `boundaryTokens`, per-session models, the UTC hour-of-day
+histogram; route `GET /api/v1/usage/fork/report-ext`) and the fork-owned
+read-only query `backend/internal/storage/sqlite/store/fork_usage_deepseek_events.go`
+(the upstream report joins plus `requestStartedAt`;
+`TestForkUsageDeepSeekEvents*` fails if upstream renames a column it reads).
+The merge contract, the window rule and the `--by hour` JSON are documented
+in [`docs/provider-usage.md`](docs/provider-usage.md).
 
 State, all under `$AO_DATA_DIR/provider-usage/` (files 0600):
 `config.json` (`pricebook.autoCheck`, default true; unknown keys are kept for
@@ -241,13 +255,17 @@ verification reports); add these hosts to its expected destinations.
 | `raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` | LiteLLM model price table (upstream usage cost estimates) | daily refresh | upstream behaviour | none |
 | `api-docs.deepseek.com/quick_start/pricing.md` | DeepSeek price-page check (price book drift) | at most daily, first 5-30 min after start; also `ao usage prices --check` | `ao usage prices auto off` (`TestForkPriceCheckSwitchOff`) | none, no cookies |
 
-Tests: `./internal/forkusage/pricebook` and `./internal/forkusage/providers`
-(all, including the sentinel-key leak test over 200, 401, timeout, redirect,
-oversized and malformed answers), `TestForkDefaultOutboundHosts`,
+Tests: `./internal/forkusage/pricebook` (all), `TestForkDefaultOutboundHosts`,
 `TestForkPriceCheckSwitchOff` and `TestForkProviderUsageOffByDefault`
-(`./internal/daemon`), `TestForkUsageRoutes*` (`./internal/httpd`) and
-`TestForkUsage*` (`./internal/cli`, including `TestForkUsageProviders*`), all
-in `protected-tests.sh`.
+(`./internal/daemon`), `TestForkUsageRoutes*` (`./internal/httpd`),
+`TestForkUsage*` (`./internal/cli`, including `TestForkUsageProviders*`),
+`./internal/forkusage/reportext` (all, including the golden 30-day sample:
+$21.67 windowed vs $36.03 peak-only), `./internal/forkusage/providers` (all,
+including the sentinel-key leak test over 200, 401, timeout, redirect,
+oversized and malformed answers), `TestForkUsageSeam*`
+(`./internal/observe/usage`), `TestForkUsageDeepSeekEvents*`
+(`./internal/storage/sqlite/store`) and `TestForkUsageWiring*`
+(`./internal/daemon`), all in `protected-tests.sh`.
 
 ## Upstream-sync review procedure (mandatory)
 

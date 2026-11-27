@@ -71,10 +71,14 @@ backend_tests='
 ./internal/adapters/telemetry (OptOut|TestFork) 5
 ./internal/adapters/telemetry/policyauthority . 4
 ./internal/forkusage/pricebook . 25
-./internal/forkusage/providers . 15
 ./internal/daemon ^(TestForkDefaultOutboundHosts|TestForkPriceCheckSwitchOff|TestForkProviderUsageOffByDefault)$ 3
-./internal/httpd ^TestForkUsageRoutes 2
-./internal/cli ^TestForkUsage 13
+./internal/httpd ^TestForkUsageRoutes 3
+./internal/cli ^TestForkUsage 27
+./internal/forkusage/reportext . 10
+./internal/forkusage/providers . 15
+./internal/observe/usage ^TestForkUsageSeam 1
+./internal/storage/sqlite/store ^TestForkUsageDeepSeekEvents 1
+./internal/daemon ^TestForkUsageWiring 1
 '
 
 fail() { echo "protected-tests: $*" >&2; exit 1; }

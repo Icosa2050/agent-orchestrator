@@ -444,14 +444,14 @@ func forkProviderCells(r providers.Row) (balance, used, reset string) {
 			// budget first when OpenRouter reports one, then the key limit.
 			var parts []string
 			if b := k.Budget; b != nil && b.LimitUSD != nil && b.RemainingUSD != nil {
-				part := fmt.Sprintf("%s left of %s", forkUSD(b.RemainingUSD), forkUSD(b.LimitUSD))
+				part := fmt.Sprintf("%s left of %s", forkNumberUSD(b.RemainingUSD), forkNumberUSD(b.LimitUSD))
 				if b.ResetInterval != nil {
 					part += " " + *b.ResetInterval
 				}
 				parts = append(parts, part+" budget")
 			}
 			if k.LimitUSD != nil && k.RemainingUSD != nil {
-				part := fmt.Sprintf("%s left of %s", forkUSD(k.RemainingUSD), forkUSD(k.LimitUSD))
+				part := fmt.Sprintf("%s left of %s", forkNumberUSD(k.RemainingUSD), forkNumberUSD(k.LimitUSD))
 				if k.LimitReset != nil {
 					part += " " + *k.LimitReset
 				}
@@ -472,7 +472,7 @@ func forkProviderCells(r providers.Row) (balance, used, reset string) {
 				n     *json.Number
 			}{{"today", k.UsageDailyUSD}, {"week", k.UsageWeeklyUSD}, {"month", k.UsageMonthlyUSD}} {
 				if p.n != nil {
-					u = append(u, p.label+" "+forkUSD(p.n))
+					u = append(u, p.label+" "+forkNumberUSD(p.n))
 				}
 			}
 			if len(u) > 0 {
@@ -510,7 +510,7 @@ func forkSigned(amount string) string {
 	return "+" + amount
 }
 
-func forkUSD(n *json.Number) string {
+func forkNumberUSD(n *json.Number) string {
 	f, err := strconv.ParseFloat(string(*n), 64)
 	if err != nil {
 		return "$" + string(*n)
