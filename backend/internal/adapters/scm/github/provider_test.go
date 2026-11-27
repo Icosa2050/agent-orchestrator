@@ -1623,6 +1623,229 @@ func TestCancelledGateFailureRequiresEvidence(t *testing.T) {
 	}
 }
 
+// pipelineCheckRun is a CheckRun context as the rollup query returns it, for
+// job jobID of workflow run runID of the "CI Pipeline" pull_request workflow.
+// Empty conclusions are null, as GitHub reports them while running.
+func pipelineCheckRun(runID float64, suiteConclusion, name, status, conclusion string, jobID float64) map[string]any {
+	nullable := func(s string) any {
+		if s == "" {
+			return nil
+		}
+		return s
+	}
+	url := fmt.Sprintf("https://github.com/octocat/hello/actions/runs/%.0f/job/%.0f", runID, jobID)
+	return map[string]any{
+		"__typename": "CheckRun",
+		"name":       name,
+		"status":     status,
+		"conclusion": nullable(conclusion),
+		"detailsUrl": url,
+		"url":        url,
+		"databaseId": jobID,
+		"checkSuite": map[string]any{
+			"conclusion": nullable(suiteConclusion),
+			"id":         fmt.Sprintf("CS_kwDOsuite%.0f", runID),
+			"workflowRun": map[string]any{
+				"databaseId": runID,
+				"event":      "pull_request",
+				"workflow":   map[string]any{"name": "CI Pipeline"},
+			},
+		},
+	}
+}
+
+// Issue #46: a newer run of the same workflow and event supersedes a cancelled
+// run (cancel-in-progress, or the same head going from draft to ready). The
+// cancelled run's gate (needs + if: always()) concludes FAILURE inside a suite
+// that concluded CANCELLED, and stays the newest "Quality Gate" until the
+// replacement's own gate starts minutes later. Its log is an arbitrary script
+// the #8149 recognizer does not accept, so only the newer run proves the
+// failure stale.
+func TestSupersededCancelledRunIsNotACIFailure(t *testing.T) {
+	const (
+		draftRun = 19712345601
+		readyRun = 19712399902
+		laterRun = 19712455503
+		gateJob  = 56100000009
+	)
+	// The draft run, cancelled by the ready_for_review run of the same head.
+	draft := func(codeAnalysis string) []any {
+		return []any{
+			pipelineCheckRun(draftRun, "CANCELLED", "Detect Changes", "COMPLETED", "SUCCESS", 56100000001),
+			pipelineCheckRun(draftRun, "CANCELLED", "Code Analysis", "COMPLETED", codeAnalysis, 56100000002),
+			pipelineCheckRun(draftRun, "CANCELLED", "Unit Tests", "COMPLETED", "CANCELLED", 56100000003),
+			pipelineCheckRun(draftRun, "CANCELLED", "Quality Gate", "COMPLETED", "FAILURE", gateJob),
+		}
+	}
+	readyClassifier := pipelineCheckRun(readyRun, "", "Detect Changes", "IN_PROGRESS", "", 56100000101)
+	const gateLog = "2026-11-24T10:00:00.0000000Z ##[group]Run actions/checkout@v4\n" +
+		"2026-11-24T10:00:01.0000000Z ##[group]Run CHANGES_RESULT=cancelled\n" +
+		"2026-11-24T10:00:01.0000000Z CHANGES_RESULT=cancelled\n" +
+		"2026-11-24T10:00:01.0000000Z if [ \"$CHANGES_RESULT\" != success ]; then echo 'Invalid or missing CI change plan'; exit 1; fi\n" +
+		"2026-11-24T10:00:01.0000000Z shell: /usr/bin/bash -e {0}\n" +
+		"2026-11-24T10:00:02.0000000Z Invalid or missing CI change plan\n"
+	cases := []struct {
+		name       string
+		nodes      []any
+		wantGate   domain.PRCheckStatus // of the newest "Quality Gate"
+		wantCI     domain.CIState
+		wantFailed []string
+		wantLogs   int // gate-log reads by the #8149 fallback
+	}{
+		{
+			name:     "draft to ready, replacement shows only its classifier",
+			nodes:    append(draft("CANCELLED"), readyClassifier),
+			wantGate: domain.PRCheckCancelled,
+			wantCI:   domain.CIPending,
+		},
+		{
+			name:     "superseded run with two failed jobs",
+			nodes:    append(draft("FAILURE"), readyClassifier),
+			wantGate: domain.PRCheckCancelled,
+			wantCI:   domain.CIPending,
+		},
+		{
+			name:       "cancelled run without a newer run keeps its failure",
+			nodes:      draft("CANCELLED"),
+			wantGate:   domain.PRCheckFailed,
+			wantCI:     domain.CIFailing,
+			wantFailed: []string{"Quality Gate"},
+			wantLogs:   1,
+		},
+		{
+			name: "newer run that failed decides",
+			nodes: append(draft("CANCELLED"),
+				pipelineCheckRun(readyRun, "FAILURE", "Detect Changes", "COMPLETED", "SUCCESS", 56100000101),
+				pipelineCheckRun(readyRun, "FAILURE", "Code Analysis", "COMPLETED", "SUCCESS", 56100000102),
+				pipelineCheckRun(readyRun, "FAILURE", "Unit Tests", "COMPLETED", "FAILURE", 56100000103),
+				pipelineCheckRun(readyRun, "FAILURE", "Quality Gate", "COMPLETED", "FAILURE", 56100000109),
+			),
+			wantGate:   domain.PRCheckFailed,
+			wantCI:     domain.CIFailing,
+			wantFailed: []string{"Unit Tests", "Quality Gate"},
+		},
+		{
+			// The older run was rerun after the newer one failed, then
+			// cancelled again: its check runs have the higher IDs.
+			name: "rerun of the superseded run does not hide the newer run's failure",
+			nodes: []any{
+				pipelineCheckRun(readyRun, "FAILURE", "Detect Changes", "COMPLETED", "SUCCESS", 56100000101),
+				pipelineCheckRun(readyRun, "FAILURE", "Quality Gate", "COMPLETED", "FAILURE", 56100000109),
+				pipelineCheckRun(draftRun, "CANCELLED", "Detect Changes", "COMPLETED", "CANCELLED", 56100000501),
+				pipelineCheckRun(draftRun, "CANCELLED", "Quality Gate", "COMPLETED", "FAILURE", 56100000509),
+			},
+			wantGate:   domain.PRCheckFailed,
+			wantCI:     domain.CIFailing,
+			wantFailed: []string{"Quality Gate"},
+		},
+		{
+			// A failed run, then a cancelled run of the same head (higher
+			// check IDs), then a replacement showing only its classifier. The
+			// failure the cancelled run displaced must not come back.
+			name: "older failed run does not displace a later superseded run",
+			nodes: []any{
+				pipelineCheckRun(draftRun, "FAILURE", "Unit Tests", "COMPLETED", "FAILURE", 56100000003),
+				pipelineCheckRun(draftRun, "FAILURE", "Quality Gate", "COMPLETED", "FAILURE", gateJob),
+				pipelineCheckRun(readyRun, "CANCELLED", "Unit Tests", "COMPLETED", "CANCELLED", 56100000103),
+				pipelineCheckRun(readyRun, "CANCELLED", "Quality Gate", "COMPLETED", "FAILURE", 56100000109),
+				pipelineCheckRun(laterRun, "", "Detect Changes", "IN_PROGRESS", "", 56100000201),
+			},
+			wantGate: domain.PRCheckCancelled,
+			wantCI:   domain.CIPending,
+		},
+		{
+			// Both older runs are superseded; the oldest was rerun last. The
+			// middle run's timeout still decides that job.
+			name: "rerun of the oldest superseded run does not hide a newer timeout",
+			nodes: []any{
+				pipelineCheckRun(readyRun, "CANCELLED", "Quality Gate", "COMPLETED", "TIMED_OUT", 56100000109),
+				pipelineCheckRun(draftRun, "CANCELLED", "Quality Gate", "COMPLETED", "FAILURE", 56100000509),
+				pipelineCheckRun(laterRun, "", "Detect Changes", "IN_PROGRESS", "", 56100000201),
+			},
+			wantGate:   domain.PRCheckFailed,
+			wantCI:     domain.CIFailing,
+			wantFailed: []string{"Quality Gate"},
+		},
+		{
+			name: "gate failure in a suite that concluded FAILURE is unchanged",
+			nodes: []any{
+				pipelineCheckRun(draftRun, "FAILURE", "Detect Changes", "COMPLETED", "SUCCESS", 56100000001),
+				pipelineCheckRun(draftRun, "FAILURE", "Code Analysis", "COMPLETED", "FAILURE", 56100000002),
+				pipelineCheckRun(draftRun, "FAILURE", "Quality Gate", "COMPLETED", "FAILURE", gateJob),
+				readyClassifier,
+			},
+			wantGate:   domain.PRCheckFailed,
+			wantCI:     domain.CIFailing,
+			wantFailed: []string{"Code Analysis", "Quality Gate"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var pr map[string]any
+			basePRFixture().prData(func(m map[string]any) {
+				pr = m
+				commit := m["commits"].(map[string]any)["nodes"].([]any)[0].(map[string]any)["commit"].(map[string]any)
+				roll := commit["statusCheckRollup"].(map[string]any)
+				roll["state"] = "FAILURE" // GitHub's rollup counts every run on the head
+				roll["contexts"] = map[string]any{"nodes": tc.nodes, "pageInfo": map[string]any{"hasNextPage": false}}
+			})
+			logPath := fmt.Sprintf("/repos/octocat/hello/actions/jobs/%d/logs", gateJob)
+			fake := newFakeGH(t)
+			fake.on(http.MethodPost, "/graphql", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"pr0": map[string]any{"pullRequest": pr}}})
+			})
+			fake.on(http.MethodGet, logPath, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, gateLog)
+			})
+			p := newProviderForTest(t, fake)
+
+			// The batch observation feeds the worker's CI-failure message,
+			// which fires on a failing summary with a failed fingerprint.
+			obs, err := p.FetchPullRequests(ctx(), []ports.SCMPRRef{{Repo: ports.SCMRepo{Provider: "github", Host: "github.com", Owner: "octocat", Name: "hello", Repo: "octocat/hello"}, Number: 42}})
+			if err != nil || len(obs) != 1 || !obs[0].Fetched {
+				t.Fatalf("FetchPullRequests = %#v, %v", obs, err)
+			}
+			ci := obs[0].CI
+			if ci.Summary != string(tc.wantCI) {
+				t.Fatalf("observer CI summary = %q, want %q", ci.Summary, tc.wantCI)
+			}
+			var failed []string
+			for _, ch := range ci.FailedChecks {
+				failed = append(failed, ch.Name)
+			}
+			if !slices.Equal(failed, tc.wantFailed) {
+				t.Fatalf("failed checks = %v, want %v", failed, tc.wantFailed)
+			}
+			if (ci.FailedFingerprint != "") != (tc.wantCI == domain.CIFailing) {
+				t.Fatalf("failed fingerprint = %q with CI %q; a CI-failure message must fire only for a real failure", ci.FailedFingerprint, tc.wantCI)
+			}
+			gate := ""
+			for _, ch := range ci.Checks {
+				if ch.Name == "Quality Gate" {
+					gate = ch.Status
+				}
+			}
+			if gate != string(tc.wantGate) {
+				t.Fatalf("Quality Gate status = %q, want %q", gate, tc.wantGate)
+			}
+			if got := fake.callsTo(http.MethodGet, logPath); got != tc.wantLogs {
+				t.Fatalf("gate log reads = %d, want %d", got, tc.wantLogs)
+			}
+
+			// The single-PR observation agrees.
+			if got := ciSummaryFromGraphQL(pr); got != tc.wantCI {
+				t.Fatalf("ciSummaryFromGraphQL = %q, want %q", got, tc.wantCI)
+			}
+			for _, ch := range checksFromGraphQL(pr, "sha") {
+				if ch.Name == "Quality Gate" && ch.Status != tc.wantGate {
+					t.Fatalf("checksFromGraphQL Quality Gate = %q, want %q", ch.Status, tc.wantGate)
+				}
+			}
+		})
+	}
+}
+
 // A token without Actions read access gets FORBIDDEN on each
 // checkSuite.workflowRun; the PR must still be observed.
 func TestFetchPullRequestsToleratesWorkflowRunAccessErrors(t *testing.T) {
@@ -1631,7 +1854,7 @@ func TestFetchPullRequestsToleratesWorkflowRunAccessErrors(t *testing.T) {
 	basePRFixture().prData(func(m map[string]any) { pr = m })
 	fake.on(http.MethodPost, "/graphql", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		if !strings.Contains(string(body), "checkSuite{ conclusion id workflowRun{ event workflow{ name } } }") {
+		if !strings.Contains(string(body), "checkSuite{ conclusion id workflowRun{ databaseId event workflow{ name } } }") {
 			t.Fatalf("batch query should request each check run's suite conclusion and workflow, body=%s", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
