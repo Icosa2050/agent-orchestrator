@@ -92,8 +92,21 @@ func runForkReportCLI(t *testing.T, events []store.ForkDeepSeekUsageEvent, ext s
 
 // forkReportFixture: one costly DeepSeek account-route reply (unpriced in the
 // catalog) and a cheap codex row the catalog prices.
+// forkFixtureTime is the latest weekend 00:30 UTC before now: always
+// off-peak and inside the default 7-day window, whatever the wall clock.
+func forkFixtureTime() time.Time {
+	now := time.Now().UTC()
+	for back := 0; ; back++ {
+		d := now.AddDate(0, 0, -back)
+		at := time.Date(d.Year(), d.Month(), d.Day(), 0, 30, 0, 0, time.UTC)
+		if (at.Weekday() == time.Saturday || at.Weekday() == time.Sunday) && at.Before(now) {
+			return at
+		}
+	}
+}
+
 func forkReportFixture() ([]store.ForkDeepSeekUsageEvent, func(groupBy, top string) string) {
-	at := time.Now().UTC().Add(-2 * time.Hour)
+	at := forkFixtureTime()
 	period := at.Format("2006-01-02")
 	events := []store.ForkDeepSeekUsageEvent{{
 		CreatedAt: at, ProviderID: domain.UsageProviderOpenAI, BillingProviderID: "deepseek-account", ModelID: "deepseek-v4-pro",
@@ -228,11 +241,11 @@ func TestForkUsageReportExtUnsupportedAndError(t *testing.T) {
 
 func TestForkUsageReportByHour(t *testing.T) {
 	events, upstream := forkReportFixture()
-	out, d, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--by", "hour", "--days", "3", "--tz", "Europe/Berlin")
+	out, d, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--by", "hour", "--days", "7", "--tz", "Europe/Berlin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := d.seen(); len(got) != 1 || got[0] != "/api/v1/usage/fork/report-ext?days=3" {
+	if got := d.seen(); len(got) != 1 || got[0] != "/api/v1/usage/fork/report-ext?days=7" {
 		t.Fatalf("requests = %v, want report-ext only and no tz (windows stay UTC)", got)
 	}
 	hour := events[0].CreatedAt.Format("15:00")
@@ -347,5 +360,59 @@ func TestForkUsageReportTopWithoutPricedEventsKeepsUpstream(t *testing.T) {
 	m := decodeMerged(t, out)
 	if m.Ext.Status != "ok" || m.Ext.RankedBy == "" || len(m.Rows) != 1 || m.Rows[0].Harness != "codex" {
 		t.Fatalf("output = %s", out)
+	}
+}
+
+// Session rows are ranked by effective cost even without --top: the
+// DeepSeek session the catalog left at 0 comes first.
+func TestForkUsageReportSessionRowsRankedWithoutTop(t *testing.T) {
+	events, upstream := forkReportFixture()
+	out, _, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report", "--by", "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := decodeMerged(t, out)
+	if len(m.SessionRows) != 2 || m.SessionRows[0].SessionID != "ds-1" || m.SessionRows[1].SessionID != "cx-1" || m.Top != 0 {
+		t.Fatalf("session order = %s", out)
+	}
+}
+
+// A row mixing price-book-priced DeepSeek events with other catalog-priced
+// events keeps the other events' catalog cost in its effective cost.
+func TestForkUsageReportEffectiveCostKeepsOtherCatalogCost(t *testing.T) {
+	events, _ := forkReportFixture()
+	catalog := int64(400)
+	events[0].CatalogCostNanos = &catalog
+	period := events[0].CreatedAt.Format("2006-01-02")
+	upstream := func(string, string) string {
+		return `{"days":7,"rows":[{"period":"` + period + `","harness":"deepseek-harness","model":"deepseek-v4-pro","speed":"standard","events":2,"costNanos":1000}],"sessions":[]}`
+	}
+	out, _, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := decodeMerged(t, out)
+	if len(m.Rows) != 1 || m.Rows[0].Ext == nil || m.Rows[0].Ext.EffectiveCostNanos == nil ||
+		*m.Rows[0].Ext.EffectiveCostNanos != 1000-400+660_000_000 || m.Rows[0].Ext.ReplacedCatalogCostNanos != 400 {
+		t.Fatalf("effective cost = %s", out)
+	}
+}
+
+// An upstream report over another window than report-ext (a period
+// rollover between the reads) is not merged.
+func TestForkUsageReportWindowMismatchIsAnExtError(t *testing.T) {
+	events, _ := forkReportFixture()
+	upstream := func(string, string) string {
+		return `{"days":7,"since":"2001-01-01T00:00:00Z","until":"2001-01-08T00:00:00Z","rows":[],"sessions":[]}`
+	}
+	out, d, err := runForkReportCLI(t, events, "ok", upstream, "usage", "report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := decodeMerged(t, out); m.Ext.Status != "error" || !strings.Contains(m.Ext.Reason, "different windows") {
+		t.Fatalf("output = %s", out)
+	}
+	if got := d.seen(); len(got) != 3 {
+		t.Fatalf("requests = %v, want one report-ext retry", got)
 	}
 }

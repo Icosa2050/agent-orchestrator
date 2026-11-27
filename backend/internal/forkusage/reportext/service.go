@@ -72,10 +72,22 @@ func (s *Service) Report(ctx context.Context, days, offset int, timeZone string,
 	if err != nil {
 		return Report{}, err
 	}
-	st := s.Prices.Status()
-	rep.PriceBook = &BookRef{Version: st.Version, Source: st.Source, Label: st.Label, EffectiveFrom: st.EffectiveFrom,
-		LastCheckAt: st.LastCheckAt, LastCheckStatus: st.LastCheckStatus, Stale: st.Stale, Warnings: st.Warnings}
+	rep.PriceBook = bookRef(s.Prices.Status(), rep.Warnings)
 	return rep, nil
+}
+
+// bookRef summarizes the price book for a report. A priced event in a year
+// without a transcribed holiday calendar makes the report's prices stale,
+// whatever the current year's state.
+func bookRef(st pricebook.Status, reportWarnings []string) *BookRef {
+	ref := &BookRef{Version: st.Version, Source: st.Source, Label: st.Label, EffectiveFrom: st.EffectiveFrom,
+		LastCheckAt: st.LastCheckAt, LastCheckStatus: st.LastCheckStatus, Stale: st.Stale, Warnings: st.Warnings}
+	for _, w := range reportWarnings {
+		if w == pricebook.AssumptionYearMissed {
+			ref.Stale = true
+		}
+	}
+	return ref
 }
 
 // Routes mounts GET /api/v1/usage/fork/report-ext?days&offset&tz&projectId,

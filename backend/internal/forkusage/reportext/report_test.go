@@ -452,3 +452,55 @@ func TestSessionModelsMergeSpeedTiers(t *testing.T) {
 		t.Fatalf("models = %+v", models)
 	}
 }
+
+// A session model whose DeepSeek events are partly priced keeps the catalog
+// cost of the rest ("mixed"); building sessionModels never changes the
+// published session rows' costs.
+func TestSessionModelsMixedBasisAndRowsUnchanged(t *testing.T) {
+	w := dayWindow(t, "2026-11-23T00:00:00Z", 1)
+	catalog, other := int64(400), int64(900)
+	priced := ev(t, "2026-11-23T12:00:00Z", "deepseek", "deepseek-flash", 0, 1000, 0)
+	priced.CatalogCostNanos = &catalog
+	proxy := ev(t, "2026-11-23T12:05:00Z", "deepseek-proxy", "deepseek-flash", 0, 10, 0) // unknown route
+	tier := ev(t, "2026-11-23T12:10:00Z", "deepseek", "deepseek-flash", 0, 2000, 0)
+	tier.ServiceTier = "priority"
+	all := []domain.UsageReportEvent{}
+	for _, e := range []store.ForkDeepSeekUsageEvent{priced, proxy, tier} {
+		hit, miss, out := e.CachedTokens, e.UncachedTokens, e.OutputTokens
+		ue := domain.UsageReportEvent{CreatedAt: e.CreatedAt, ModelID: e.ModelID, Harness: e.Harness, SessionID: e.SessionID,
+			Tokens: domain.UsageTokenMetrics{CachedInputTokens: &hit, UncachedInputTokens: &miss, OutputTokens: &out}}
+		switch e.BillingProviderID {
+		case "deepseek-proxy":
+			ue.Costs.EstimatedCostNanos = &other
+		default:
+			ue.Costs.EstimatedCostNanos = e.CatalogCostNanos
+		}
+		all = append(all, ue)
+	}
+	rep, err := Build(Input{Window: w, Book: mustBook(t), DeepSeek: []store.ForkDeepSeekUsageEvent{priced, proxy, tier}, All: all})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rowSum int64
+	for _, r := range rep.SessionRows {
+		rowSum += deref(r.PricebookCostNanos)
+	}
+	if rowSum != *rep.Totals.PricebookCostNanos || rowSum != 150_000+300_000 {
+		t.Fatalf("session rows sum %d, totals %d, want 450000 (rows were mutated?)", rowSum, *rep.Totals.PricebookCostNanos)
+	}
+	m := rep.SessionModels["s1"]
+	// catalog 400 (priced event) + 900 (proxy) - 400 replaced + 450000 price book.
+	if len(m) != 1 || m[0].CostBasis != CostBasisMixed || *m[0].CostNanos != 900+450_000 || m[0].Events != 3 {
+		t.Fatalf("session models = %+v", m)
+	}
+}
+
+func TestBookRefStaleForMissingHolidayYear(t *testing.T) {
+	st := pricebook.Status{Version: "v", Warnings: []string{}}
+	if bookRef(st, nil).Stale {
+		t.Fatal("fresh book reported stale")
+	}
+	if !bookRef(st, []string{pricebook.AssumptionYearMissed}).Stale {
+		t.Fatal("a priced event without a holiday calendar did not make the report stale")
+	}
+}

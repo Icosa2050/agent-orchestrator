@@ -44,11 +44,15 @@ type forkCosts struct {
 	PeakListCostNanos   *int64 `json:"peakListCostNanos"`
 	CatalogCostNanos    *int64 `json:"catalogCostNanos"`
 	CatalogPricedEvents int64  `json:"catalogPricedEvents"`
+	// ReplacedCatalogCostNanos is the catalog estimate of the events the
+	// price book priced (the part of costNanos pricebookCostNanos replaces).
+	ReplacedCatalogCostNanos int64 `json:"replacedCatalogCostNanos"`
 }
 
 func (c *forkCosts) add(o forkCosts) {
 	c.PricedEvents += o.PricedEvents
 	c.CatalogPricedEvents += o.CatalogPricedEvents
+	c.ReplacedCatalogCostNanos += o.ReplacedCatalogCostNanos
 	for _, pair := range [][2]**int64{{&c.PricebookCostNanos, &o.PricebookCostNanos}, {&c.PeakListCostNanos, &o.PeakListCostNanos}, {&c.CatalogCostNanos, &o.CatalogCostNanos}} {
 		if *pair[1] != nil {
 			if *pair[0] == nil {
@@ -149,6 +153,7 @@ type forkBookRef struct {
 // merged JSON carries the daemon's answer as is.
 type forkReportExt struct {
 	Schema        int              `json:"schema"`
+	Resolution    string           `json:"resolution"`
 	Days          int              `json:"days"`
 	Since         time.Time        `json:"since"`
 	Until         time.Time        `json:"until"`
@@ -174,7 +179,11 @@ type forkRowExt struct {
 	BoundaryTokens  int64            `json:"boundaryTokens"`
 	WindowBasis     *forkWindowBasis `json:"windowBasis,omitempty"`
 	forkCosts
-	routes, versions map[string]bool
+	// EffectiveCostNanos is the row's costNanos with the catalog estimate of
+	// the price-book-priced events replaced by their price-book cost; the
+	// row's rank. Nil when the price book priced none of its events.
+	EffectiveCostNanos *int64 `json:"effectiveCostNanos"`
+	routes, versions   map[string]bool
 }
 
 func (x *forkRowExt) note(billedAs, route, version, status string, events, boundary int64, costs forkCosts) {
@@ -225,20 +234,17 @@ func forkFetchReportExt(ctx context.Context, c *commandContext, params url.Value
 	return raw, "ok", nil
 }
 
-// forkMergeUsageReport merges report-ext into one host's upstream report.
-// The upstream keys stay as the daemon sent them; rows with DeepSeek events
-// gain an "ext" object and the report a top-level "ext". With --top, rows
-// are re-ranked by price-book cost (DeepSeek) or catalog cost (otherwise),
-// re-reading the upstream report without top so a DeepSeek row the catalog
-// left unpriced can rank. An ext failure never fails the command.
+// forkMergeUsageReport merges report-ext into one host's upstream report,
+// both read from that host. The upstream keys stay as the daemon sent them;
+// rows with DeepSeek events gain an "ext" object and the report a top-level
+// "ext". Rows are ranked by effective cost (session rows always, period rows
+// with --top); with --top the upstream report is re-read without top so a
+// DeepSeek row the catalog left unpriced can rank. Both reads must cover the
+// same window. An ext failure never fails the command.
 func forkMergeUsageReport(ctx context.Context, c *commandContext, upstream json.RawMessage, params url.Values, by string, top int) (json.RawMessage, error) {
-	extRaw, status, err := forkFetchReportExt(ctx, c, params)
+	extRaw, ext, status, err := forkReadExt(ctx, c, params)
 	if status != "ok" {
 		return forkWithExtStatus(upstream, status, err)
-	}
-	var ext forkReportExt
-	if err := json.Unmarshal(extRaw, &ext); err != nil {
-		return forkWithExtStatus(upstream, "error", fmt.Errorf("decode report-ext: %w", err))
 	}
 	if top > 0 && ext.Totals.PricedEvents > 0 {
 		full := url.Values{}
@@ -255,7 +261,42 @@ func forkMergeUsageReport(ctx context.Context, c *commandContext, upstream json.
 		}
 		upstream = res
 	}
+	// The two reads compute their windows from the clock; across a period
+	// rollover they can differ. Read the extension once more, then give up.
+	if !forkSameWindow(upstream, ext) {
+		if extRaw, ext, status, err = forkReadExt(ctx, c, params); status != "ok" {
+			return forkWithExtStatus(upstream, status, err)
+		}
+		if !forkSameWindow(upstream, ext) {
+			return forkWithExtStatus(upstream, "error", errors.New("report and report-ext cover different windows (period rollover); run it again"))
+		}
+	}
 	return forkMergeExt(upstream, extRaw, ext, by, top)
+}
+
+func forkReadExt(ctx context.Context, c *commandContext, params url.Values) (json.RawMessage, forkReportExt, string, error) {
+	var ext forkReportExt
+	raw, status, err := forkFetchReportExt(ctx, c, params)
+	if status != "ok" {
+		return nil, ext, status, err
+	}
+	if err := json.Unmarshal(raw, &ext); err != nil {
+		return nil, ext, "error", fmt.Errorf("decode report-ext: %w", err)
+	}
+	return raw, ext, "ok", nil
+}
+
+// forkSameWindow reports whether the upstream report covers ext's window. A
+// report without since/until (an old shape) is not compared.
+func forkSameWindow(upstream json.RawMessage, ext forkReportExt) bool {
+	var w struct {
+		Since *time.Time `json:"since"`
+		Until *time.Time `json:"until"`
+	}
+	if json.Unmarshal(upstream, &w) != nil || w.Since == nil || w.Until == nil {
+		return true
+	}
+	return w.Since.Equal(ext.Since) && w.Until.Equal(ext.Until)
 }
 
 func forkWithExtStatus(upstream json.RawMessage, status string, err error) (json.RawMessage, error) {
@@ -291,17 +332,16 @@ func forkMergeExt(upstream, extRaw json.RawMessage, ext forkReportExt, by string
 	}
 	rank := make([]int64, len(rows))
 	for i, row := range rows {
-		var cost struct {
-			CostNanos int64 `json:"costNanos"`
-		}
-		_ = json.Unmarshal(mustJSON(row), &cost)
-		rank[i] = cost.CostNanos
+		var cost int64
+		_ = json.Unmarshal(row["costNanos"], &cost)
+		rank[i] = cost
 		if x, ok := exts[keyOf(row)]; ok {
 			x.finish()
-			row["ext"] = mustJSON(x)
-			if x.PricebookCostNanos != nil {
-				rank[i] = *x.PricebookCostNanos
+			if x.PricedEvents > 0 {
+				effective := cost - x.ReplacedCatalogCostNanos + forkDeref(x.PricebookCostNanos)
+				x.EffectiveCostNanos, rank[i] = &effective, effective
 			}
+			row["ext"] = mustJSON(x)
 		}
 	}
 	var extDoc map[string]json.RawMessage
@@ -309,19 +349,23 @@ func forkMergeExt(upstream, extRaw json.RawMessage, ext forkReportExt, by string
 		return nil, fmt.Errorf("decode report-ext: %w", err)
 	}
 	extDoc["status"] = mustJSON("ok")
-	if top > 0 {
+	if top > 0 || by == "session" {
 		order := make([]int, len(rows))
 		for i := range order {
 			order[i] = i
 		}
 		sort.SliceStable(order, func(a, b int) bool { return rank[order[a]] > rank[order[b]] })
-		ranked := make([]map[string]json.RawMessage, 0, min(top, len(rows)))
-		for _, i := range order[:min(top, len(order))] {
+		keep := len(order)
+		if top > 0 {
+			keep = min(top, keep)
+			doc["top"] = mustJSON(top)
+		}
+		ranked := make([]map[string]json.RawMessage, 0, keep)
+		for _, i := range order[:keep] {
 			ranked = append(ranked, rows[i])
 		}
 		rows = ranked
-		doc["top"] = mustJSON(top)
-		extDoc["rankedBy"] = mustJSON("pricebookCostNanos for rows with priced DeepSeek events, costNanos otherwise")
+		extDoc["rankedBy"] = mustJSON("ext.effectiveCostNanos for rows with priced DeepSeek events, costNanos otherwise")
 	}
 	if rows != nil {
 		doc[field] = mustJSON(rows)
@@ -387,75 +431,43 @@ func forkSessionExts(ext forkReportExt) map[string]*forkRowExt {
 	return out
 }
 
-// forkFleetExt is one host's report-ext read.
-type forkFleetExt struct {
-	data   json.RawMessage
-	status string // "ok", "unsupported" or "error"
-	err    error
-}
-
-// forkFleetGetExt reads report-ext from every host the fleet read reaches,
-// keeping the typed 404 of a daemon that predates it. Keyed by name and URL.
-func forkFleetGetExt(ctx context.Context, c *commandContext, params url.Values) (map[string]forkFleetExt, error) {
-	health, contexts, err := c.fleetHosts(ctx)
-	if err != nil {
-		return nil, err
+// forkMergeFleetUsageReport merges each host's report-ext into its report
+// with the same per-host contract as a single-host run, every read going to
+// that host. A host that cannot be reached again keeps its upstream answer
+// with ext "error"; nothing here fails the run.
+func forkMergeFleetUsageReport(ctx context.Context, c *commandContext, hosts []fleetUsageHost, params url.Values, by string, top int) error {
+	health, contexts, fleetErr := c.fleetHosts(ctx)
+	byHost := map[string]*commandContext{}
+	for i, h := range health {
+		byHost[h.Name+"\x00"+h.URL] = contexts[i]
 	}
-	out := make([]forkFleetExt, len(health))
 	var wg sync.WaitGroup
-	for i := range health {
-		if contexts[i] == nil {
-			out[i] = forkFleetExt{status: "error", err: errors.New(orDash(health[i].Error))}
+	for i := range hosts {
+		if hosts[i].Status != remoteStatusOK {
 			continue
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			data, status, err := forkFetchReportExt(ctx, contexts[i], params)
-			out[i] = forkFleetExt{data: data, status: status, err: err}
+			hc := byHost[hosts[i].Name+"\x00"+hosts[i].URL]
+			var merged json.RawMessage
+			var err error
+			switch {
+			case fleetErr != nil:
+				merged, err = forkWithExtStatus(hosts[i].Data, "error", fleetErr)
+			case hc == nil:
+				merged, err = forkWithExtStatus(hosts[i].Data, "error", errors.New("host unreachable for the report-ext read"))
+			default:
+				merged, err = forkMergeUsageReport(ctx, hc, hosts[i].Data, params, by, top)
+			}
+			if err != nil {
+				hosts[i].Status, hosts[i].Error, hosts[i].Data = remoteStatusError, err.Error(), nil
+				return
+			}
+			hosts[i].Data = merged
 		}()
 	}
 	wg.Wait()
-	byHost := make(map[string]forkFleetExt, len(health))
-	for i, h := range health {
-		byHost[h.Name+"\x00"+h.URL] = out[i]
-	}
-	return byHost, nil
-}
-
-// forkMergeFleetUsageReport merges each host's report-ext into its report,
-// fetched from the same host. Fleet rows keep upstream's --top ranking. A
-// failed ext read marks the hosts' ext as an error; it never fails the run.
-func forkMergeFleetUsageReport(ctx context.Context, c *commandContext, hosts []fleetUsageHost, params url.Values, by string) error {
-	exts, fleetErr := forkFleetGetExt(ctx, c, params)
-	for i := range hosts {
-		if hosts[i].Status != remoteStatusOK {
-			continue
-		}
-		h, ok := exts[hosts[i].Name+"\x00"+hosts[i].URL]
-		var merged json.RawMessage
-		var mergeErr error
-		switch {
-		case fleetErr != nil:
-			merged, mergeErr = forkWithExtStatus(hosts[i].Data, "error", fleetErr)
-		case !ok:
-			merged, mergeErr = forkWithExtStatus(hosts[i].Data, "error", errors.New("host missing from the report-ext read"))
-		case h.status != "ok":
-			merged, mergeErr = forkWithExtStatus(hosts[i].Data, h.status, h.err)
-		default:
-			var ext forkReportExt
-			if err := json.Unmarshal(h.data, &ext); err != nil {
-				merged, mergeErr = forkWithExtStatus(hosts[i].Data, "error", fmt.Errorf("decode report-ext: %w", err))
-			} else {
-				merged, mergeErr = forkMergeExt(hosts[i].Data, h.data, ext, by, 0)
-			}
-		}
-		if mergeErr != nil {
-			hosts[i].Status, hosts[i].Error, hosts[i].Data = remoteStatusError, mergeErr.Error(), nil
-			continue
-		}
-		hosts[i].Data = merged
-	}
 	return nil
 }
 

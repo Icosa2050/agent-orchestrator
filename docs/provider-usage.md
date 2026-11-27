@@ -58,19 +58,30 @@ host.
   session row (`--by session`) with DeepSeek events gains an `ext` object:
   `billedAs`, `routes`, `priceVersions`, `billingStatuses`, `events`,
   `pricedEvents`, `pricebookCostNanos`, `peakListCostNanos`,
-  `catalogCostNanos`, `boundaryTokens` (and `windowBasis` in period mode).
+  `catalogCostNanos`, `replacedCatalogCostNanos`, `effectiveCostNanos`,
+  `boundaryTokens` (and `windowBasis` in period mode).
+  `effectiveCostNanos` = the row's upstream `costNanos` minus the catalog
+  estimate of the events the price book priced, plus their price-book cost,
+  so events the price book did not price (another route, an unknown model)
+  keep their catalog cost.
 - The report gains a top-level `ext`: the report-ext answer with
   `status: "ok"`. It carries `pricedRows[]` (per period, harness, model,
   speed, route, price version and billing status, with `peak` and `offPeak`
   buckets), `sessionRows[]`, `sessionModels{sessionId: [...]}` (every model a
-  session used, most tokens first, with `costBasis` `pricebook`, `catalog`
+  session used, most tokens first, with `costBasis` `pricebook`, `catalog`,
+  `mixed` (price book for the DeepSeek events it priced, catalog for the rest)
   or `none`), `hours[]`, `totals`, `peakRule`, `priceVersions`,
   `windowRule`, `boundaryRule`, `priceBook` and `warnings`.
-- `--top N` ranks rows by `pricebookCostNanos` where a row has priced DeepSeek
-  events and by upstream `costNanos` otherwise, so a DeepSeek account-route row
-  the upstream catalog leaves unpriced still ranks. To do that the CLI re-reads
-  the upstream report without `top` and truncates itself; `ext.rankedBy`
-  says so. Under `--fleet` the ranking stays upstream's.
+- Rows are ranked by `ext.effectiveCostNanos` where they have priced DeepSeek
+  events and by upstream `costNanos` otherwise: session rows always, period
+  rows with `--top N`. A DeepSeek account-route row the upstream catalog
+  leaves unpriced therefore still ranks. With `--top` the CLI re-reads the
+  upstream report without `top` and truncates itself; `ext.rankedBy` says
+  so. `--fleet` does the same per host, every read going to that host.
+- Both reads compute their window from the clock. If the upstream report and
+  report-ext cover different windows (a day or hour rollover between the
+  reads), the CLI reads report-ext once more and otherwise reports
+  `ext.status: "error"` instead of merging mismatched periods.
 - A daemon without report-ext (HTTP 404): `ext: {"status": "unsupported"}`.
   Any other failure: `ext: {"status": "error", "reason": ...}`. Neither fails
   the command.

@@ -41,6 +41,9 @@ const (
 	CostBasisPricebook = "pricebook"
 	CostBasisCatalog   = "catalog"
 	CostBasisNone      = "none"
+	// CostBasisMixed: price book for the DeepSeek events it priced, catalog
+	// for the model's other events.
+	CostBasisMixed = "mixed"
 )
 
 const (
@@ -118,6 +121,23 @@ type Costs struct {
 	// catalog) over CatalogPricedEvents.
 	CatalogCostNanos    *int64 `json:"catalogCostNanos"`
 	CatalogPricedEvents int64  `json:"catalogPricedEvents"`
+	// ReplacedCatalogCostNanos is the catalog estimate of the events the
+	// price book priced: the part of upstream's costNanos that
+	// pricebookCostNanos replaces. Effective cost of an upstream row =
+	// costNanos - replacedCatalogCostNanos + pricebookCostNanos.
+	ReplacedCatalogCostNanos int64 `json:"replacedCatalogCostNanos"`
+}
+
+// clone copies c with its own cost pointers.
+func (c Costs) clone() Costs {
+	out := c
+	for _, p := range []**int64{&out.PricebookCostNanos, &out.PeakListCostNanos, &out.CatalogCostNanos} {
+		if *p != nil {
+			v := **p
+			*p = &v
+		}
+	}
+	return out
 }
 
 func addPtr(p **int64, v int64) {
@@ -130,6 +150,7 @@ func addPtr(p **int64, v int64) {
 func (c *Costs) add(o Costs) {
 	c.PricedEvents += o.PricedEvents
 	c.CatalogPricedEvents += o.CatalogPricedEvents
+	c.ReplacedCatalogCostNanos += o.ReplacedCatalogCostNanos
 	for _, pair := range [][2]**int64{{&c.PricebookCostNanos, &o.PricebookCostNanos}, {&c.PeakListCostNanos, &o.PeakListCostNanos}, {&c.CatalogCostNanos, &o.CatalogCostNanos}} {
 		if *pair[1] != nil {
 			addPtr(pair[0], **pair[1])
@@ -330,6 +351,9 @@ func (c classified) costs() Costs {
 	if c.event.CatalogCostNanos != nil {
 		out.CatalogPricedEvents = 1
 		addPtr(&out.CatalogCostNanos, *c.event.CatalogCostNanos)
+		if out.PricedEvents == 1 {
+			out.ReplacedCatalogCostNanos = *c.event.CatalogCostNanos
+		}
 	}
 	return out
 }
@@ -554,6 +578,7 @@ func sessionModels(in Input, deepseek []SessionRow) map[string][]SessionModel {
 		k := key{r.SessionID, r.Harness, r.Model}
 		prev, ok := ds[k]
 		if !ok {
+			r.Costs = r.clone() // the published session row keeps its own costs
 			ds[k] = r
 			continue
 		}
@@ -579,7 +604,7 @@ func sessionModels(in Input, deepseek []SessionRow) map[string][]SessionModel {
 		}
 		m.Events++
 		m.Tokens += max(deref(e.Tokens.CachedInputTokens), 0) + max(deref(e.Tokens.UncachedInputTokens), 0) + max(deref(e.Tokens.OutputTokens), 0)
-		if _, isDeepSeek := ds[k]; !isDeepSeek && e.Costs.EstimatedCostNanos != nil {
+		if e.Costs.EstimatedCostNanos != nil {
 			addPtr(&m.CostNanos, *e.Costs.EstimatedCostNanos)
 			m.CostBasis = CostBasisCatalog
 		}
@@ -589,14 +614,23 @@ func sessionModels(in Input, deepseek []SessionRow) map[string][]SessionModel {
 		if m == nil {
 			// The DeepSeek query and the upstream query read the same window;
 			// an event only one of them saw is still listed.
-			m = &SessionModel{Model: r.Model, ModelMissing: r.ModelMissing, Harness: r.Harness, Events: r.Events, Tokens: r.Total()}
+			m = &SessionModel{Model: r.Model, ModelMissing: r.ModelMissing, Harness: r.Harness, Events: r.Events, Tokens: r.Total(), CostBasis: CostBasisNone}
+			if r.CatalogCostNanos != nil {
+				v := *r.CatalogCostNanos
+				m.CostNanos, m.CostBasis = &v, CostBasisCatalog
+			}
 			models[k] = m
 		}
 		m.BilledAs = r.BilledAs
-		m.CostNanos, m.CostBasis = nil, CostBasisNone
-		if r.PricebookCostNanos != nil {
-			v := *r.PricebookCostNanos
-			m.CostNanos, m.CostBasis = &v, CostBasisPricebook
+		if r.PricedEvents == 0 {
+			continue
+		}
+		// Replace the catalog estimate of the price-book-priced events with
+		// their price-book cost; other events keep their catalog estimate.
+		v := deref(m.CostNanos) - r.ReplacedCatalogCostNanos + deref(r.PricebookCostNanos)
+		m.CostNanos, m.CostBasis = &v, CostBasisPricebook
+		if r.PricedEvents < m.Events {
+			m.CostBasis = CostBasisMixed
 		}
 	}
 	out := map[string][]SessionModel{}

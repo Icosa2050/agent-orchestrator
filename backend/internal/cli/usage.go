@@ -157,7 +157,7 @@ func newUsageReportCommand(ctx *commandContext) *cobra.Command {
 					}
 				}
 				// Fork: usage seam (FORK.md): each host's DeepSeek report extension.
-				if err := forkMergeFleetUsageReport(cmd.Context(), ctx, hosts, params, by); err != nil {
+				if err := forkMergeFleetUsageReport(cmd.Context(), ctx, hosts, params, by, top); err != nil {
 					return err
 				}
 				return writeJSON(cmd.OutOrStdout(), map[string]any{"hosts": hosts})

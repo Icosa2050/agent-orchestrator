@@ -106,7 +106,8 @@
       "pricebookCostNanos": 553872748,
       "peakListCostNanos": 1107745496,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "period": "2026-11-15",
@@ -146,7 +147,8 @@
       "pricebookCostNanos": 9023178340,
       "peakListCostNanos": 18046356680,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "period": "2026-11-16",
@@ -186,7 +188,8 @@
       "pricebookCostNanos": 8346016932,
       "peakListCostNanos": 12277409584,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "period": "2026-11-17",
@@ -226,7 +229,8 @@
       "pricebookCostNanos": 175339092,
       "peakListCostNanos": 175339092,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "period": "2026-11-17",
@@ -266,7 +270,8 @@
       "pricebookCostNanos": 1265963864,
       "peakListCostNanos": 1265963864,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "period": "2026-11-19",
@@ -306,7 +311,8 @@
       "pricebookCostNanos": 1903071544,
       "peakListCostNanos": 2595203952,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "period": "2026-11-20",
@@ -346,7 +352,8 @@
       "pricebookCostNanos": 248003624,
       "peakListCostNanos": 248003624,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "period": "2026-11-22",
@@ -386,7 +393,8 @@
       "pricebookCostNanos": 158686476,
       "peakListCostNanos": 317372952,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     }
   ],
   "sessionRows": [
@@ -409,7 +417,8 @@
       "pricebookCostNanos": 2339357900,
       "peakListCostNanos": 4678715800,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s26",
@@ -430,7 +439,8 @@
       "pricebookCostNanos": 2306419764,
       "peakListCostNanos": 2600938384,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s7",
@@ -451,7 +461,8 @@
       "pricebookCostNanos": 1733799100,
       "peakListCostNanos": 3467598200,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s5",
@@ -472,7 +483,8 @@
       "pricebookCostNanos": 1226233184,
       "peakListCostNanos": 2452466368,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s11",
@@ -493,7 +505,8 @@
       "pricebookCostNanos": 1004539140,
       "peakListCostNanos": 2009078280,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s13",
@@ -514,7 +527,8 @@
       "pricebookCostNanos": 1001258016,
       "peakListCostNanos": 1001258016,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s28",
@@ -535,7 +549,8 @@
       "pricebookCostNanos": 939146560,
       "peakListCostNanos": 939146560,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s12",
@@ -556,7 +571,8 @@
       "pricebookCostNanos": 850504028,
       "peakListCostNanos": 1701008056,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s23",
@@ -577,7 +593,8 @@
       "pricebookCostNanos": 821290272,
       "peakListCostNanos": 821290272,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s16",
@@ -598,7 +615,8 @@
       "pricebookCostNanos": 810216000,
       "peakListCostNanos": 1620432000,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s17",
@@ -619,7 +637,8 @@
       "pricebookCostNanos": 791008240,
       "peakListCostNanos": 1582016480,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s8",
@@ -640,7 +659,8 @@
       "pricebookCostNanos": 641564000,
       "peakListCostNanos": 1283128000,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s18",
@@ -661,7 +681,8 @@
       "pricebookCostNanos": 595108228,
       "peakListCostNanos": 1190216456,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s29",
@@ -682,7 +703,8 @@
       "pricebookCostNanos": 560333312,
       "peakListCostNanos": 848874048,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s22",
@@ -703,7 +725,8 @@
       "pricebookCostNanos": 527851456,
       "peakListCostNanos": 527851456,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s19",
@@ -724,7 +747,8 @@
       "pricebookCostNanos": 523048724,
       "peakListCostNanos": 1046097448,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s15",
@@ -745,7 +769,8 @@
       "pricebookCostNanos": 512068040,
       "peakListCostNanos": 512068040,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s14",
@@ -766,7 +791,8 @@
       "pricebookCostNanos": 489639832,
       "peakListCostNanos": 489639832,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s21",
@@ -787,7 +813,8 @@
       "pricebookCostNanos": 470125744,
       "peakListCostNanos": 940251488,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s6",
@@ -808,7 +835,8 @@
       "pricebookCostNanos": 392426144,
       "peakListCostNanos": 784852288,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s1",
@@ -829,7 +857,8 @@
       "pricebookCostNanos": 352364936,
       "peakListCostNanos": 704729872,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s9",
@@ -850,7 +879,8 @@
       "pricebookCostNanos": 332936560,
       "peakListCostNanos": 665873120,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s20",
@@ -871,7 +901,8 @@
       "pricebookCostNanos": 324670456,
       "peakListCostNanos": 649340912,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s24",
@@ -892,7 +923,8 @@
       "pricebookCostNanos": 316579384,
       "peakListCostNanos": 316579384,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s30",
@@ -913,7 +945,8 @@
       "pricebookCostNanos": 255480852,
       "peakListCostNanos": 510961704,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s32",
@@ -934,7 +967,8 @@
       "pricebookCostNanos": 248003624,
       "peakListCostNanos": 248003624,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s3",
@@ -955,7 +989,8 @@
       "pricebookCostNanos": 226522120,
       "peakListCostNanos": 453044240,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s25",
@@ -976,7 +1011,8 @@
       "pricebookCostNanos": 206570848,
       "peakListCostNanos": 413141696,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s2",
@@ -997,7 +1033,8 @@
       "pricebookCostNanos": 201507812,
       "peakListCostNanos": 403015624,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s10",
@@ -1018,7 +1055,8 @@
       "pricebookCostNanos": 191421956,
       "peakListCostNanos": 382843912,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s27",
@@ -1039,7 +1077,8 @@
       "pricebookCostNanos": 175339092,
       "peakListCostNanos": 175339092,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s33",
@@ -1060,7 +1099,8 @@
       "pricebookCostNanos": 158686476,
       "peakListCostNanos": 317372952,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "sessionId": "s31",
@@ -1081,7 +1121,8 @@
       "pricebookCostNanos": 148110820,
       "peakListCostNanos": 296221640,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     }
   ],
   "sessionModels": {
@@ -1476,7 +1517,8 @@
       "pricebookCostNanos": 122696640,
       "peakListCostNanos": 245393280,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 1,
@@ -1504,7 +1546,8 @@
       "pricebookCostNanos": 2561559088,
       "peakListCostNanos": 2788081208,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 2,
@@ -1532,7 +1575,8 @@
       "pricebookCostNanos": 1101057028,
       "peakListCostNanos": 1101057028,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 3,
@@ -1560,7 +1604,8 @@
       "pricebookCostNanos": 193617160,
       "peakListCostNanos": 193617160,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 4,
@@ -1588,7 +1633,8 @@
       "pricebookCostNanos": null,
       "peakListCostNanos": null,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 5,
@@ -1616,7 +1662,8 @@
       "pricebookCostNanos": 640905672,
       "peakListCostNanos": 1281811344,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 6,
@@ -1644,7 +1691,8 @@
       "pricebookCostNanos": 271792576,
       "peakListCostNanos": 271792576,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 7,
@@ -1672,7 +1720,8 @@
       "pricebookCostNanos": 555880776,
       "peakListCostNanos": 555880776,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 8,
@@ -1700,7 +1749,8 @@
       "pricebookCostNanos": 1406489216,
       "peakListCostNanos": 1406489216,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 9,
@@ -1728,7 +1778,8 @@
       "pricebookCostNanos": 1450996272,
       "peakListCostNanos": 1450996272,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 10,
@@ -1756,7 +1807,8 @@
       "pricebookCostNanos": 1061122304,
       "peakListCostNanos": 2122244608,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 11,
@@ -1784,7 +1836,8 @@
       "pricebookCostNanos": 591271824,
       "peakListCostNanos": 1182543648,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 12,
@@ -1812,7 +1865,8 @@
       "pricebookCostNanos": 402035208,
       "peakListCostNanos": 804070416,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 13,
@@ -1840,7 +1894,8 @@
       "pricebookCostNanos": 524669464,
       "peakListCostNanos": 1049338928,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 14,
@@ -1868,7 +1923,8 @@
       "pricebookCostNanos": 2817192532,
       "peakListCostNanos": 5634385064,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 15,
@@ -1896,7 +1952,8 @@
       "pricebookCostNanos": 3411052304,
       "peakListCostNanos": 6822104608,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 16,
@@ -1924,7 +1981,8 @@
       "pricebookCostNanos": 698622980,
       "peakListCostNanos": 1397245960,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 17,
@@ -1952,7 +2010,8 @@
       "pricebookCostNanos": 578102096,
       "peakListCostNanos": 1156204192,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 18,
@@ -1980,7 +2039,8 @@
       "pricebookCostNanos": 424497920,
       "peakListCostNanos": 848995840,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 19,
@@ -2008,7 +2068,8 @@
       "pricebookCostNanos": 1068519848,
       "peakListCostNanos": 2137039696,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 20,
@@ -2036,7 +2097,8 @@
       "pricebookCostNanos": 596280080,
       "peakListCostNanos": 1192560160,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 21,
@@ -2064,7 +2126,8 @@
       "pricebookCostNanos": 220091476,
       "peakListCostNanos": 440182952,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 22,
@@ -2092,7 +2155,8 @@
       "pricebookCostNanos": 601301536,
       "peakListCostNanos": 1202603072,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     },
     {
       "hour": 23,
@@ -2120,7 +2184,8 @@
       "pricebookCostNanos": 374378620,
       "peakListCostNanos": 748757240,
       "catalogCostNanos": null,
-      "catalogPricedEvents": 0
+      "catalogPricedEvents": 0,
+      "replacedCatalogCostNanos": 0
     }
   ],
   "totals": {
@@ -2155,7 +2220,8 @@
     "pricebookCostNanos": 21674132620,
     "peakListCostNanos": 36033395244,
     "catalogCostNanos": null,
-    "catalogPricedEvents": 0
+    "catalogPricedEvents": 0,
+    "replacedCatalogCostNanos": 0
   },
   "warnings": []
 }
