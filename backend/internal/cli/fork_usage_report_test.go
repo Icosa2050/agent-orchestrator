@@ -118,6 +118,28 @@ func runForkReportCLI(t *testing.T, state *forkReportState, ext string, override
 			t.Fatal(err)
 		}
 		reportext.Routes(&reportext.Service{Store: state, Prices: svc})(r)
+	case "ok-then-fail": // answers the first report-ext read, then 500
+		svc, err := pricebook.NewService(pricebook.Config{DataDir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sub := chi.NewRouter()
+		reportext.Routes(&reportext.Service{Store: state, Prices: svc})(sub)
+		var mu sync.Mutex
+		calls := 0
+		r.Get(reportext.Route, func(w http.ResponseWriter, req *http.Request) {
+			mu.Lock()
+			calls++
+			n := calls
+			mu.Unlock()
+			if n > 1 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = io.WriteString(w, `{"error":{"message":"boom","code":"INTERNAL"}}`)
+				return
+			}
+			sub.ServeHTTP(w, req)
+		})
 	case "fail":
 		r.Get("/api/v1/usage/fork/report-ext", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -571,5 +593,46 @@ func TestForkUsageReportByHourDisplayUsesOneOffset(t *testing.T) {
 				t.Errorf("until %s: hour %02d shows %s, want %s", tc.until, h.Hour, h.Display, want)
 			}
 		}
+	}
+}
+
+// After the full re-read for ranking, a fallback (snapshots never settle, or
+// report-ext failing after the full read) returns the user's own --top
+// answer: one row, top=1, not the untruncated re-read.
+func TestForkUsageReportTopFallbackKeepsTopAnswer(t *testing.T) {
+	check := func(name, out string, wantReason string) {
+		t.Helper()
+		var raw struct {
+			Top  *int              `json:"top"`
+			Rows []json.RawMessage `json:"rows"`
+			Ext  struct {
+				Status string `json:"status"`
+				Reason string `json:"reason"`
+			} `json:"ext"`
+		}
+		if err := json.Unmarshal([]byte(out), &raw); err != nil {
+			t.Fatalf("%s: not JSON: %v\n%s", name, err, out)
+		}
+		if raw.Ext.Status != "error" || !strings.Contains(raw.Ext.Reason, wantReason) || raw.Top == nil || *raw.Top != 1 || len(raw.Rows) != 1 ||
+			strings.Contains(string(raw.Rows[0]), `"ext"`) || !strings.Contains(string(raw.Rows[0]), `"harness": "codex"`) {
+			t.Fatalf("%s: output = %s", name, out)
+		}
+	}
+
+	state := forkReportFixture()
+	state.afterUpstream = func(n int, s *forkReportState) { s.add(forkDeepSeekReply(n), true) }
+	out, _, err := runForkReportCLI(t, state, "ok", nil, "usage", "report", "--top", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("never settles", out, "changed between")
+
+	out, d, err := runForkReportCLI(t, forkReportFixture(), "ok-then-fail", nil, "usage", "report", "--top", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("report-ext fails after the full read", out, "500")
+	if got := d.seen(); len(got) != 4 || got[2] != "/api/v1/usage/report" {
+		t.Fatalf("requests = %v, want the full re-read before the failing report-ext read", got)
 	}
 }

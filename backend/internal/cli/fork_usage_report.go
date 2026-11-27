@@ -284,6 +284,8 @@ func forkMergeUsageReport(ctx context.Context, c *commandContext, upstream json.
 		}
 		return res, nil
 	}
+	// Every fallback returns the answer to the user's own request (with its
+	// top truncation and metadata); the re-reads only serve the merge.
 	original := upstream
 	var mismatch error
 	for attempt := 0; attempt < forkConsistencyAttempts; attempt++ {
@@ -296,7 +298,7 @@ func forkMergeUsageReport(ctx context.Context, c *commandContext, upstream json.
 		}
 		extRaw, ext, status, err := forkReadExt(ctx, c, params)
 		if status != "ok" {
-			return forkWithExtStatus(upstream, status, err)
+			return forkWithExtStatus(original, status, err)
 		}
 		if top > 0 && ext.Totals.PricedEvents > 0 && upstreamParams.Get("top") != "" {
 			// Rank over every row: re-read without top, then read the
@@ -306,14 +308,14 @@ func forkMergeUsageReport(ctx context.Context, c *commandContext, upstream json.
 				return forkWithExtStatus(original, "error", err)
 			}
 			if extRaw, ext, status, err = forkReadExt(ctx, c, params); status != "ok" {
-				return forkWithExtStatus(upstream, status, err)
+				return forkWithExtStatus(original, status, err)
 			}
 		}
 		if mismatch = forkConsistent(upstream, ext, by, upstreamParams.Get("top") != ""); mismatch == nil {
 			return forkMergeExt(upstream, extRaw, ext, by, top)
 		}
 	}
-	return forkWithExtStatus(upstream, "error", fmt.Errorf("%w; run it again", mismatch))
+	return forkWithExtStatus(original, "error", fmt.Errorf("%w; run it again", mismatch))
 }
 
 // forkConsistent reports why upstream and ext do not describe the same
