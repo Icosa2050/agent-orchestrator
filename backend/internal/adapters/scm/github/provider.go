@@ -664,18 +664,29 @@ func jobIDForCheck(pr map[string]any, name string) int64 {
 // run IDs grow, so the highest databaseId is the newest. A run without a
 // readable workflowRun (another app, or a token without Actions access) is
 // always kept: it can't be matched to its reruns. Check runs of a cancelled run
-// that a newer run replaced are marked first (see markSupersededRuns).
+// that a newer run replaced are marked first (see markSupersededRuns). Such a
+// check stands for its job only while no newer run has that job: a rerun of the
+// older run gets higher check run IDs, yet must not hide the newer run's result.
 func latestCheckRuns(in []map[string]any) []map[string]any {
 	markSupersededRuns(in)
+	current := map[string]bool{}
+	for _, n := range in {
+		if key := checkRunKey(n); key != "" && !boolv(n["supersededRun"]) {
+			current[key] = true
+		}
+	}
+	eligible := func(key string, n map[string]any) bool {
+		return !current[key] || !boolv(n["supersededRun"])
+	}
 	newest := map[string]float64{}
 	for _, n := range in {
-		if key := checkRunKey(n); key != "" {
+		if key := checkRunKey(n); key != "" && eligible(key, n) {
 			newest[key] = max(newest[key], num(n["databaseId"]))
 		}
 	}
 	out := make([]map[string]any, 0, len(in))
 	for _, n := range in {
-		if key := checkRunKey(n); key != "" && num(n["databaseId"]) < newest[key] {
+		if key := checkRunKey(n); key != "" && (!eligible(key, n) || num(n["databaseId"]) < newest[key]) {
 			continue
 		}
 		out = append(out, n)

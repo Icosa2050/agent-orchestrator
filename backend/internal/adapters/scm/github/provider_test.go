@@ -1724,6 +1724,20 @@ func TestSupersededCancelledRunIsNotACIFailure(t *testing.T) {
 			wantFailed: []string{"Unit Tests", "Quality Gate"},
 		},
 		{
+			// The older run was rerun after the newer one failed, then
+			// cancelled again: its check runs have the higher IDs.
+			name: "rerun of the superseded run does not hide the newer run's failure",
+			nodes: []any{
+				pipelineCheckRun(readyRun, "FAILURE", "Detect Changes", "COMPLETED", "SUCCESS", 56100000101),
+				pipelineCheckRun(readyRun, "FAILURE", "Quality Gate", "COMPLETED", "FAILURE", 56100000109),
+				pipelineCheckRun(draftRun, "CANCELLED", "Detect Changes", "COMPLETED", "CANCELLED", 56100000501),
+				pipelineCheckRun(draftRun, "CANCELLED", "Quality Gate", "COMPLETED", "FAILURE", 56100000509),
+			},
+			wantGate:   domain.PRCheckFailed,
+			wantCI:     domain.CIFailing,
+			wantFailed: []string{"Quality Gate"},
+		},
+		{
 			name: "gate failure in a suite that concluded FAILURE is unchanged",
 			nodes: []any{
 				pipelineCheckRun(draftRun, "FAILURE", "Detect Changes", "COMPLETED", "SUCCESS", 56100000001),
