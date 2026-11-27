@@ -104,6 +104,7 @@ func TestForkDefaultOutboundHosts(t *testing.T) {
 	allowed := map[string]string{
 		"raw.githubusercontent.com": "/BerriAI/litellm/main/model_prices_and_context_window.json",
 		"api-docs.deepseek.com":     "/quick_start/pricing.md",
+		"openrouter.ai":             "/api/v1/models", // keyless model listing only, never /api/v1/key
 	}
 	dataDir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -115,8 +116,10 @@ func TestForkDefaultOutboundHosts(t *testing.T) {
 	if err := runtime.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	usage := startForkUsage(ctx, forkUsageConfig{DataDir: dataDir, FirstDelay: func() time.Duration { return 0 }, Tick: 5 * time.Millisecond})
+	usage := startForkUsage(ctx, forkUsageConfig{DataDir: dataDir, FirstDelay: func() time.Duration { return 0 }, Tick: 5 * time.Millisecond,
+		Keys: forkTestKeys{}, ProviderTick: 5 * time.Millisecond})
 	waitFor(t, "the price-page check", func() bool { return rt.sawHost("api-docs.deepseek.com") })
+	waitFor(t, "the OpenRouter model listing", func() bool { return rt.sawHost("openrouter.ai") })
 	waitFor(t, "the LiteLLM price table", func() bool { return rt.sawHost("raw.githubusercontent.com") })
 	usage.stop()
 	cancel()
@@ -136,17 +139,19 @@ func TestForkDefaultOutboundHosts(t *testing.T) {
 	}
 }
 
-// With the switch off the daemon never contacts the docs host.
+// With the switches off the daemon never contacts the docs host or the
+// OpenRouter model listing.
 func TestForkPriceCheckSwitchOff(t *testing.T) {
 	rt := installRecordingTransport(t)
 	dataDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Dir(pricebook.ConfigPath(dataDir)), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pricebook.ConfigPath(dataDir), []byte(`{"pricebook":{"autoCheck":false}}`), 0o600); err != nil {
+	if err := os.WriteFile(pricebook.ConfigPath(dataDir), []byte(`{"pricebook":{"autoCheck":false},"openrouterModels":{"autoFetch":false}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	usage := startForkUsage(context.Background(), forkUsageConfig{DataDir: dataDir, FirstDelay: func() time.Duration { return 0 }, Tick: time.Millisecond})
+	usage := startForkUsage(context.Background(), forkUsageConfig{DataDir: dataDir, FirstDelay: func() time.Duration { return 0 }, Tick: time.Millisecond,
+		ProviderTick: time.Millisecond})
 	time.Sleep(300 * time.Millisecond)
 	usage.stop()
 	if got := rt.snapshot(); len(got) != 0 {
@@ -184,7 +189,9 @@ func TestForkProviderUsageOffByDefault(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	usage.stop()
 	for _, req := range rt.snapshot() {
-		if req.host == "api.deepseek.com" || req.host == "openrouter.ai" || req.authorization {
+		// The keyless model listing is the only default openrouter.ai request.
+		keyless := req.host == "openrouter.ai" && req.path == "/api/v1/models" && !req.authorization && !req.cookie
+		if req.host == "api.deepseek.com" || (req.host == "openrouter.ai" && !keyless) || req.authorization {
 			t.Errorf("request without opt-in: %+v", req)
 		}
 	}
@@ -201,8 +208,8 @@ func TestForkProviderUsageOffByDefault(t *testing.T) {
 		if req.host == "api.deepseek.com" && (req.path != "/user/balance" || !req.authorization || req.scheme != "https") {
 			t.Errorf("balance request %+v", req)
 		}
-		if req.host == "openrouter.ai" {
-			t.Errorf("openrouter contacted while off: %+v", req)
+		if req.host == "openrouter.ai" && (req.path != "/api/v1/models" || req.authorization) {
+			t.Errorf("openrouter key contacted while off: %+v", req)
 		}
 	}
 	if strings.Contains(rec.Body.String(), "SENTINEL") {

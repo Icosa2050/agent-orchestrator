@@ -240,6 +240,30 @@ Routes: `GET /api/v1/usage/fork/providers[?refresh=0]` (rows,
 `providersSchema: 1`, thresholds) and `POST /api/v1/usage/fork/providers
 {provider, enabled}` (local only).
 
+### Steering (PR F)
+
+`backend/internal/forkusage/providers/steering.go` and `models.go`, shown by
+`backend/internal/cli/fork_usage_steering.go`, add the `steering` block to
+`GET /api/v1/usage/fork/providers` and so to `ao usage limits [--json]
+[--fleet]`: the DeepSeek window and price factor (UTC and Europe/Berlin),
+balance, runway, the OpenRouter binding limit and runway, PAL-allowed models
+ranked by listed price, the `@preset/...` chains (informational) and the
+advice codes `stop` / `low-runway` / `defer-nonurgent` / `ok-offpeak` /
+`prefer-cheaper` / `ok` / `unknown` (docs/provider-usage.md, with the
+orchestrator rule text). Read-only and local: nothing is blocked.
+
+- The PAL allowed list is read from `~/.claude.json`
+  (`mcpServers.pal.env.OPENROUTER_ALLOWED_MODELS`, names only) and preset
+  chains from PAL's `OPENROUTER_MODELS_CONFIG_PATH`; both are read only, never
+  written, and no other env value is kept.
+- `ao usage providers set runwayLowDays=… balanceLow=… keyRemainingLowPct=…
+  modelsListing=on|off` writes `config.json` (`thresholds`,
+  `openrouterModels.autoFetch`); local only like enable/disable
+  (`POST /api/v1/usage/fork/providers/settings`, `PROVIDERS_LOCAL_ONLY` on the
+  LAN listener).
+- State: `provider-usage/openrouter-models.json` (0600), the listing's price
+  fields only, plus the last attempt and failure reason.
+
 ### Default outbound endpoints
 
 Requests the daemon sends by default, with no opt-in. Every new default
@@ -254,6 +278,7 @@ verification reports); add these hosts to its expected destinations.
 |---|---|---|---|---|
 | `raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` | LiteLLM model price table (upstream usage cost estimates) | daily refresh | upstream behaviour | none |
 | `api-docs.deepseek.com/quick_start/pricing.md` | DeepSeek price-page check (price book drift) | at most daily, first 5-30 min after start; also `ao usage prices --check` | `ao usage prices auto off` (`TestForkPriceCheckSwitchOff`) | none, no cookies |
+| `openrouter.ai/api/v1/models` | OpenRouter public model listing (steering: PAL-allowed model prices, cross-route DeepSeek prices) | at most daily (persisted; 1 h retry after a failure), from the provider loop | `ao usage providers set modelsListing=off` (`TestForkPriceCheckSwitchOff`) | none, no cookies, redirects refused |
 
 Tests: `./internal/forkusage/pricebook` (all), `TestForkDefaultOutboundHosts`,
 `TestForkPriceCheckSwitchOff` and `TestForkProviderUsageOffByDefault`
