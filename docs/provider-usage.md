@@ -203,7 +203,9 @@ for both providers (USD for OpenRouter).
   would overstate the runway. OpenRouter: remaining of the binding limit (the
   effective budget or the key limit, whichever has the smaller share left)
   / (`usage_weekly` / UTC week days elapsed at the reading, at least 1).
-  With `--fleet`, a shared key's entry with a runway beats one without.
+  With `--fleet`, the newest reading of a shared key stays authoritative;
+  without its own runway it borrows another host's average daily spend
+  against its own balance, which can only tighten the advice.
 - **Model prices.** `GET https://openrouter.ai/api/v1/models` is public and
   keyless. The daemon fetches it at most once a day (retry after a failure:
   1 h; attempts persist across restarts), with no `Authorization` header, no

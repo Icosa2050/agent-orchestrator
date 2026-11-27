@@ -103,12 +103,21 @@ type forkSteeringBlock struct {
 	Warnings   []string                        `json:"warnings,omitempty"`
 }
 
+type forkDeepSeekHostEntry struct {
+	entry *providers.DeepSeekSteering
+	host  string
+	th    providers.Thresholds
+}
+
 // forkFleetSteering keeps one steering entry per provider and key id (the
 // newest reading wins; entries without a key collapse to one), listing the
-// hosts that report it, and warns when hosts' price-book versions differ.
+// hosts that report it, and warns when hosts' price-book versions differ. A
+// DeepSeek entry without a runway borrows another host's spend history for
+// the same wallet (BorrowRunway), keeping its own balance and advice.
 func forkFleetSteering(hosts []fleetUsageHost) forkSteeringBlock {
 	out := forkSteeringBlock{Schema: providers.SteeringSchema, DeepSeek: []*providers.DeepSeekSteering{}, OpenRouter: []*providers.OpenRouterSteering{}}
 	dsIdx, orIdx := map[string]int{}, map[string]int{}
+	var dsAll [][]forkDeepSeekHostEntry // every host's entry per wallet, for runway history
 	versions := map[string][]string{}
 	for _, h := range hosts {
 		if h.Status != remoteStatusOK || len(h.Data) == 0 {
@@ -122,12 +131,12 @@ func forkFleetSteering(hosts []fleetUsageHost) forkSteeringBlock {
 			if d.PriceBook != nil && d.PriceBook.Version != "" {
 				versions[d.PriceBook.Version] = append(versions[d.PriceBook.Version], h.Name)
 			}
+			hostEntry := forkDeepSeekHostEntry{entry: d, host: h.Name, th: res.Steering.Thresholds.Thresholds}
 			if i, ok := dsIdx[d.KeyID]; ok {
+				dsAll[i] = append(dsAll[i], hostEntry)
 				seen := append(append([]string{}, out.DeepSeek[i].Hosts...), h.Name)
-				// Same wallet: an entry with a runway beats one without (a host
-				// with sparse history), else the newest reading wins.
-				hasRunway, hadRunway := d.Runway.Days != nil, out.DeepSeek[i].Runway.Days != nil
-				if (hasRunway && !hadRunway) || (hasRunway == hadRunway && newer(d.FetchedAt, out.DeepSeek[i].FetchedAt)) {
+				// Same wallet: the newest reading is authoritative.
+				if newer(d.FetchedAt, out.DeepSeek[i].FetchedAt) {
 					out.DeepSeek[i] = d
 				}
 				out.DeepSeek[i].Hosts = seen
@@ -135,6 +144,7 @@ func forkFleetSteering(hosts []fleetUsageHost) forkSteeringBlock {
 				d.Hosts = []string{h.Name}
 				dsIdx[d.KeyID] = len(out.DeepSeek)
 				out.DeepSeek = append(out.DeepSeek, d)
+				dsAll = append(dsAll, []forkDeepSeekHostEntry{hostEntry})
 			}
 		}
 		if o := res.Steering.OpenRouter; o != nil {
@@ -149,6 +159,26 @@ func forkFleetSteering(hosts []fleetUsageHost) forkSteeringBlock {
 				orIdx[o.KeyID] = len(out.OpenRouter)
 				out.OpenRouter = append(out.OpenRouter, o)
 			}
+		}
+	}
+	// A host with sparse balance history borrows the newest runway another
+	// host computed for the same wallet, against its own (newest) balance.
+	for i, entries := range dsAll {
+		var donor *forkDeepSeekHostEntry
+		for j := range entries {
+			e := &entries[j]
+			if e.entry != out.DeepSeek[i] && e.entry.Runway.Days != nil && (donor == nil || newer(e.entry.FetchedAt, donor.entry.FetchedAt)) {
+				donor = e
+			}
+		}
+		if donor != nil && out.DeepSeek[i].KeyID != "" {
+			th := providers.DefaultThresholds
+			for _, e := range entries {
+				if e.entry == out.DeepSeek[i] {
+					th = e.th
+				}
+			}
+			out.DeepSeek[i].BorrowRunway(donor.entry, donor.host, th)
 		}
 	}
 	// A keyed entry makes the key-less (polling off) entry of another host noise.

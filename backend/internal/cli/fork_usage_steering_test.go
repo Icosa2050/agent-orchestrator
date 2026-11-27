@@ -124,3 +124,57 @@ func TestForkUsageSteeringFleetOnePerKey(t *testing.T) {
 		}
 	}
 }
+
+// The newest reading of a shared wallet is authoritative; an older host's
+// runway history is only borrowed against it (regression: an older positive
+// entry with a runway must not hide a newer stop).
+func TestForkUsageSteeringFleetNewestWalletWinsInBothOrders(t *testing.T) {
+	old := time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC)
+	recent := old.Add(30 * time.Minute)
+	days, coverage := 12.0, 7.0
+	avail, unavailable := true, false
+	older := func() providers.Steering {
+		return providers.Steering{Schema: 1, Thresholds: providers.SteeringThresholds{Thresholds: providers.DefaultThresholds}, DeepSeek: &providers.DeepSeekSteering{
+			KeyID: "aaaaaaaaaaaa", FetchedAt: &old, Status: "ok", Window: "off-peak",
+			Balance: &providers.SteerBalance{Amount: "40.00", Currency: "USD", IsAvailable: &avail},
+			Runway:  providers.Runway{Days: &days, AvgDailySpend: "10.00", Currency: "USD", Basis: "balance change", CoverageDays: &coverage},
+			Advice:  providers.Advice{Code: providers.AdviceOKOffPeak, Reason: "off-peak"}}}
+	}
+	newer := func(amount string, available *bool, code string) providers.Steering {
+		return providers.Steering{Schema: 1, Thresholds: providers.SteeringThresholds{Thresholds: providers.DefaultThresholds}, DeepSeek: &providers.DeepSeekSteering{
+			KeyID: "aaaaaaaaaaaa", FetchedAt: &recent, Status: "ok", Window: "off-peak",
+			Balance: &providers.SteerBalance{Amount: amount, Currency: "USD", IsAvailable: available},
+			Runway:  providers.Runway{Reason: "insufficient history", Currency: "USD"},
+			Advice:  providers.Advice{Code: code, Reason: code}}}
+	}
+	for _, tc := range []struct {
+		name      string
+		recent    providers.Steering
+		wantCode  string
+		wantDays  float64
+		wantTotal string
+	}{
+		{"newer stop", newer("0.00", &unavailable, providers.AdviceStop), providers.AdviceStop, 0, "0.00"},
+		{"newer ok borrows a low runway", newer("20.00", &avail, providers.AdviceOKOffPeak), providers.AdviceLowRunway, 2, "20.00"},
+		{"newer ok borrows a long runway", newer("90.00", &avail, providers.AdviceOKOffPeak), providers.AdviceOKOffPeak, 9, "90.00"},
+	} {
+		for _, reversed := range []bool{false, true} {
+			a, b := forkSteeringHost(t, "studio", older()), forkSteeringHost(t, "mini", tc.recent)
+			hosts := []fleetUsageHost{a, b}
+			if reversed {
+				hosts = []fleetUsageHost{b, a}
+			}
+			block := forkFleetSteering(hosts)
+			if len(block.DeepSeek) != 1 {
+				t.Fatalf("%s reversed=%v: %+v", tc.name, reversed, block.DeepSeek)
+			}
+			d := block.DeepSeek[0]
+			if d.Advice.Code != tc.wantCode || d.Balance.Amount != tc.wantTotal || d.FetchedAt == nil || !d.FetchedAt.Equal(recent) || len(d.Hosts) != 2 {
+				t.Errorf("%s reversed=%v: advice %+v balance %+v", tc.name, reversed, d.Advice, d.Balance)
+			}
+			if d.Runway.Days == nil || *d.Runway.Days != tc.wantDays || !strings.Contains(d.Runway.Basis, "spend history from studio") {
+				t.Errorf("%s reversed=%v: runway %+v", tc.name, reversed, d.Runway)
+			}
+		}
+	}
+}

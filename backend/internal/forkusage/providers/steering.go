@@ -683,3 +683,31 @@ func openrouterAdvice(o *OpenRouterSteering, row Row, th Thresholds) Advice {
 	}
 	return Advice{AdviceOK, left}
 }
+
+// BorrowRunway fills d's missing runway from another host's reading of the
+// same wallet (fleet view: d's host has too little balance history). d stays
+// authoritative: its balance, availability, status and advice are kept, the
+// runway is other's average daily spend against d's balance, and the
+// borrowed runway can only tighten the advice (window codes to low-runway),
+// never loosen stop or low-runway.
+func (d *DeepSeekSteering) BorrowRunway(other *DeepSeekSteering, host string, th Thresholds) {
+	if d == nil || other == nil || d.Runway.Days != nil || other.Runway.Days == nil || d.Balance == nil ||
+		other.Runway.Currency != d.Balance.Currency || other.Runway.AvgDailySpend == "" {
+		return
+	}
+	balance, ok := parseDecimal(d.Balance.Amount)
+	avg, ok2 := new(big.Rat).SetString(other.Runway.AvgDailySpend)
+	if !ok || !ok2 || avg.Sign() <= 0 {
+		return
+	}
+	raw, _ := new(big.Rat).Quo(balance, avg).Float64()
+	raw = math.Max(raw, 0)
+	days := round1(raw)
+	d.Runway = Runway{Days: &days, AvgDailySpend: other.Runway.AvgDailySpend, Currency: other.Runway.Currency,
+		Basis: other.Runway.Basis + "; spend history from " + host, CoverageDays: other.Runway.CoverageDays, raw: &raw}
+	if d.Advice.Code == AdviceStop || d.Advice.Code == AdviceLowRunway || raw >= th.RunwayLowDays {
+		return
+	}
+	d.Advice = Advice{AdviceLowRunway, fmt.Sprintf("runway %s d (below %s d; spend history from %s); balance %s %s",
+		fmtDays(days), fmtDays(th.RunwayLowDays), host, d.Balance.Currency, d.Balance.Amount)}
+}
