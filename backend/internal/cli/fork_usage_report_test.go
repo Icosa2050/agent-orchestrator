@@ -524,3 +524,52 @@ func TestForkUsageReportIngestionThatNeverSettlesIsAnExtError(t *testing.T) {
 		}
 	}
 }
+
+// Every --tz label uses the offset at the window's last instant, also when
+// that date holds a DST switch (Europe/Berlin: 2026-03-29 spring forward,
+// 2026-10-25 fall back).
+func TestForkUsageReportByHourDisplayUsesOneOffset(t *testing.T) {
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hours := make([]forkHour, 24)
+	for h := range hours {
+		hours[h] = forkHour{Hour: h, UTC: time.Date(2000, 1, 1, h, 0, 0, 0, time.UTC).Format("15:04")}
+	}
+	for _, tc := range []struct {
+		until, offset string
+		want          map[int]string
+	}{
+		// Fall back: the last instant 2026-10-25T23:59:59Z is CET (+01:00).
+		{"2026-10-26T00:00:00Z", "+01:00", map[int]string{0: "01:00", 1: "02:00", 2: "03:00", 23: "00:00"}},
+		// Spring forward: the last instant 2026-03-29T23:59:59Z is CEST (+02:00).
+		{"2026-03-30T00:00:00Z", "+02:00", map[int]string{0: "02:00", 1: "03:00", 2: "04:00", 22: "00:00", 23: "01:00"}},
+	} {
+		until, err := time.Parse(time.RFC3339, tc.until)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(map[string]any{"days": 1, "since": until.Add(-24 * time.Hour), "until": until, "hours": hours})
+		if err != nil {
+			t.Fatal(err)
+		}
+		view, err := forkHoursView(raw, "Europe/Berlin", berlin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.DisplayUTCOffset != tc.offset {
+			t.Errorf("until %s: offset %q, want %q", tc.until, view.DisplayUTCOffset, tc.offset)
+		}
+		seen := map[string]bool{}
+		for _, h := range view.Hours {
+			if seen[h.Display] {
+				t.Errorf("until %s: label %s used twice (mixed offsets)", tc.until, h.Display)
+			}
+			seen[h.Display] = true
+			if want, ok := tc.want[h.Hour]; ok && h.Display != want {
+				t.Errorf("until %s: hour %02d shows %s, want %s", tc.until, h.Hour, h.Display, want)
+			}
+		}
+	}
+}

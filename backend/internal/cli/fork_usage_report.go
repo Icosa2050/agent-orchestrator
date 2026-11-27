@@ -665,22 +665,24 @@ type forkHoursHour struct {
 
 // forkHoursReport is the stable `ao usage report --by hour --json` shape.
 type forkHoursReport struct {
-	By              string           `json:"by"`
-	Provider        string           `json:"provider"`
-	Days            int              `json:"days"`
-	Since           time.Time        `json:"since"`
-	Until           time.Time        `json:"until"`
-	WindowsTimeZone string           `json:"windowsTimeZone"`
-	DisplayTimeZone string           `json:"displayTimeZone,omitempty"`
-	DisplayOffsetAt *time.Time       `json:"displayOffsetAt,omitempty"`
-	WindowRule      string           `json:"windowRule"`
-	BoundaryRule    string           `json:"boundaryRule"`
-	PeakRule        *forkPeakRule    `json:"peakRule"`
-	PriceVersions   []string         `json:"priceVersions"`
-	Hours           []forkHoursHour  `json:"hours"`
-	Totals          forkReportTotals `json:"totals"`
-	PriceBook       *forkBookRef     `json:"priceBook"`
-	Warnings        []string         `json:"warnings"`
+	By              string     `json:"by"`
+	Provider        string     `json:"provider"`
+	Days            int        `json:"days"`
+	Since           time.Time  `json:"since"`
+	Until           time.Time  `json:"until"`
+	WindowsTimeZone string     `json:"windowsTimeZone"`
+	DisplayTimeZone string     `json:"displayTimeZone,omitempty"`
+	DisplayOffsetAt *time.Time `json:"displayOffsetAt,omitempty"`
+	// DisplayUTCOffset is the one offset every display label uses.
+	DisplayUTCOffset string           `json:"displayUtcOffset,omitempty"`
+	WindowRule       string           `json:"windowRule"`
+	BoundaryRule     string           `json:"boundaryRule"`
+	PeakRule         *forkPeakRule    `json:"peakRule"`
+	PriceVersions    []string         `json:"priceVersions"`
+	Hours            []forkHoursHour  `json:"hours"`
+	Totals           forkReportTotals `json:"totals"`
+	PriceBook        *forkBookRef     `json:"priceBook"`
+	Warnings         []string         `json:"warnings"`
 }
 
 func forkHoursView(raw json.RawMessage, tz string, display *time.Location) (forkHoursReport, error) {
@@ -702,16 +704,21 @@ func forkHoursView(raw json.RawMessage, tz string, display *time.Location) (fork
 	if view.Warnings == nil {
 		view.Warnings = []string{}
 	}
-	// The display offset is the zone's offset at the window's last instant;
-	// a DST switch inside the window shifts earlier days by an hour.
+	// Every label uses one offset: the zone's offset at the window's last
+	// instant (a DST switch inside the window, or on that date, shifts other
+	// days by an hour; the windows themselves are UTC).
 	at := ext.Until.Add(-time.Second).UTC()
+	var fixed *time.Location
 	if display != nil {
+		name, offset := at.In(display).Zone()
+		fixed = time.FixedZone(name, offset)
 		view.DisplayTimeZone, view.DisplayOffsetAt = tz, &at
+		view.DisplayUTCOffset = time.Date(2000, 1, 1, 0, 0, 0, 0, fixed).Format("-07:00")
 	}
 	for _, h := range ext.Hours {
 		hh := forkHoursHour{forkHour: h}
 		if display != nil {
-			hh.Display = time.Date(at.Year(), at.Month(), at.Day(), h.Hour, 0, 0, 0, time.UTC).In(display).Format("15:04")
+			hh.Display = time.Date(2000, 1, 1, h.Hour, 0, 0, 0, time.UTC).In(fixed).Format("15:04")
 		}
 		view.Hours = append(view.Hours, hh)
 	}

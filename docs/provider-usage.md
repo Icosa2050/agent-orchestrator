@@ -104,12 +104,14 @@ cache-hit, cache-miss and output tokens, the windowed cost and its peak and
 off-peak parts. `peakHour` marks hours inside the weekday peak ranges;
 replies in those hours on weekends and holidays are still off-peak, which the
 peak/off-peak split shows. A reply is bucketed by its window instant (see
-above). `--tz` only adds a local-time column (`display` in JSON), using the
-zone's offset at the end of the window. `--json` gives:
+above). `--tz` only adds a local-time column (`display` in JSON). Every label
+uses one offset, the zone's offset at the window's last instant
+(`displayOffsetAt`, `displayUtcOffset`), even when a DST switch falls inside
+the window or on that date. `--json` gives:
 
 ```json
 {"by":"hour","provider":"deepseek","days":7,"since":"...","until":"...",
- "windowsTimeZone":"UTC","displayTimeZone":"Europe/Berlin","displayOffsetAt":"...",
+ "windowsTimeZone":"UTC","displayTimeZone":"Europe/Berlin","displayOffsetAt":"...","displayUtcOffset":"+01:00",
  "windowRule":"...","boundaryRule":"...","peakRule":{"version":"...","weekdays":["Mon","Tue","Wed","Thu","Fri"],"utcRanges":[["01:00","04:00"],["06:00","10:00"]],"excludeHolidays":"cn"},
  "priceVersions":["deepseek-2026-09-10"],
  "hours":[{"hour":0,"utc":"00:00","display":"01:00","peakHour":false,"events":12,
