@@ -166,8 +166,8 @@ type Settings struct {
 
 var errBadSetting = errors.New("invalid setting")
 
-// validate rejects values readSettings would ignore.
-func (s Settings) validate() error {
+// Validate rejects values readSettings would ignore.
+func (s Settings) Validate() error {
 	switch {
 	case s.RunwayLowDays == nil && s.BalanceLow == nil && s.KeyRemainingLowPct == nil && s.ModelsListing == nil:
 		return fmt.Errorf("%w: nothing to set", errBadSetting)
@@ -183,7 +183,7 @@ func (s Settings) validate() error {
 
 // writeSettings applies s, keeping every other setting.
 func writeSettings(dataDir string, s Settings) error {
-	if err := s.validate(); err != nil {
+	if err := s.Validate(); err != nil {
 		return err
 	}
 	return pricebook.UpdateConfig(dataDir, func(cfg map[string]json.RawMessage) error {

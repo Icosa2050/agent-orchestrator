@@ -222,7 +222,7 @@ func writeForkFleetUsageLimits(c context.Context, ctx *commandContext, out io.Wr
 	provHosts, err := ctx.fleetGetJSON(c, forkProvidersPath)
 	rows := []providers.Row{}
 	missing := []forkProviderHostProblem{}
-	var steering forkSteeringBlock
+	steering := forkSteeringBlock{Schema: providers.SteeringSchema, DeepSeek: []*providers.DeepSeekSteering{}, OpenRouter: []*providers.OpenRouterSteering{}}
 	if err == nil {
 		rows = forkDedupeProviderRows(provHosts)
 		missing = forkProviderProblems(hosts, provHosts)

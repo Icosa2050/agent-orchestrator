@@ -396,10 +396,16 @@ func (s *Service) Status(ctx context.Context, refresh bool) StatusResponse {
 	}
 	now := s.cfg.Now()
 	out := StatusResponse{ProvidersSchema: SchemaVersion, Thresholds: th, ModelsListing: listing, Providers: make([]Row, 0, len(Known))}
-	for _, p := range Known {
-		out.Providers = append(out.Providers, s.row(p, enabled[p], now))
+	// One window evaluation per answer, so rows and steering agree.
+	var window *pricebook.WindowReport
+	if s.cfg.Window != nil {
+		w := s.cfg.Window(now)
+		window = &w
 	}
-	in := steerInputs{now: now, th: th, listingOn: listing, pal: readPALConfig(s.cfg.PAL)}
+	for _, p := range Known {
+		out.Providers = append(out.Providers, s.row(p, enabled[p], now, window))
+	}
+	in := steerInputs{now: now, th: th, listingOn: listing, pal: readPALConfig(s.cfg.PAL), window: window}
 	for _, r := range out.Providers {
 		switch r.Provider {
 		case DeepSeek:
@@ -407,10 +413,6 @@ func (s *Service) Status(ctx context.Context, refresh bool) StatusResponse {
 		case OpenRouter:
 			in.openrouter = r
 		}
-	}
-	if s.cfg.Window != nil {
-		w := s.cfg.Window(now)
-		in.window = &w
 	}
 	if enabled[DeepSeek] {
 		samples, err := readSamples(s.cfg.DataDir)
@@ -425,10 +427,10 @@ func (s *Service) Status(ctx context.Context, refresh bool) StatusResponse {
 // SetSettings updates the steering thresholds or the listing switch.
 func (s *Service) SetSettings(set Settings) error { return writeSettings(s.cfg.DataDir, set) }
 
-func (s *Service) row(provider string, enabled bool, now time.Time) Row {
+func (s *Service) row(provider string, enabled bool, now time.Time, window *pricebook.WindowReport) Row {
 	r := Row{Provider: provider, Status: StatusDisabled}
-	if provider == DeepSeek && s.cfg.Window != nil {
-		r.Window, r.PriceBook = windowOf(s.cfg.Window(now))
+	if provider == DeepSeek && window != nil {
+		r.Window, r.PriceBook = windowOf(*window)
 	}
 	if !enabled {
 		r.Reason = ReasonDisabled + "; enable with `ao usage providers enable " + provider + "`"

@@ -102,6 +102,8 @@ type Runway struct {
 	Basis         string   `json:"basis,omitempty"`
 	CoverageDays  *float64 `json:"coverageDays,omitempty"`
 	Reason        string   `json:"reason,omitempty"`
+	// raw is the unrounded Days the thresholds compare against.
+	raw *float64
 }
 
 // SteerBalance is the DeepSeek wallet the advice used.
@@ -134,7 +136,11 @@ type AlsoVia struct {
 
 // DeepSeekSteering is the DeepSeek "price now" signal.
 type DeepSeekSteering struct {
-	KeyID              string                  `json:"keyId,omitempty"`
+	KeyID string `json:"keyId,omitempty"`
+	// Status and StatusReason are the balance row's (ok, disabled,
+	// unavailable): an unavailable row's reading is the last good one.
+	Status             string                  `json:"status"`
+	StatusReason       string                  `json:"statusReason,omitempty"`
 	Hosts              []string                `json:"hosts,omitempty"`
 	FetchedAt          *time.Time              `json:"fetchedAt,omitempty"`
 	Window             string                  `json:"window"`
@@ -166,6 +172,8 @@ type SteerKey struct {
 	ResetInterval  string     `json:"resetInterval,omitempty"`
 	ResetsAt       *time.Time `json:"resetsAt,omitempty"`
 	ResetsAtBerlin string     `json:"resetsAtBerlin,omitempty"`
+	// share is the unrounded remaining fraction (0-1) the thresholds use.
+	share float64
 }
 
 // SteerModel is one PAL-allowed model's listed price and rank (1 =
@@ -200,7 +208,12 @@ const (
 
 // OpenRouterSteering is the PAL/OpenRouter signal.
 type OpenRouterSteering struct {
-	KeyID               string        `json:"keyId,omitempty"`
+	KeyID string `json:"keyId,omitempty"`
+	// Status and StatusReason are the key row's; Stale marks a key reading
+	// older than a failed refresh.
+	Status              string        `json:"status"`
+	StatusReason        string        `json:"statusReason,omitempty"`
+	Stale               bool          `json:"stale,omitempty"`
 	Hosts               []string      `json:"hosts,omitempty"`
 	FetchedAt           *time.Time    `json:"fetchedAt,omitempty"`
 	TimePricing         string        `json:"timePricing"`
@@ -280,6 +293,10 @@ func deepseekSteering(in steerInputs) *DeepSeekSteering {
 			d.AlsoVia = &AlsoVia{Route: "openrouter", Currency: "USD", Note: CrossRouteNote, ListedAt: &at, Models: ds}
 		}
 	}
+	d.Status, d.StatusReason = row.Status, row.Reason
+	if d.Status == "" {
+		d.Status = StatusDisabled
+	}
 	var balance *big.Rat
 	if row.Status != StatusDisabled && row.Balance != nil {
 		d.KeyID, d.FetchedAt = row.KeyID, row.FetchedAt
@@ -290,6 +307,8 @@ func deepseekSteering(in steerInputs) *DeepSeekSteering {
 	switch {
 	case row.Status == StatusDisabled:
 		d.Runway.Reason = "balance polling disabled"
+	case balance == nil && row.Reason != "":
+		d.Runway.Reason = "no balance reading: " + row.Reason
 	case balance == nil:
 		d.Runway.Reason = "no balance reading"
 	case in.samplesErr:
@@ -341,9 +360,10 @@ func deepseekRunway(samples []Sample, keyID, currency string, balance *big.Rat, 
 		r.Reason = "no spend observed"
 		return r
 	}
-	days, _ := new(big.Rat).Quo(balance, avg).Float64()
-	days = round1(math.Max(days, 0))
-	r.Days = &days
+	raw, _ := new(big.Rat).Quo(balance, avg).Float64()
+	raw = math.Max(raw, 0)
+	days := round1(raw)
+	r.Days, r.raw = &days, &raw
 	return r
 }
 
@@ -360,14 +380,17 @@ func deepseekAdvice(d *DeepSeekSteering, balance *big.Rat, th Thresholds, row Ro
 	}
 	low, _ := new(big.Rat).SetString(th.BalanceLow)
 	switch {
-	case d.Runway.Days != nil && *d.Runway.Days < th.RunwayLowDays:
+	case d.Runway.raw != nil && *d.Runway.raw < th.RunwayLowDays:
 		return Advice{AdviceLowRunway, fmt.Sprintf("runway %s d (below %s d); balance %s", fmtDays(*d.Runway.Days), fmtDays(th.RunwayLowDays), cur)}
 	case balance != nil && low != nil && balance.Cmp(low) < 0:
 		return Advice{AdviceLowRunway, fmt.Sprintf("balance %s is below %s", cur, th.BalanceLow)}
 	}
 	note := ""
-	if balance == nil {
+	switch {
+	case balance == nil:
 		note = "; balance unknown (" + d.Runway.Reason + ")"
+	case row.Status != StatusOK && row.Reason != "":
+		note = "; last balance refresh failed (" + row.Reason + "), balance is the last good reading"
 	}
 	switch {
 	case d.Window == "":
@@ -395,7 +418,10 @@ func deepseekAdvice(d *DeepSeekSteering, balance *big.Rat, th Thresholds, row Ro
 }
 
 func cheaper(peakVsOffPeak *float64) string {
-	if peakVsOffPeak == nil || *peakVsOffPeak == 2 {
+	if peakVsOffPeak == nil {
+		return "cheaper; see the per-model rates"
+	}
+	if *peakVsOffPeak == 2 {
 		return "half price"
 	}
 	return "1/" + strconv.FormatFloat(*peakVsOffPeak, 'f', -1, 64) + " of the peak price"
@@ -421,14 +447,19 @@ func bindingLimit(k *KeyInfo) *SteerKey {
 	consider := func(limit, remaining *json.Number, basis, interval string, resets *time.Time) {
 		l, ok1 := numberValue(limit)
 		r, ok2 := numberValue(remaining)
-		if !ok1 || !ok2 || l <= 0 {
+		if !ok1 || !ok2 || l < 0 {
 			return
 		}
-		c := &SteerKey{RemainingUSD: r, LimitUSD: l, RemainingPct: round1(r / l * 100), LimitBasis: basis, ResetInterval: interval, ResetsAt: resets}
+		// A zero limit is an exhausted budget, not "no limit".
+		share := 0.0
+		if l > 0 && r > 0 {
+			share = r / l
+		}
+		c := &SteerKey{RemainingUSD: r, LimitUSD: l, RemainingPct: round1(share * 100), LimitBasis: basis, ResetInterval: interval, ResetsAt: resets, share: share}
 		if c.ResetsAt != nil {
 			c.ResetsAtBerlin = berlinString(*c.ResetsAt)
 		}
-		if best == nil || c.RemainingPct < best.RemainingPct {
+		if best == nil || c.share < best.share || (c.share == best.share && c.RemainingUSD < best.RemainingUSD) {
 			best = c
 		}
 	}
@@ -488,6 +519,10 @@ func openrouterSteering(in steerInputs) *OpenRouterSteering {
 	}
 	rankModels(o.Models)
 	row := in.openrouter
+	o.Status, o.StatusReason, o.Stale = row.Status, row.Reason, row.Stale
+	if o.Status == "" {
+		o.Status = StatusDisabled
+	}
 	if row.Status != StatusDisabled && row.Key != nil {
 		o.KeyID, o.FetchedAt = row.KeyID, row.FetchedAt
 		o.Key = bindingLimit(row.Key)
@@ -575,6 +610,11 @@ func openrouterRunway(row Row, key *SteerKey, now time.Time) Runway {
 		r.Reason = "no weekly usage reported"
 		return r
 	}
+	// usage_weekly is as of the reading, not now (a stale reading would
+	// otherwise spread one day's spend over more days).
+	if row.FetchedAt != nil {
+		now = *row.FetchedAt
+	}
 	now = now.UTC()
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	monday := day.AddDate(0, 0, -((int(day.Weekday()) + 6) % 7))
@@ -585,8 +625,9 @@ func openrouterRunway(row Row, key *SteerKey, now time.Time) Runway {
 		r.Reason = "no spend this week"
 		return r
 	}
-	days := round1(math.Max(key.RemainingUSD/avg, 0))
-	r.Days = &days
+	raw := math.Max(key.RemainingUSD/avg, 0)
+	days := round1(raw)
+	r.Days, r.raw = &days, &raw
 	return r
 }
 
@@ -600,8 +641,18 @@ func openrouterAdvice(o *OpenRouterSteering, row Row, th Thresholds) Advice {
 		}
 		return Advice{AdviceUnknown, why + "; treat the budget as tight"}
 	}
+	failed := ""
+	if row.Status != StatusOK && row.Reason != "" {
+		failed = "last refresh failed (" + row.Reason + "); "
+	}
 	k := o.Key
 	if k == nil {
+		if rem, ok := numberValue(row.Key.RemainingUSD); ok && rem <= 0 {
+			return Advice{AdviceStop, failed + fmt.Sprintf("$%.2f left", rem)}
+		}
+		if failed != "" {
+			return Advice{AdviceUnknown, failed + "key has no limit; treat the budget as tight"}
+		}
 		return Advice{AdviceOK, "key has no limit"}
 	}
 	left := fmt.Sprintf("$%.2f of $%.2f left", k.RemainingUSD, k.LimitUSD)
@@ -615,15 +666,20 @@ func openrouterAdvice(o *OpenRouterSteering, row Row, th Thresholds) Advice {
 	if c := o.Cheapest(); c != nil {
 		cheapest = "; use " + c.Model
 	}
+	// A failed refresh keeps the cautionary codes of the last reading but
+	// never says "ok" on it.
+	left = failed + left
 	switch {
 	case k.RemainingUSD <= 0:
 		return Advice{AdviceStop, left}
-	case o.Runway.Days != nil && *o.Runway.Days < th.RunwayLowDays:
+	case o.Runway.raw != nil && *o.Runway.raw < th.RunwayLowDays:
 		return Advice{AdviceLowRunway, fmt.Sprintf("runway %s d (below %s d); %s%s", fmtDays(*o.Runway.Days), fmtDays(th.RunwayLowDays), left, cheapest)}
-	case k.RemainingPct < th.KeyRemainingLowPct:
+	case k.share*100 < th.KeyRemainingLowPct:
 		return Advice{AdviceLowRunway, fmt.Sprintf("%s%% left (below %s%%); %s%s", fmtDays(k.RemainingPct), fmtDays(th.KeyRemainingLowPct), left, cheapest)}
-	case k.RemainingPct < PreferCheaperPct:
+	case k.share*100 < PreferCheaperPct:
 		return Advice{AdvicePreferCheaper, fmt.Sprintf("%s%% left (below %d%%); %s", fmtDays(k.RemainingPct), PreferCheaperPct, left)}
+	case failed != "":
+		return Advice{AdviceUnknown, left + "; treat the budget as tight"}
 	}
 	return Advice{AdviceOK, left}
 }

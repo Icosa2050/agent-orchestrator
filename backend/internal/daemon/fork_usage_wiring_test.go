@@ -29,9 +29,10 @@ type outboundRequest struct {
 // recordingTransport stands in for the network: it records every outbound
 // request and answers locally, the DeepSeek pricing page with the fixture.
 type recordingTransport struct {
-	mu   sync.Mutex
-	reqs []outboundRequest
-	page []byte
+	mu      sync.Mutex
+	reqs    []outboundRequest
+	page    []byte
+	listing []byte
 }
 
 func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -47,6 +48,9 @@ func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	status, body := http.StatusNotFound, []byte("not found")
 	if req.URL.Hostname() == "api-docs.deepseek.com" {
 		status, body = http.StatusOK, rt.page
+	}
+	if req.URL.Hostname() == "openrouter.ai" && req.URL.Path == "/api/v1/models" {
+		status, body = http.StatusOK, rt.listing
 	}
 	return &http.Response{
 		StatusCode: status, Status: http.StatusText(status), Header: http.Header{}, Request: req,
@@ -77,7 +81,14 @@ func installRecordingTransport(t *testing.T) *recordingTransport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt := &recordingTransport{page: page}
+	listing, err := os.ReadFile(filepath.Join("..", "forkusage", "providers", "testdata", "openrouter-models.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The steering block reads the PAL MCP config from the home directory;
+	// keep the developer's own out of these tests.
+	t.Setenv("HOME", t.TempDir())
+	rt := &recordingTransport{page: page, listing: listing}
 	saved := http.DefaultTransport
 	http.DefaultTransport = rt
 	t.Cleanup(func() { http.DefaultTransport = saved })
@@ -136,6 +147,10 @@ func TestForkDefaultOutboundHosts(t *testing.T) {
 	}
 	if st := usage.svc.Status(); st.LastCheckStatus != pricebook.OutcomeUnchanged {
 		t.Errorf("price check through the daemon wiring: %+v", st)
+	}
+	res := usage.providers.Status(context.Background(), false)
+	if o := res.Steering.OpenRouter; o.ListingStatus != "ok" || res.Steering.DeepSeek.AlsoVia == nil {
+		t.Errorf("model listing through the daemon wiring: %+v", o)
 	}
 }
 

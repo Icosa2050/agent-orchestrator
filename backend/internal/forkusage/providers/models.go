@@ -256,22 +256,33 @@ func readPALConfig(paths PALConfigPaths) PALConfig {
 		}
 		return cfg
 	}
+	// Decode only the pal server's two names: other servers and other env
+	// values may have any shape and are never kept.
 	var doc struct {
-		MCPServers map[string]struct {
-			Env map[string]string `json:"env"`
-		} `json:"mcpServers"`
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
 	}
 	if json.Unmarshal(data, &doc) != nil {
 		cfg.Reason = "PAL MCP config not readable"
 		return cfg
 	}
-	pal, ok := doc.MCPServers["pal"]
+	raw, ok := doc.MCPServers["pal"]
 	if !ok {
 		cfg.Reason = "no pal server in the MCP config"
 		return cfg
 	}
+	var server struct {
+		Env map[string]json.RawMessage `json:"env"`
+	}
+	_ = json.Unmarshal(raw, &server)
+	env := func(name string) string {
+		var v string
+		if r, ok := server.Env[name]; ok && json.Unmarshal(r, &v) == nil {
+			return v
+		}
+		return ""
+	}
 	seen := map[string]bool{}
-	for _, name := range strings.Split(pal.Env["OPENROUTER_ALLOWED_MODELS"], ",") {
+	for _, name := range strings.Split(env("OPENROUTER_ALLOWED_MODELS"), ",") {
 		name = strings.TrimSpace(name)
 		if name == "" || seen[name] || len(cfg.Allowed) >= 256 || (!modelIDPattern.MatchString(name) && !presetPattern.MatchString(name)) {
 			continue
@@ -282,7 +293,7 @@ func readPALConfig(paths PALConfigPaths) PALConfig {
 	if len(cfg.Allowed) == 0 {
 		cfg.Reason = "OPENROUTER_ALLOWED_MODELS is not set (PAL may call any model)"
 	}
-	if modelsPath := pal.Env["OPENROUTER_MODELS_CONFIG_PATH"]; modelsPath != "" {
+	if modelsPath := env("OPENROUTER_MODELS_CONFIG_PATH"); modelsPath != "" {
 		if strings.HasPrefix(modelsPath, "~/") && home != "" {
 			modelsPath = filepath.Join(home, modelsPath[2:])
 		}

@@ -67,8 +67,10 @@ func TestForkUsageSteeringProvidersSet(t *testing.T) {
 			t.Errorf("%v: exit %d %v", args, ExitCode(err), err)
 		}
 	}
-	if _, _, err := runForkProvidersCLI(t, daemon, "usage", "providers", "set", "balanceLow=-3"); err == nil || !strings.Contains(err.Error(), "balanceLow") {
-		t.Errorf("daemon-side validation: %v", err)
+	for _, arg := range []string{"balanceLow=-3", "keyRemainingLowPct=101", "runwayLowDays=-1"} {
+		if _, _, err := runForkProvidersCLI(t, daemon, "usage", "providers", "set", arg); ExitCode(err) != 2 {
+			t.Errorf("%s: exit %d %v", arg, ExitCode(err), err)
+		}
 	}
 	if _, _, err := runForkProvidersCLI(t, daemon, "usage", "providers", "set", "runwayLowDays=1", "--host", "studio"); err == nil ||
 		!strings.Contains(err.Error(), "cannot run against a remote host") {

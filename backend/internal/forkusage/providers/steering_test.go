@@ -3,6 +3,8 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aoagents/agent-orchestrator/backend/internal/forkusage/pricebook"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/requestscope"
 )
 
 var steerNow = time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC) // Wednesday, peak
@@ -376,6 +381,135 @@ func TestSteeringRuleTextNamesEveryAdviceCode(t *testing.T) {
 	for _, code := range AdviceCodes {
 		if !strings.Contains(string(data), "`"+code+"`") {
 			t.Errorf("docs/provider-usage.md does not name advice code %q", code)
+		}
+	}
+}
+
+// Thresholds compare unrounded values: 24.96 % is below 25 %, a 2.96-day
+// runway is below 3 days.
+func TestSteeringThresholdBoundariesUseUnroundedValues(t *testing.T) {
+	for _, tc := range []struct {
+		remaining, weekly, want string
+	}{
+		{"24.96", "0", AdviceLowRunway},
+		{"25", "0", AdvicePreferCheaper},
+		{"49.96", "0", AdvicePreferCheaper},
+		{"50", "0", AdviceOK},
+	} {
+		st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, openrouter: orRow("100", tc.remaining, tc.weekly)})
+		if got := st.OpenRouter.Advice.Code; got != tc.want {
+			t.Errorf("remaining %s: %s, want %s", tc.remaining, got, tc.want)
+		}
+	}
+	// Runway: 2.96 d (displayed 3) is low; 3.04 d (displayed 3) is not.
+	for _, tc := range []struct {
+		total string
+		want  string
+	}{{"29.60", AdviceLowRunway}, {"30.40", AdviceDeferNonurgent}} {
+		row := dsRow(tc.total, true)
+		total, _ := strconv.ParseFloat(tc.total, 64)
+		st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, window: peakWindow(), deepseek: row, samples: spendSamples(total, 10, 7)})
+		if got := st.DeepSeek.Advice.Code; got != tc.want || *st.DeepSeek.Runway.Days != 3 {
+			t.Errorf("balance %s: %s (runway %v), want %s", tc.total, got, *st.DeepSeek.Runway.Days, tc.want)
+		}
+	}
+}
+
+func TestSteeringOpenRouterExhaustedAndFailedReads(t *testing.T) {
+	// A zero limit is exhausted, not unlimited.
+	if st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, openrouter: orRow("0", "0", "1")}); st.OpenRouter.Advice.Code != AdviceStop {
+		t.Fatalf("zero limit: %+v", st.OpenRouter.Advice)
+	}
+	// No limit but nothing remaining.
+	if st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, openrouter: orRow("", "-0.5", "1")}); st.OpenRouter.Advice.Code != AdviceStop {
+		t.Fatalf("negative remaining without a limit: %+v", st.OpenRouter.Advice)
+	}
+	// An exhausted key limit beats a tiny positive budget share.
+	row := orRow("100", "0", "1")
+	l, r := json.Number("1000"), json.Number("0.25")
+	row.Key.Budget = &Budget{LimitUSD: &l, RemainingUSD: &r}
+	if st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, openrouter: row}); st.OpenRouter.Advice.Code != AdviceStop || st.OpenRouter.Key.LimitBasis != "key limit" {
+		t.Fatalf("binding exhausted key: %+v %+v", st.OpenRouter.Advice, st.OpenRouter.Key)
+	}
+	// A failed refresh after a good reading never says ok, and says why.
+	row = orRow("100", "73.2", "3.1")
+	row.Status, row.Reason, row.Stale = StatusUnavailable, ReasonInvalidKey, true
+	st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, openrouter: row})
+	if o := st.OpenRouter; o.Advice.Code != AdviceUnknown || !strings.Contains(o.Advice.Reason, "invalid key (401)") || !o.Stale || o.Status != StatusUnavailable {
+		t.Fatalf("stale ok reading: %+v", o)
+	}
+	// ...but keeps the cautionary codes of that reading.
+	row = orRow("100", "10", "1")
+	row.Status, row.Reason = StatusUnavailable, ReasonTimeout
+	if st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, openrouter: row}); st.OpenRouter.Advice.Code != AdviceLowRunway {
+		t.Fatalf("stale low reading: %+v", st.OpenRouter.Advice)
+	}
+	// The runway is anchored at the reading: a Monday reading read on
+	// Wednesday spreads Monday's spend over one day, not three.
+	row = orRow("100", "60", "20")
+	monday := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	row.FetchedAt = &monday
+	if st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, openrouter: row}); *st.OpenRouter.Runway.Days != 3 {
+		t.Fatalf("anchored runway %+v", st.OpenRouter.Runway)
+	}
+}
+
+func TestSteeringDeepSeekFailedRead(t *testing.T) {
+	row := Row{Provider: DeepSeek, Status: StatusUnavailable, Reason: ReasonInvalidKey}
+	st := buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, window: peakWindow(), deepseek: row})
+	d := st.DeepSeek
+	if d.Advice.Code != AdviceDeferNonurgent || !strings.Contains(d.Advice.Reason, "invalid key (401)") || d.Status != StatusUnavailable || d.Balance != nil {
+		t.Fatalf("failed read: %+v", d)
+	}
+	stale := dsRow("40.00", true)
+	stale.Status, stale.Reason, stale.Stale = StatusUnavailable, ReasonTimeout, true
+	st = buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, window: offPeakWindow(), deepseek: stale})
+	if d := st.DeepSeek; d.Advice.Code != AdviceOKOffPeak || !strings.Contains(d.Advice.Reason, "last balance refresh failed (timeout)") || !d.Balance.Stale {
+		t.Fatalf("stale balance: %+v", d)
+	}
+	// Non-uniform off-peak rates: no "half price" claim.
+	w := offPeakWindow()
+	w.PriceFactor, w.PeakVsOffPeak = "", ""
+	st = buildSteering(steerInputs{now: steerNow, th: DefaultThresholds, window: w, deepseek: Row{Provider: DeepSeek, Status: StatusDisabled}})
+	if d := st.DeepSeek; d.PriceFactor != nil || strings.Contains(d.Advice.Reason, "half price") {
+		t.Fatalf("non-uniform: %+v", d)
+	}
+}
+
+func TestReadPALConfigToleratesOtherShapes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claude.json")
+	doc := `{"mcpServers":{"other":{"env":{"PORT":8080}},"pal":{"env":{"DEBUG":true,"OPENROUTER_ALLOWED_MODELS":"x-ai/grok-4.6"}}}}`
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if pal := readPALConfig(PALConfigPaths{ClaudeJSON: path}); len(pal.Allowed) != 1 || pal.Allowed[0] != "x-ai/grok-4.6" {
+		t.Fatalf("%+v", pal)
+	}
+}
+
+func TestSettingsRouteRefusesLAN(t *testing.T) {
+	f := newFakeProviders(t)
+	svc := newTestService(t, f, staticKeys{}, &testClock{t: steerNow}, nil)
+	r := chi.NewRouter()
+	Routes(svc)(r)
+	req := httptest.NewRequest(http.MethodPost, SettingsPath, strings.NewReader(`{"modelsListing":false}`))
+	req = req.WithContext(requestscope.WithLAN(req.Context()))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if _, _, on := readSettings(svc.cfg.DataDir); rec.Code != http.StatusForbidden || !on {
+		t.Fatalf("LAN settings write: %d %s", rec.Code, rec.Body)
+	}
+	for body, want := range map[string]int{
+		`{"modelsListing":false}`: http.StatusOK,
+		`{"runwayLowDays":-1}`:    http.StatusBadRequest,
+		`{"bogus":1}`:             http.StatusBadRequest,
+		`{}`:                      http.StatusBadRequest,
+		`{"balanceLow":"2.50"}`:   http.StatusOK,
+	} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, SettingsPath, strings.NewReader(body)))
+		if rec.Code != want {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +51,7 @@ func TestForkUsageRoutesMountBesideUpstreamUsage(t *testing.T) {
 // The provider polling routes sit behind the same gate, answer with every
 // provider off by default, and refuse the opt-in write from the LAN listener.
 func TestForkUsageRoutesProvidersLocalOnlyWrite(t *testing.T) {
-	svc, err := providers.NewService(providers.Config{DataDir: t.TempDir()})
+	svc, err := providers.NewService(providers.Config{DataDir: t.TempDir(), PAL: providers.PALConfigPaths{ClaudeJSON: filepath.Join(t.TempDir(), "claude.json")}})
 	if err != nil {
 		t.Fatal(err)
 	}

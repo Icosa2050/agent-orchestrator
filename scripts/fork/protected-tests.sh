@@ -75,7 +75,7 @@ backend_tests='
 ./internal/httpd ^TestForkUsageRoutes 3
 ./internal/cli ^TestForkUsage 30
 ./internal/forkusage/reportext . 10
-./internal/forkusage/providers . 24
+./internal/forkusage/providers . 29
 ./internal/observe/usage ^TestForkUsageSeam 1
 ./internal/storage/sqlite/store ^TestForkUsageDeepSeekEvents 1
 ./internal/daemon ^TestForkUsageWiring 1

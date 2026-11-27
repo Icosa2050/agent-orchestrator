@@ -33,6 +33,9 @@ func newForkUsageProvidersSetCommand(ctx *commandContext) *cobra.Command {
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			set, err := parseForkSteeringSettings(args)
+			if err == nil {
+				err = set.Validate()
+			}
 			if err != nil {
 				return usageError{err}
 			}
@@ -121,7 +124,10 @@ func forkFleetSteering(hosts []fleetUsageHost) forkSteeringBlock {
 			}
 			if i, ok := dsIdx[d.KeyID]; ok {
 				seen := append(append([]string{}, out.DeepSeek[i].Hosts...), h.Name)
-				if newer(d.FetchedAt, out.DeepSeek[i].FetchedAt) {
+				// Same wallet: an entry with a runway beats one without (a host
+				// with sparse history), else the newest reading wins.
+				hasRunway, hadRunway := d.Runway.Days != nil, out.DeepSeek[i].Runway.Days != nil
+				if (hasRunway && !hadRunway) || (hasRunway == hadRunway && newer(d.FetchedAt, out.DeepSeek[i].FetchedAt)) {
 					out.DeepSeek[i] = d
 				}
 				out.DeepSeek[i].Hosts = seen
