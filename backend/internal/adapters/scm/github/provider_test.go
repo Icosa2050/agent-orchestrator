@@ -1665,6 +1665,7 @@ func TestSupersededCancelledRunIsNotACIFailure(t *testing.T) {
 	const (
 		draftRun = 19712345601
 		readyRun = 19712399902
+		laterRun = 19712455503
 		gateJob  = 56100000009
 	)
 	// The draft run, cancelled by the ready_for_review run of the same head.
@@ -1732,6 +1733,34 @@ func TestSupersededCancelledRunIsNotACIFailure(t *testing.T) {
 				pipelineCheckRun(readyRun, "FAILURE", "Quality Gate", "COMPLETED", "FAILURE", 56100000109),
 				pipelineCheckRun(draftRun, "CANCELLED", "Detect Changes", "COMPLETED", "CANCELLED", 56100000501),
 				pipelineCheckRun(draftRun, "CANCELLED", "Quality Gate", "COMPLETED", "FAILURE", 56100000509),
+			},
+			wantGate:   domain.PRCheckFailed,
+			wantCI:     domain.CIFailing,
+			wantFailed: []string{"Quality Gate"},
+		},
+		{
+			// A failed run, then a cancelled run of the same head (higher
+			// check IDs), then a replacement showing only its classifier. The
+			// failure the cancelled run displaced must not come back.
+			name: "older failed run does not displace a later superseded run",
+			nodes: []any{
+				pipelineCheckRun(draftRun, "FAILURE", "Unit Tests", "COMPLETED", "FAILURE", 56100000003),
+				pipelineCheckRun(draftRun, "FAILURE", "Quality Gate", "COMPLETED", "FAILURE", gateJob),
+				pipelineCheckRun(readyRun, "CANCELLED", "Unit Tests", "COMPLETED", "CANCELLED", 56100000103),
+				pipelineCheckRun(readyRun, "CANCELLED", "Quality Gate", "COMPLETED", "FAILURE", 56100000109),
+				pipelineCheckRun(laterRun, "", "Detect Changes", "IN_PROGRESS", "", 56100000201),
+			},
+			wantGate: domain.PRCheckCancelled,
+			wantCI:   domain.CIPending,
+		},
+		{
+			// Both older runs are superseded; the oldest was rerun last. The
+			// middle run's timeout still decides that job.
+			name: "rerun of the oldest superseded run does not hide a newer timeout",
+			nodes: []any{
+				pipelineCheckRun(readyRun, "CANCELLED", "Quality Gate", "COMPLETED", "TIMED_OUT", 56100000109),
+				pipelineCheckRun(draftRun, "CANCELLED", "Quality Gate", "COMPLETED", "FAILURE", 56100000509),
+				pipelineCheckRun(laterRun, "", "Detect Changes", "IN_PROGRESS", "", 56100000201),
 			},
 			wantGate:   domain.PRCheckFailed,
 			wantCI:     domain.CIFailing,
