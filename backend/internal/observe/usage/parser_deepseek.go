@@ -51,6 +51,10 @@ type deepseekReplyRecord struct {
 	Provider  string          `json:"provider"`
 	Model     string          `json:"model"`
 	Usage     json.RawMessage `json:"usage"`
+	// RequestStartedAt is the time (Unix ms) of the last request/context
+	// frame before the reply. Fork: usage seam (FORK.md): the fork price book
+	// prices requests spanning a peak/off-peak boundary by request start.
+	RequestStartedAt int64 `json:"request_started_at,omitempty"`
 }
 
 type deepseekUsage struct {
@@ -84,6 +88,7 @@ func readDeepSeekReplies(ctx context.Context, path, nativeSessionID string, afte
 	reader := bufio.NewReaderSize(io.LimitReader(decoder, maxDeepSeekDecodedBytes), 64<<10)
 
 	var records []jsonlRecord
+	var requestStartedAt int64 // Fork: usage seam (FORK.md)
 	for lineIndex := 0; ; lineIndex++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -105,6 +110,14 @@ func readDeepSeekReplies(ctx context.Context, path, nativeSessionID string, afte
 			}
 			continue
 		}
+		if record.Type == "request/context" { // Fork: usage seam (FORK.md)
+			requestStartedAt = record.Time
+			continue
+		}
+		startedAt := int64(0)
+		if record.Type == "assistant/message" { // a reply never inherits an earlier request's start
+			startedAt, requestStartedAt = requestStartedAt, 0
+		}
 		if record.Type != "assistant/message" || record.Seq <= after || len(record.Data.Usage) == 0 {
 			continue
 		}
@@ -112,6 +125,7 @@ func readDeepSeekReplies(ctx context.Context, path, nativeSessionID string, afte
 			Seq: record.Seq, Time: record.Time, Turn: record.Data.Turn, Step: record.Data.Step,
 			MessageID: record.Data.Message.ID, Provider: record.Data.Message.Source.Provider,
 			Model: record.Data.Message.Source.Model, Usage: record.Data.Usage,
+			RequestStartedAt: startedAt,
 		})
 		if err != nil {
 			return nil, err
@@ -165,10 +179,15 @@ func parseDeepSeek(source domain.UsageSourceContext, records []jsonlRecord, resu
 			recordMalformed(result)
 			continue
 		}
-		providerUsage, _ := json.Marshal(map[string]int64{
+		usageFields := map[string]any{
 			"inputTokens": *usage.InputTokens, "outputTokens": *usage.OutputTokens,
 			"cacheReadTokens": usage.CacheReadTokens, derivedCacheWriteKey: usage.CacheWriteTokens,
-		})
+		}
+		// Fork: usage seam (FORK.md): request start, read by forkusage/reportext.
+		if reply.RequestStartedAt > 0 && reply.RequestStartedAt <= reply.Time {
+			usageFields["requestStartedAt"] = time.UnixMilli(reply.RequestStartedAt).UTC().Format(time.RFC3339Nano)
+		}
+		providerUsage, _ := json.Marshal(usageFields)
 		billingProvider := canonicalBillingProvider(reply.Provider)
 		messageKey := reply.MessageID
 		if strings.TrimSpace(messageKey) == "" {

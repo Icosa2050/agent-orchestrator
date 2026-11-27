@@ -55,7 +55,14 @@ var (
 // Price prices one event at read time. Unknown routes and models, and events
 // before the first evidenced version, are reported with their status and no
 // cost; they are never guessed.
-func (b *Book) Price(u Usage) (Priced, error) {
+func (b *Book) Price(u Usage) (Priced, error) { return b.price(u, false) }
+
+// PriceAtPeak prices u with the peak list rates of the version in effect at
+// u.At, whatever the window: the cost a peak-only price table would show.
+// Status, model resolution and rounding are the same as Price.
+func (b *Book) PriceAtPeak(u Usage) (Priced, error) { return b.price(u, true) }
+
+func (b *Book) price(u Usage, atPeak bool) (Priced, error) {
 	p := Priced{Model: u.Model}
 	if u.CacheHitTokens < 0 || u.CacheMissTokens < 0 || u.OutputTokens < 0 {
 		return p, errNegativeTokens
@@ -84,6 +91,8 @@ func (b *Book) Price(u Usage) (Priced, error) {
 	if s.peak {
 		rates, p.Window = m.peak, WindowPeak
 		p.HolidayYearMissing = s.yearMissing
+	} else if atPeak {
+		rates = m.peak
 	}
 	p.Status, p.BilledAs, p.Version = StatusPriced, billed, v.Version.Version
 	var err error

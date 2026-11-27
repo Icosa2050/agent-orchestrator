@@ -1351,8 +1351,14 @@ func int64PtrWhen(v int64, ok bool) *int64 {
 
 // ListUsageReportEvents reads every timestamped usage event in [since, until).
 func (s *Store) ListUsageReportEvents(ctx context.Context, since, until time.Time) ([]domain.UsageReportEvent, error) {
+	return s.listUsageReportEvents(ctx, s.qr, since, until)
+}
+
+// listUsageReportEvents runs ListUsageReportEvents on q. Fork: usage seam
+// (FORK.md): the fork report snapshot runs it inside a read transaction.
+func (s *Store) listUsageReportEvents(ctx context.Context, q *gen.Queries, since, until time.Time) ([]domain.UsageReportEvent, error) {
 	const layout = "2006-01-02 15:04:05"
-	rows, err := s.qr.ListUsageReportEvents(ctx, gen.ListUsageReportEventsParams{
+	rows, err := q.ListUsageReportEvents(ctx, gen.ListUsageReportEventsParams{
 		SinceUtc: since.UTC().Format(layout),
 		UntilUtc: until.UTC().Format(layout),
 	})

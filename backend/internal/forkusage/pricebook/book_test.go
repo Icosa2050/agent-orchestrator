@@ -308,6 +308,10 @@ func TestPriceMath(t *testing.T) {
 	if off.Window != WindowOffPeak || off.TotalNanos*2 != peak.TotalNanos {
 		t.Errorf("off-peak is not half: %+v vs %+v", off, peak)
 	}
+	// PriceAtPeak charges the peak list rates off-peak and keeps the window.
+	if list, err := b.PriceAtPeak(u); err != nil || list.TotalNanos != peak.TotalNanos || list.Window != WindowOffPeak {
+		t.Errorf("PriceAtPeak off-peak = %+v, %v; want peak total %d", list, err, peak.TotalNanos)
+	}
 	for _, at := range []string{"2026-11-24T02:00:00Z", "2026-11-24T12:00:00Z"} {
 		rates, ok := b.Rates(ts(t, at))
 		if !ok {
